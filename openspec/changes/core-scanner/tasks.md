@@ -30,35 +30,35 @@ Orden de dependencia entre grupos:
 ## 1. Scaffold
 
 ### 1.1 Inicializar proyecto Vite + React 18 + TS strict
-- [ ] 1.1.1 Crear proyecto con `vite` (template `react-ts`), configurar `tsconfig.json` con `strict: true` y sin `any` permitido (lint rule `@typescript-eslint/no-explicit-any` si se agrega ESLint).
+- [x] 1.1.1 Crear proyecto con `vite` (template `react-ts`), configurar `tsconfig.json` con `strict: true` y sin `any` permitido (lint rule `@typescript-eslint/no-explicit-any` si se agrega ESLint).
   Ref: proposal §4.2 (deps dev), design §11 (restricciones: TS strict, sin any)
-- [ ] 1.1.2 Configurar `vite.config.ts` con soporte Vitest (`test` block) y alias de imports (`@/` → `src/`).
+- [x] 1.1.2 Configurar `vite.config.ts` con soporte Vitest (`test` block) y alias de imports (`@/` → `src/`).
   Ref: proposal §2.1 (harness de testing), §4.1 (estructura)
-- [ ] 1.1.3 Crear estructura de carpetas feature-sliced vacia: `src/app/`, `src/styles/`, `src/features/scanner/{worker,hooks,components,lib,store}`, `src/shared/{ui,lib,types}`, `src/editor/`, `tests/{unit,e2e}`, `public/fonts/`.
+- [x] 1.1.3 Crear estructura de carpetas feature-sliced vacia: `src/app/`, `src/styles/`, `src/features/scanner/{worker,hooks,components,lib,store}`, `src/shared/{ui,lib,types}`, `src/editor/`, `tests/{unit,e2e}`, `public/fonts/`.
   Ref: proposal §4.1 (estructura de archivos)
 
 ### 1.2 Tailwind + design tokens
-- [ ] 1.2.1 Instalar y configurar Tailwind (`tailwind.config.ts`, `postcss.config.js`), purga apuntando a `src/**/*.{ts,tsx}`.
+- [x] 1.2.1 Instalar y configurar Tailwind (`tailwind.config.ts`, `postcss.config.js`), purga apuntando a `src/**/*.{ts,tsx}`.
   Ref: proposal §4.2, §4.3 (presupuesto < 200KB gzip)
-- [ ] 1.2.2 Crear `src/styles/tokens.css` con las CSS variables de la seccion 1.2 del prompt maestro (colores primary/primary-light, etc.) e importarlo en `main.tsx`.
+- [x] 1.2.2 Crear `src/styles/tokens.css` con las CSS variables de la seccion 1.2 del prompt maestro (colores primary/primary-light, etc.) e importarlo en `main.tsx`.
   Ref: proposal §4.1 (`styles/tokens.css`)
-- [ ] 1.2.3 Self-hostear fuente Inter (subset latin) en `public/fonts/` y referenciarla via `@font-face` en `tokens.css`.
+- [x] 1.2.3 Self-hostear fuente Inter (subset latin) en `public/fonts/` y referenciarla via `@font-face` en `tokens.css`.
   Ref: proposal §4.1 (`public/fonts/`)
 
 ### 1.3 Estado global (Zustand) — scaffold vacio
-- [ ] 1.3.1 Crear `src/features/scanner/store/scannerStore.ts` con las 4 slices tipadas (`CameraSlice`, `DetectionSlice`, `CaptureSlice`, `OpenCvSlice`) segun design §5.1, con valores iniciales pero SIN actions implementadas todavia (se completan en grupos 2-5).
+- [x] 1.3.1 Crear `src/features/scanner/store/scannerStore.ts` con las 4 slices tipadas (`CameraSlice`, `DetectionSlice`, `CaptureSlice`, `OpenCvSlice`) segun design §5.1, con valores iniciales pero SIN actions implementadas todavia (se completan en grupos 2-5).
   Ref: design §5.1, §5.2 (forma del store, `CapturedFrame`, `EditRecipe`)
 
 ### 1.4 App shell minimo + iconografia
-- [ ] 1.4.1 Crear `src/app/App.tsx` con layout base y ruta unica al escaner (sin router — Fase 1 es una sola pantalla).
+- [x] 1.4.1 Crear `src/app/App.tsx` con layout base y ruta unica al escaner (sin router — Fase 1 es una sola pantalla).
   Ref: proposal §4.1 (`app/App.tsx`)
-- [ ] 1.4.2 Instalar `lucide-react`; crear componentes UI base minimos en `src/shared/ui/` (Button, Sheet/Modal, Toast) usando los tokens de 1.2.2.
+- [x] 1.4.2 Instalar `lucide-react`; crear componentes UI base minimos en `src/shared/ui/` (Button, Sheet/Modal, Toast) usando los tokens de 1.2.2.
   Ref: proposal §4.2 (dev deps: lucide-react)
 
 ### 1.5 Harness de testing
-- [ ] 1.5.1 Configurar Vitest (`@testing-library/react`, `jsdom` o `happy-dom`) con un test trivial (`sanity.test.ts`) que corra en CI/local.
+- [x] 1.5.1 Configurar Vitest (`@testing-library/react`, `jsdom` o `happy-dom`) con un test trivial (`sanity.test.ts`) que corra en CI/local.
   Ref: proposal §2.1 (in scope: harness listo), spec scanner (restriccion transversal TS strict)
-- [ ] 1.5.2 Configurar Playwright (`playwright.config.ts`) con un test E2E trivial (carga la app y verifica que renderiza) — sin fixture de imagen todavia (eso va en grupo 7).
+- [x] 1.5.2 Configurar Playwright (`playwright.config.ts`) con un test E2E trivial (carga la app y verifica que renderiza) — sin fixture de imagen todavia (eso va en grupo 7).
   Ref: proposal §2.1 (harness Vitest + Playwright configurados, sin suite completa aun)
 
 ---

@@ -13,7 +13,7 @@ phases:
   spec:     { status: done, artifact: specs/ }
   design:   { status: done, artifact: design.md }
   tasks:    { status: done, artifact: tasks.md }
-  apply:    { status: pending, artifact: tasks.md }
+  apply:    { status: in_progress, artifact: tasks.md, current_slice: A-scaffold }
   verify:   { status: pending, artifact: verify-report.md }
   archive:  { status: pending }
 
