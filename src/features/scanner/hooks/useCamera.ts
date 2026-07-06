@@ -54,6 +54,23 @@ function getActiveTrack(stream: MediaStream | null): MediaStreamTrack | null {
 export function useCamera(): UseCameraResult {
   const streamRef = useRef<MediaStream | null>(null);
 
+  /**
+   * Mounted guard (C1 fix). If the component unmounts while `getUserMedia`
+   * is still pending, the promise resolves after cleanup has already run —
+   * without this guard the resolved stream would be assigned to
+   * `streamRef.current` and never stopped, leaking the camera indicator.
+   */
+  const mountedRef = useRef(true);
+
+  /**
+   * Generation token (C2/H1 fix). Incremented at the start of every
+   * `openCamera` call. If a newer call starts before an older one's
+   * `getUserMedia` resolves (StrictMode double-invoke, or a fast
+   * `switchCamera`), the stale call recognizes it is no longer current and
+   * stops its own stream instead of racing to assign `streamRef.current`.
+   */
+  const generationRef = useRef(0);
+
   const setStream = useScannerStore((s) => s.setStream);
   const setDevices = useScannerStore((s) => s.setDevices);
   const setActiveDeviceId = useScannerStore((s) => s.setActiveDeviceId);
@@ -96,6 +113,16 @@ export function useCamera(): UseCameraResult {
 
   const openCamera = useCallback(
     async (deviceId?: string) => {
+      // Claim this call's generation and stop whatever stream is currently
+      // held BEFORE requesting a new one (C2/H1 fix). Serializing on the
+      // token means that when several opens race (StrictMode double-mount,
+      // rapid switchCamera), only the most recent one is allowed to win;
+      // every earlier resolution below detects it has been superseded and
+      // stops its own stream instead of leaking it.
+      const myGeneration = ++generationRef.current;
+      stopStream(streamRef.current);
+      streamRef.current = null;
+
       setCaptureCapabilities({
         imageCaptureSupported: detectImageCaptureSupport(),
         offscreenSupported: detectOffscreenCanvasSupport(),
@@ -107,7 +134,15 @@ export function useCamera(): UseCameraResult {
 
       try {
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        stopStream(streamRef.current);
+
+        // Superseded by a newer openCamera/switchCamera call, or the
+        // component unmounted while this was pending: discard this stream
+        // without ever assigning it, so it can't be an orphaned leak.
+        if (myGeneration !== generationRef.current || !mountedRef.current) {
+          stopStream(stream);
+          return;
+        }
+
         streamRef.current = stream;
         setStream(stream);
         setPermission('granted');
@@ -120,6 +155,13 @@ export function useCamera(): UseCameraResult {
 
         await refreshDeviceList();
       } catch (error) {
+        if (myGeneration !== generationRef.current || !mountedRef.current) {
+          // A superseded/unmounted call failing is not this call's problem
+          // to report — the winning call (or nothing, post-unmount) owns
+          // the visible state.
+          return;
+        }
+
         if (error instanceof DOMException && error.name === 'NotAllowedError') {
           setPermission('denied');
           return;
@@ -201,6 +243,15 @@ export function useCamera(): UseCameraResult {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [openCamera]);
+
+  // Mounted guard (C1 fix): flips false on unmount so any getUserMedia
+  // promise still pending at that point knows not to assign its stream.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // Stop tracks on unmount so the camera indicator turns off when leaving
   // the scanner screen entirely (design section 7, MediaStream row).
