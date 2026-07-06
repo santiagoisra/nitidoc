@@ -14,8 +14,15 @@ import type { CapturedFrame, EditRecipe } from '@/shared/types/scanner';
  * SCOPE NOTE (Group 3 / Slice C): camera-owning actions are implemented here
  * (setStream, setDevices, setActiveDeviceId, setRealResolution,
  * setTorchSupported, setTorchOn, setPermission, setCaptureCapabilities,
- * resetCamera). Detection/capture/OpenCV actions remain deferred to their
- * owning groups (4/5/2 respectively).
+ * resetCamera).
+ *
+ * SCOPE NOTE (Group 4 / Slice D): detection-owning actions are implemented
+ * here (setCorners, setQuality, setStability, setCountdown,
+ * toggleAutoCapture, setNoDetectionSince) plus the minimal capture-phase
+ * actions the capture sequence needs to hand a frame off to the (not yet
+ * built) corner editor (setOriginalFrame, setPhase). OpenCV actions remain
+ * deferred to Group 2 (already implemented as part of Slice B) and the full
+ * warp/recipe capture actions remain deferred to Group 5.
  */
 
 export type CameraPermission = 'idle' | 'prompt' | 'granted' | 'denied';
@@ -81,6 +88,28 @@ export interface OpenCvSlice {
   readonly opencv: OpenCvState;
 }
 
+export interface DetectionActions {
+  /** Writes both the interpolated and raw corners from the latest DETECT result (design section 5.1). */
+  readonly setCorners: (interpolated: Quad | null, raw: Quad | null) => void;
+  readonly setQuality: (quality: QualityMetrics | null) => void;
+  /** 0..1, where 1 means fully stable (task 4.3.1 stability buffer). */
+  readonly setStability: (stability: number) => void;
+  readonly setCountdown: (countdown: 0 | 1 | 2 | 3) => void;
+  readonly setAutoCaptureEnabled: (enabled: boolean) => void;
+  /** Timestamp (ms) since detection last failed to produce corners, or null when currently detecting. */
+  readonly setNoDetectionSince: (timestamp: number | null) => void;
+  /** Resets the detection slice to its initial values (e.g. on unmount / camera close). */
+  readonly resetDetection: () => void;
+}
+
+export interface CaptureActions {
+  /** Stores the immutable full-res captured frame and moves the phase to 'editing-corners'. */
+  readonly setOriginalFrame: (frame: CapturedFrame) => void;
+  readonly setPhase: (phase: CapturePhase) => void;
+  /** Resets the capture slice. Does NOT close any retained ImageBitmap — callers own that (design section 7). */
+  readonly resetCaptureSlice: () => void;
+}
+
 export interface CameraActions {
   /** Replaces the active MediaStream (does NOT stop the previous one — callers own that). */
   readonly setStream: (stream: MediaStream | null) => void;
@@ -99,7 +128,13 @@ export interface CameraActions {
   readonly resetCamera: () => void;
 }
 
-export type ScannerStore = CameraSlice & DetectionSlice & CaptureSlice & OpenCvSlice & CameraActions;
+export type ScannerStore = CameraSlice &
+  DetectionSlice &
+  CaptureSlice &
+  OpenCvSlice &
+  CameraActions &
+  DetectionActions &
+  CaptureActions;
 
 const initialCameraSlice: CameraSlice = {
   stream: null,
@@ -170,4 +205,16 @@ export const useScannerStore = create<ScannerStore>((set) => ({
     set({ imageCaptureSupported, offscreenSupported }),
   setLastCameraError: (lastCameraError) => set({ lastCameraError }),
   resetCamera: () => set({ ...initialCameraSlice }),
+
+  setCorners: (corners, rawCorners) => set({ corners, rawCorners }),
+  setQuality: (quality) => set({ quality }),
+  setStability: (stability) => set({ stability }),
+  setCountdown: (countdown) => set({ countdown }),
+  setAutoCaptureEnabled: (autoCaptureEnabled) => set({ autoCaptureEnabled }),
+  setNoDetectionSince: (noDetectionSince) => set({ noDetectionSince }),
+  resetDetection: () => set({ ...initialDetectionSlice }),
+
+  setOriginalFrame: (originalFrame) => set({ originalFrame, phase: 'editing-corners' }),
+  setPhase: (phase) => set({ phase }),
+  resetCaptureSlice: () => set({ ...initialCaptureSlice }),
 }));
