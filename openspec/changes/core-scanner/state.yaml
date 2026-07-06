@@ -22,7 +22,7 @@ phases:
       B-worker:   { status: done, group: 2, also: [7.1], branch: feat/scanner-worker, verified: true, review: passed, fixes: [C1, C2, H1, L2], tests: 25 }
       C-camera:   { status: done, group: 3, branch: feat/scanner-camera, verified: true, review: passed, fixes: [C1, C2, H1, M1, M3, H2], tests: 40 }
       D-detection:{ status: done, group: 4, branch: feat/scanner-detection, verified: true, review: passed, fixes: [C1, C2, H1, H2, M2, M4, M1], tests: 70 }
-      E-editor:   { status: in_progress, group: 5, branch: feat/scanner-editor }
+      E-editor:   { status: done, group: 5, branch: feat/scanner-editor, verified: true, review: pending, tests: 96 }
       F-edgecases:{ status: pending, groups: [6, 7] }
   verify:   { status: pending, artifact: verify-report.md }
   archive:  { status: pending }
