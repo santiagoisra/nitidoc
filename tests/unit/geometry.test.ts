@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { inferAspectRatio, isConvex, orderCorners, outputSize } from '@/features/scanner/lib/geometry';
+import {
+  inferAspectRatio,
+  isConvex,
+  layoutSizeForRotation,
+  orderCorners,
+  outputSize,
+} from '@/features/scanner/lib/geometry';
 import type { Point, Quad } from '@/shared/types/geometry';
 
 function quad(points: readonly [Point, Point, Point, Point]): Quad {
@@ -355,5 +361,35 @@ describe('outputSize (bug M1 review)', () => {
     const { outW, outH } = outputSize(q, 'unknown');
     expect(outW).toBe(100);
     expect(outH).toBe(150);
+  });
+});
+
+describe('layoutSizeForRotation (Slice E review fix H3 — rotation-aware preview box)', () => {
+  it('keeps the box unchanged at 0 degrees', () => {
+    expect(layoutSizeForRotation(700, 990, 0)).toEqual({ outW: 700, outH: 990 });
+  });
+
+  it('swaps width and height at 90 degrees', () => {
+    expect(layoutSizeForRotation(700, 990, 90)).toEqual({ outW: 990, outH: 700 });
+  });
+
+  it('keeps the box unchanged at 180 degrees', () => {
+    expect(layoutSizeForRotation(700, 990, 180)).toEqual({ outW: 700, outH: 990 });
+  });
+
+  it('swaps width and height at 270 degrees', () => {
+    expect(layoutSizeForRotation(700, 990, 270)).toEqual({ outW: 990, outH: 700 });
+  });
+
+  it('is an involution on width/height across a full 0->90->180->270->0 cycle', () => {
+    // Two swaps (90 then another 90 == 180) cancel out; the identity dims are
+    // recovered at 0 and 180.
+    const base = { w: 700, h: 990 };
+    expect(layoutSizeForRotation(base.w, base.h, 0)).toEqual({ outW: 700, outH: 990 });
+    expect(layoutSizeForRotation(base.w, base.h, 180)).toEqual({ outW: 700, outH: 990 });
+    // 90 and 270 both produce the swapped box.
+    expect(layoutSizeForRotation(base.w, base.h, 90)).toEqual(
+      layoutSizeForRotation(base.w, base.h, 270),
+    );
   });
 });
