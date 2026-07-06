@@ -68,57 +68,57 @@ Orden de dependencia entre grupos:
 > Depende de: grupo 1 (scaffold, tsconfig, estructura `features/scanner/worker/`).
 
 ### 2.1 Contrato de mensajes tipado
-- [ ] 2.1.1 Crear `src/features/scanner/worker/messages.ts` con todos los tipos del design §1.1: `Point`, `Quad`, `QualityMetrics`, `AspectRatioName`, `AspectRatio`, `InitRequest`, `DetectRequest`, `WarpRequest`, `ImageDataLike`, `WorkerRequest`, `ProgressEvent`, `InitDoneResponse`, `DetectResponse`, `WarpResponse`, `ErrorResponse`, `WorkerErrorCode`, `WorkerResponse`.
+- [x] 2.1.1 Crear `src/features/scanner/worker/messages.ts` con todos los tipos del design §1.1: `Point`, `Quad`, `QualityMetrics`, `AspectRatioName`, `AspectRatio`, `InitRequest`, `DetectRequest`, `WarpRequest`, `ImageDataLike`, `WorkerRequest`, `ProgressEvent`, `InitDoneResponse`, `DetectResponse`, `WarpResponse`, `ErrorResponse`, `WorkerErrorCode`, `WorkerResponse`.
   Ref: design §1.1 (messages.ts completo); CAP-9, CAP-2, CAP-7
-- [ ] 2.1.2 Agregar al mismo archivo la variante `WarpResponseImageData` para el camino sin `OffscreenCanvas` (design §8) y extender `WorkerResponse` para incluirla.
+- [x] 2.1.2 Agregar al mismo archivo la variante `WarpResponseImageData` para el camino sin `OffscreenCanvas` (design §8) y extender `WorkerResponse` para incluirla.
   Ref: design §8 (matriz de fallback, "Adicion a messages.ts")
 
 ### 2.2 Geometria pura (DOM-free, testeable en Node)
-- [ ] 2.2.1 Implementar `src/features/scanner/lib/geometry.ts` — `isConvex(quad: Quad): boolean` segun el algoritmo de productos cruzados de design §6.2.
+- [x] 2.2.1 Implementar `src/features/scanner/lib/geometry.ts` — `isConvex(quad: Quad): boolean` segun el algoritmo de productos cruzados de design §6.2.
   Ref: design §6.2 (isConvex); perspective spec "Cuadrilatero no convexo bloquea confirmacion"
-- [ ] 2.2.2 Implementar `orderCorners(points: Point[]): Quad` con normalizacion por centroide + angulo dominante (design §6.1). **Valor de partida a calibrar empiricamente (R5) — no fijar como comportamiento final**, incluir el desempate por heuristico de sumas para cuadrados casi-perfectos.
+- [x] 2.2.2 Implementar `orderCorners(points: Point[]): Quad` con normalizacion por centroide + angulo dominante (design §6.1). **Valor de partida a calibrar empiricamente (R5) — no fijar como comportamiento final**, incluir el desempate por heuristico de sumas para cuadrados casi-perfectos.
   Ref: design §6.1 (orderCorners); perspective spec "Documento con orientacion rotada..."; design §11 (R5 verificacion empirica)
-- [ ] 2.2.3 Implementar `inferAspectRatio(quad: Quad): AspectRatio` con tabla de ratios A4/carta + deteccion de ticket por umbral de alargamiento, tolerancia `ASPECT_TOLERANCE = 0.06` (valor de partida).
+- [x] 2.2.3 Implementar `inferAspectRatio(quad: Quad): AspectRatio` con tabla de ratios A4/carta + deteccion de ticket por umbral de alargamiento, tolerancia `ASPECT_TOLERANCE = 0.06` (valor de partida).
   Ref: design §6.3 (inferAspectRatio); perspective spec "Warp exitoso con aspect ratio inferido"
-- [ ] 2.2.4 Implementar `outputSize(corners: Quad, aspect: AspectRatioName)` para calcular dimensiones de salida del warp segun design §6.4.
+- [x] 2.2.4 Implementar `outputSize(corners: Quad, aspect: AspectRatioName)` para calcular dimensiones de salida del warp segun design §6.4.
   Ref: design §6.4 (outputSize); perspective spec "Correccion de perspectiva (warp)"
-- [ ] 2.2.5 Crear modulo de constantes calibrables `DETECTION` (design §6.4: `DOWNSCALE_WIDTH`, `BLUR_THRESHOLD`, `DARK_THRESHOLD`, `STABILITY_MS`, `STABILITY_VARIANCE_PX`, `INTERP_ALPHA`, `NO_DETECTION_MS`, `ASPECT_TOLERANCE`, `MAX_CAPTURE_PIXELS`), documentando en comentario cuales son "valor de partida, calibrar en dispositivo real" (BLUR_THRESHOLD, DARK_THRESHOLD, STABILITY_MS, STABILITY_VARIANCE_PX).
+- [x] 2.2.5 Crear modulo de constantes calibrables `DETECTION` (design §6.4: `DOWNSCALE_WIDTH`, `BLUR_THRESHOLD`, `DARK_THRESHOLD`, `STABILITY_MS`, `STABILITY_VARIANCE_PX`, `INTERP_ALPHA`, `NO_DETECTION_MS`, `ASPECT_TOLERANCE`, `MAX_CAPTURE_PIXELS`), documentando en comentario cuales son "valor de partida, calibrar en dispositivo real" (BLUR_THRESHOLD, DARK_THRESHOLD, STABILITY_MS, STABILITY_VARIANCE_PX).
   Ref: design §6.4 (tabla DETECTION); design §11 (R1, umbral de estabilidad)
 
 ### 2.3 Carga lazy de OpenCV.js
-- [ ] 2.3.1 Implementar `src/features/scanner/lib/opencvLoader.ts`: `import()` dinamico del prebuilt oficial single-thread de OpenCV.js (ADR-001), NUNCA importado desde el bundle inicial.
+- [x] 2.3.1 Implementar `src/features/scanner/lib/opencvLoader.ts`: `import()` dinamico del prebuilt oficial single-thread de OpenCV.js (ADR-001), NUNCA importado desde el bundle inicial.
   Ref: design §3 (ADR-001); scanner spec "Carga lazy de OpenCV.js"
-- [ ] 2.3.2 Implementar reporte de progreso: camino con `fetch` + `ReadableStream` + `Content-Length` (progreso real) y camino indeterminado si no hay `Content-Length` (design §4.3), exponiendo callback `onProgress`.
+- [x] 2.3.2 Implementar reporte de progreso: camino con `fetch` + `ReadableStream` + `Content-Length` (progreso real) y camino indeterminado si no hay `Content-Length` (design §4.3), exponiendo callback `onProgress`.
   Ref: design §4.3; scanner spec "Carga exitosa de OpenCV al entrar al escaner"
-- [ ] 2.3.3 Implementar maquina de estados `idle → loading → ready`/`error` con backoff exponencial acotado (1s/2s/4s, max 3 reintentos automaticos, luego solo manual) segun design §4.1/§4.4.
+- [x] 2.3.3 Implementar maquina de estados `idle → loading → ready`/`error` con backoff exponencial acotado (1s/2s/4s, max 3 reintentos automaticos, luego solo manual) segun design §4.1/§4.4.
   Ref: design §4.1, §4.4; scanner spec "Fallo de carga de OpenCV.js"
 
 ### 2.4 `WorkerClient` (RPC)
-- [ ] 2.4.1 Implementar `src/features/scanner/lib/workerClient.ts` con la interfaz de design §1.3 (`init`, `detect`, `warp`, `terminate`), protocolo request/response con `id` de correlacion y `Map<number, {resolve, reject}>`.
+- [x] 2.4.1 Implementar `src/features/scanner/lib/workerClient.ts` con la interfaz de design §1.3 (`init`, `detect`, `warp`, `terminate`), protocolo request/response con `id` de correlacion y `Map<number, {resolve, reject}>`.
   Ref: design §1.3 (WorkerClient); design §9 ADR-002
-- [ ] 2.4.2 Implementar backpressure drop-latest en `detect()`: si hay un DETECT en vuelo, el llamador debe poder consultar `isBusy()` (o metodo equivalente) para descartar el frame nuevo sin encolar.
+- [x] 2.4.2 Implementar backpressure drop-latest en `detect()`: si hay un DETECT en vuelo, el llamador debe poder consultar `isBusy()` (o metodo equivalente) para descartar el frame nuevo sin encolar.
   Ref: design §2.1 (loop, drop-latest); design §9 ADR-002
 
 ### 2.5 Worker `opencv.worker.ts` — pipeline de deteccion
-- [ ] 2.5.1 Implementar el handler `INIT` en el worker: invoca `opencvLoader`, reenvia `PROGRESS`, responde `INIT_DONE` o `ERROR{OPENCV_LOAD_FAILED}`.
+- [x] 2.5.1 Implementar el handler `INIT` en el worker: invoca `opencvLoader`, reenvia `PROGRESS`, responde `INIT_DONE` o `ERROR{OPENCV_LOAD_FAILED}`.
   Ref: design §1.1, §4; CAP-9
-- [ ] 2.5.2 Implementar el handler `DETECT`: `bitmap → OffscreenCanvas interno → getImageData → cv.matFromImageData` → `cvtColor(GRAY)` → `GaussianBlur` → `Canny` → `findContours` → seleccionar contorno de mayor area → `approxPolyDP` buscando poligono de 4 lados.
+- [x] 2.5.2 Implementar el handler `DETECT`: `bitmap → OffscreenCanvas interno → getImageData → cv.matFromImageData` → `cvtColor(GRAY)` → `GaussianBlur` → `Canny` → `findContours` → seleccionar contorno de mayor area → `approxPolyDP` buscando poligono de 4 lados.
   Ref: proposal §3.1 (pipeline DOM-free); design §0 (worker), §7 (liberacion de Mats)
-- [ ] 2.5.3 Aplicar `orderCorners` + `isConvex` (de 2.2.1/2.2.2) al resultado de `approxPolyDP`; si no es convexo o el area es insuficiente, responder `corners: null`.
+- [x] 2.5.3 Aplicar `orderCorners` + `isConvex` (de 2.2.1/2.2.2) al resultado de `approxPolyDP`; si no es convexo o el area es insuficiente, responder `corners: null`.
   Ref: perspective spec "Cuadrilatero no convexo..."; scanner spec "Contorno detectado no es convexo..."
-- [ ] 2.5.4 Calcular `QualityMetrics` (Laplacian variance + mean intensity) reusando el `Mat` gris ya computado cuando `withQuality: true`, aplicando `BLUR_THRESHOLD`/`DARK_THRESHOLD` de 2.2.5 (**valores de partida**, sin asserts exactos en tests).
+- [x] 2.5.4 Calcular `QualityMetrics` (Laplacian variance + mean intensity) reusando el `Mat` gris ya computado cuando `withQuality: true`, aplicando `BLUR_THRESHOLD`/`DARK_THRESHOLD` de 2.2.5 (**valores de partida**, sin asserts exactos en tests).
   Ref: design §1.1 (QualityMetrics); scanner spec "Feedback de calidad en vivo"; design §11 (R1)
-- [ ] 2.5.5 Garantizar liberacion de todos los `cv.Mat`/`cv.MatVector` creados en DETECT con `.delete()` en bloque `finally`, reutilizando un unico `OffscreenCanvas` interno (no crear uno nuevo por frame).
+- [x] 2.5.5 Garantizar liberacion de todos los `cv.Mat`/`cv.MatVector` creados en DETECT con `.delete()` en bloque `finally`, reutilizando un unico `OffscreenCanvas` interno (no crear uno nuevo por frame).
   Ref: design §7 (manejo de recursos, tabla completa)
 
 ### 2.6 Worker `opencv.worker.ts` — pipeline de warp
-- [ ] 2.6.1 Implementar el handler `WARP`: reconstruir `ImageData` desde el `ImageDataLike` transferido, `cv.matFromImageData`, calcular `outputSize` (de 2.2.4), `getPerspectiveTransform` + `warpPerspective`.
+- [x] 2.6.1 Implementar el handler `WARP`: reconstruir `ImageData` desde el `ImageDataLike` transferido, `cv.matFromImageData`, calcular `outputSize` (de 2.2.4), `getPerspectiveTransform` + `warpPerspective`.
   Ref: proposal §3.1, §3.2; perspective spec "Correccion de perspectiva (warp)"
-- [ ] 2.6.2 Implementar la salida del warp via `mat.data → new ImageData → OffscreenCanvas.putImageData → transferToImageBitmap()` (NO `cv.imshow`), respondiendo `WARP_RESULT` con el bitmap transferido.
+- [x] 2.6.2 Implementar la salida del warp via `mat.data → new ImageData → OffscreenCanvas.putImageData → transferToImageBitmap()` (NO `cv.imshow`), respondiendo `WARP_RESULT` con el bitmap transferido.
   Ref: design §9 ADR-003; perspective spec "Warp corre en Web Worker sin bloquear la UI"
-- [ ] 2.6.3 Implementar camino alterno `WARP_RESULT_IMAGEDATA` para cuando `offscreenSupported === false`: devolver `ImageDataLike` en vez de `ImageBitmap` (transfiriendo `.data.buffer`).
+- [x] 2.6.3 Implementar camino alterno `WARP_RESULT_IMAGEDATA` para cuando `offscreenSupported === false`: devolver `ImageDataLike` en vez de `ImageBitmap` (transfiriendo `.data.buffer`).
   Ref: design §8 (fallback sin OffscreenCanvas); design §1.2 (que se transfiere vs se clona)
-- [ ] 2.6.4 Garantizar liberacion de Mats del pipeline de warp en `finally`.
+- [x] 2.6.4 Garantizar liberacion de Mats del pipeline de warp en `finally`.
   Ref: design §7
 
 ---
@@ -298,11 +298,11 @@ Orden de dependencia entre grupos:
 > Puede arrancar en paralelo con el grupo 2 para la parte de geometria (no depende del worker en runtime, solo de las funciones puras). El E2E de humo depende de tener el pipeline completo (grupos 1-5) funcional con al menos el fallback de import (grupo 6.3).
 
 ### 7.1 Unit tests — geometria
-- [ ] 7.1.1 Escribir tests Vitest para `isConvex` (2.2.1): casos convexo, no convexo (auto-interseccion), degenerado (colineal).
+- [x] 7.1.1 Escribir tests Vitest para `isConvex` (2.2.1): casos convexo, no convexo (auto-interseccion), degenerado (colineal).
   Ref: design §6.2; perspective spec "Cuadrilatero no convexo bloquea confirmacion"
-- [ ] 7.1.2 Escribir tests Vitest para `orderCorners` (2.2.2) con quads en distintas orientaciones (0°, 45°, 90°) verificando que el orden de salida sea siempre `[TL, TR, BR, BL]` consistente. **Los umbrales/angulos de desempate son valores de partida; los tests validan el contrato de orden, no un umbral exacto de calibracion.**
+- [x] 7.1.2 Escribir tests Vitest para `orderCorners` (2.2.2) con quads en distintas orientaciones (0°, 45°, 90°) verificando que el orden de salida sea siempre `[TL, TR, BR, BL]` consistente. **Los umbrales/angulos de desempate son valores de partida; los tests validan el contrato de orden, no un umbral exacto de calibracion.**
   Ref: design §6.1; design §11 (R5 — no fijar umbrales como finales)
-- [ ] 7.1.3 Escribir tests Vitest para `inferAspectRatio` (2.2.3): casos A4, carta, ticket (alargado), y `unknown` fuera de tolerancia.
+- [x] 7.1.3 Escribir tests Vitest para `inferAspectRatio` (2.2.3): casos A4, carta, ticket (alargado), y `unknown` fuera de tolerancia.
   Ref: design §6.3
 
 ### 7.2 E2E de humo (Playwright)
