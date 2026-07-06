@@ -26,10 +26,15 @@
  */
 
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlipHorizontal, RotateCw } from 'lucide-react';
 import { Button } from '@/shared/ui';
-import { isConvex, inferAspectRatio, outputSize } from '@/features/scanner/lib/geometry';
+import {
+  isConvex,
+  inferAspectRatio,
+  outputSize,
+  layoutSizeForRotation,
+} from '@/features/scanner/lib/geometry';
 import {
   createInitialRecipe,
   frameCorners,
@@ -99,6 +104,49 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activePointerIdRef = useRef<number | null>(null);
+  /** Tracks whether the active drag actually moved, to skip a redundant warp on a bare tap (fix L2). */
+  const movedRef = useRef(false);
+
+  // Fix C1/C2: monotonic warp sequence + mounted flag. Every runWarp claims a
+  // sequence number; a warp whose number is no longer the latest (a newer warp
+  // superseded it) or that resolves after unmount is DROPPED and its bitmap is
+  // CLOSED, so a stale warp can never overwrite a newer one and never leaks a
+  // full-res ImageBitmap (critical on iOS). The cleanup bumps the sequence so
+  // any warp in flight at unmount is invalidated and its bitmap released.
+  const warpSeqRef = useRef(0);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      warpSeqRef.current += 1;
+    };
+  }, []);
+
+  // Fix H2: `frame.source` is immutable, so extract the full-res ImageData
+  // ONCE per frame instead of allocating a full-res canvas (~48MB for a
+  // 3000x4000 frame) on every warp — that repeated allocation can hit iOS's
+  // canvas memory cap. The worker TRANSFERS the buffer it receives (leaving it
+  // detached), so runWarp clones a fresh buffer per warp and keeps this
+  // memoized ImageData intact for subsequent warps of the same frame.
+  const sourceImageData = useMemo<ImageData | null>(
+    () => {
+      // Extraction can fail on exotic environments (missing 2d context). Do
+      // NOT throw during render — surfacing it as a warp error keeps the editor
+      // interactive (the user can still adjust corners / go back) instead of
+      // crashing the whole screen. runWarp treats a null extraction as a warp
+      // failure.
+      try {
+        return extractImageData(frame.source);
+      } catch {
+        return null;
+      }
+    },
+    // frame.capturedAt uniquely identifies each captured frame's immutable
+    // source; frame.source is included so a same-timestamp remount still
+    // re-extracts from the correct bitmap.
+    [frame.source, frame.capturedAt],
+  );
 
   const valid = isConvex(corners);
   const inferred = useMemo(() => inferAspectRatio(corners), [corners]);
@@ -122,23 +170,53 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
 
   const runWarp = useCallback(
     async (finalCorners: Quad, aspectOverrideArg?: AspectRatioName) => {
+      // Fix H1: convexity is a HARD invariant of runWarp, not just a call-site
+      // check. Even if a caller forgets to gate on `isConvex` (or gates on a
+      // stale closure value), runWarp itself must never warp a non-convex
+      // quad. Call-sites still check for UX (to disable the button / preview).
+      if (!isConvex(finalCorners)) return;
+
+      // Fix C1/C2: claim a sequence number for this warp. Only the most recent
+      // warp is allowed to touch the store; older ones are discarded (and their
+      // bitmap closed) when they resolve.
+      const seq = (warpSeqRef.current += 1);
+      const isLatest = (): boolean => mountedRef.current && seq === warpSeqRef.current;
+
       setIsWarping(true);
       setWarpError(false);
       try {
-        const imageData = extractImageData(frame.source);
+        // Guard: if the one-time full-res extraction failed (fix H2 memoized it
+        // to null), there is nothing to warp — surface a warp error the same
+        // way a worker failure would.
+        if (!sourceImageData) {
+          throw new Error('CornerEditor: source ImageData unavailable for warp.');
+        }
         // `aspectOverrideArg` lets callers that just changed the override in
         // the SAME event handler (handleAspectChange) pass the fresh value
         // directly, avoiding a stale read of `aspectOverride` from this
         // callback's closure before React commits the state update.
         const aspectForWarp = aspectOverrideArg ?? aspectOverride ?? inferAspectRatio(finalCorners).name;
         const workerClient = getSharedWorkerClient();
+        // Fix H2: clone a fresh buffer per warp for the transfer. The worker
+        // transfers (detaches) the buffer it receives, so transferring the
+        // memoized `sourceImageData.data` directly would leave it detached and
+        // the NEXT warp of the same frame would fail. Cloning keeps the
+        // memoized ImageData reusable while still transferring zero-copy.
+        const transferData = new Uint8ClampedArray(sourceImageData.data);
         const response = await workerClient.warp(
-          { width: imageData.width, height: imageData.height, data: imageData.data },
+          { width: sourceImageData.width, height: sourceImageData.height, data: transferData },
           finalCorners,
           aspectForWarp,
         );
 
         if (response.type === 'WARP_RESULT') {
+          // Fix C1/C2: a stale/unmounted result must be dropped AND its bitmap
+          // closed here (setWarpedImage would never receive it, so nothing else
+          // would ever release it).
+          if (!isLatest()) {
+            response.bitmap.close();
+            return;
+          }
           setWarpedImage(response.bitmap);
         } else {
           // WARP_RESULT_IMAGEDATA (no OffscreenCanvas, design section 8): paint
@@ -160,23 +238,38 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
           const painted = new ImageData(pixelData, response.image.width, response.image.height);
           ctx.putImageData(painted, 0, 0);
           const bitmap = await createImageBitmap(canvas);
+          // Fix M4: release the temporary main-thread canvas backing store as
+          // soon as the bitmap is created, on every path.
+          canvas.width = 0;
+          canvas.height = 0;
+          // Fix C1/C2: same stale/unmount guard as the OffscreenCanvas path —
+          // close the freshly created bitmap rather than leaking it.
+          if (!isLatest()) {
+            bitmap.close();
+            return;
+          }
           setWarpedImage(bitmap);
         }
 
         setRecipe(createInitialRecipe(finalCorners, aspectForWarp));
       } catch {
-        setWarpError(true);
+        // Only the latest warp may surface an error; a stale warp that rejected
+        // after a newer one already succeeded must not flip the UI into error.
+        if (isLatest()) setWarpError(true);
       } finally {
-        setIsWarping(false);
+        // Fix C1/C2: only the most recent warp clears the loading flag, so a
+        // stale warp resolving late cannot hide the spinner of a newer one.
+        if (isLatest()) setIsWarping(false);
       }
     },
-    [aspectOverride, frame.source, setRecipe, setWarpedImage],
+    [aspectOverride, sourceImageData, setRecipe, setWarpedImage],
   );
 
   const handlePointerDown = useCallback(
     (index: 0 | 1 | 2 | 3) => (event: ReactPointerEvent<HTMLButtonElement>) => {
       event.currentTarget.setPointerCapture(event.pointerId);
       activePointerIdRef.current = event.pointerId;
+      movedRef.current = false;
       setDraggingIndex(index);
       const point = toSourcePoint(event.clientX, event.clientY);
       if (point) setDragPoint(point);
@@ -191,6 +284,7 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
       }
       const point = toSourcePoint(event.clientX, event.clientY);
       if (!point) return;
+      movedRef.current = true;
       setDragPoint(point);
       // Task 5.1.4: update the visual quad on every move (so the handle
       // tracks the pointer), but this is a pure local state update — it
@@ -213,6 +307,17 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
       activePointerIdRef.current = null;
       setDraggingIndex(null);
       setDragPoint(null);
+
+      // Fix L2: a bare tap (pointerdown + pointerup with no pointermove) leaves
+      // the quad unchanged, so re-warping would be redundant — the initial warp
+      // (on editor entry) or the last drag's warp already reflects these
+      // corners. Only re-warp when the handle actually moved.
+      const moved = movedRef.current;
+      movedRef.current = false;
+      if (!moved) {
+        void index;
+        return;
+      }
 
       // Task 5.1.3 / 5.1.4: validate convexity and recalc the warp ONLY on
       // release, using the latest committed corners (functional read avoids
@@ -343,7 +448,12 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
       {warpedImage && recipe && (
         <div className="flex w-full flex-col items-center gap-3" data-testid="warp-preview">
           <div className="w-full max-w-xs overflow-hidden rounded-xl bg-surface">
-            <WarpedPreview bitmap={warpedImage} transform={transform} outSize={outputSize(recipe.corners, recipe.aspectRatio)} />
+            <WarpedPreview
+              bitmap={warpedImage}
+              transform={transform}
+              outSize={outputSize(recipe.corners, recipe.aspectRatio)}
+              rotation={recipe.rotation}
+            />
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -448,13 +558,22 @@ interface WarpedPreviewProps {
   readonly bitmap: ImageBitmap;
   readonly transform: string;
   readonly outSize: { readonly outW: number; readonly outH: number };
+  readonly rotation: 0 | 90 | 180 | 270;
 }
 
 /**
  * Renders the warped bitmap and applies rotation/flip purely via CSS
  * `transform` (ADR-005) — never re-invokes the worker for these edits.
+ *
+ * Fix H3: the canvas keeps its intrinsic `outW x outH` size, but a 90/270deg
+ * CSS rotation swaps the image's visible bounding box (a 700x990 A4 rotated
+ * 90deg occupies a 990x700 box). The layout wrapper therefore reserves the
+ * ROTATION-AWARE box (`layoutSizeForRotation`) as an `aspect-ratio` so the
+ * rotated image fits at the correct aspect instead of overflowing or being
+ * clipped. The canvas is centered and scaled to the box's shorter constraint
+ * so, once rotated, its rotated footprint stays inside the reserved box.
  */
-function WarpedPreview({ bitmap, transform, outSize }: WarpedPreviewProps): ReactNode {
+function WarpedPreview({ bitmap, transform, outSize, rotation }: WarpedPreviewProps): ReactNode {
   const draw = useCallback(
     (canvas: HTMLCanvasElement | null) => {
       if (!canvas) return;
@@ -466,14 +585,36 @@ function WarpedPreview({ bitmap, transform, outSize }: WarpedPreviewProps): Reac
     [bitmap],
   );
 
+  const layout = layoutSizeForRotation(outSize.outW, outSize.outH, rotation);
+  const rotated = rotation === 90 || rotation === 270;
+
+  // The wrapper reserves the ROTATION-AWARE box via `aspect-ratio` so the
+  // container proportion is correct at every rotation step. Inside it, the
+  // canvas is sized to the UNROTATED image aspect: for 0/180 it fills the box
+  // width; for 90/270 its intrinsic WIDTH (`outW`) is mapped onto the box
+  // HEIGHT (`width: <boxHeight>`), so once the CSS `rotate()` swings it 90deg
+  // its footprint lands exactly inside the swapped box instead of overflowing.
+  // Sizing is expressed relative to the box so it stays responsive: for the
+  // rotated case the canvas width tracks the box height via `height`/`width`
+  // percentages against the swapped aspect.
+  const canvasStyle = rotated
+    ? { width: `${(layout.outH / layout.outW) * 100}%`, height: 'auto', transform }
+    : { width: '100%', height: 'auto', transform };
+
   return (
-    <canvas
-      ref={draw}
-      width={outSize.outW}
-      height={outSize.outH}
-      data-testid="warped-preview-canvas"
-      className="h-auto w-full motion-safe:transition-transform motion-safe:duration-200"
-      style={{ transform }}
-    />
+    <div
+      className="relative mx-auto flex items-center justify-center overflow-hidden"
+      style={{ width: '100%', aspectRatio: `${layout.outW} / ${layout.outH}` }}
+      data-testid="warped-preview-box"
+    >
+      <canvas
+        ref={draw}
+        width={outSize.outW}
+        height={outSize.outH}
+        data-testid="warped-preview-canvas"
+        className="motion-safe:transition-transform motion-safe:duration-200"
+        style={canvasStyle}
+      />
+    </div>
   );
 }
