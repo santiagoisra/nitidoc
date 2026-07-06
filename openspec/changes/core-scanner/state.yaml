@@ -1,0 +1,21 @@
+change: core-scanner
+title: "Fase 1 — Core Scanner"
+created: 2026-07-06
+artifact_store: openspec
+scope: |
+  Fase 1 del roadmap Nitidoc: camara en vivo + deteccion de documento +
+  captura + correccion de perspectiva + editor manual de esquinas.
+  Criterio de aceptacion: escaneo de 1 pagina con warp correcto en movil y desktop.
+
+phases:
+  explore:  { status: done, artifact: exploration.md }
+  propose:  { status: done, artifact: proposal.md }
+  spec:     { status: done, artifact: specs/ }
+  design:   { status: done, artifact: design.md }
+  tasks:    { status: done, artifact: tasks.md }
+  apply:    { status: pending, artifact: tasks.md }
+  verify:   { status: pending, artifact: verify-report.md }
+  archive:  { status: pending }
+
+execution_mode: auto
+delivery_strategy: pending   # se define en fase tasks/apply

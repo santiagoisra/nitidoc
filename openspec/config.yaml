@@ -1,0 +1,45 @@
+schema: spec-driven
+
+context: |
+  Project: Nitidoc — PWA de escaneo de documentos (gratis, offline-first, dark-first).
+  Status: GREENFIELD — solo existe el prompt maestro; ningun codigo/stack instalado aun.
+  Intended stack: React 18 + TypeScript + Vite, Zustand, Tailwind + CSS variables,
+    jscanify + OpenCV.js (WASM, lazy), Canvas/WebGL, pdf-lib, signature_pad,
+    vite-plugin-pwa (Workbox), idb (IndexedDB), Firebase (Hosting/Auth/Firestore/Storage).
+  Architecture: feature-sliced (src/features/{scanner,editor,document,signature,library,sync}),
+    imagenes originales inmutables + "receta" JSON de ediciones no destructivas,
+    deteccion/warp en Web Worker con transferables.
+  Testing (intended): Vitest (unit) + Playwright (E2E). Aun no instalado.
+  Style: TypeScript strict, sin any. UI en es-AR con i18n preparado.
+
+testing:
+  strict_tdd: false        # No hay runner instalado todavia (greenfield)
+  intended_unit: vitest
+  intended_e2e: playwright
+  test_command: ""
+  build_command: ""
+  coverage_threshold: 0
+
+rules:
+  proposal:
+    - Incluir plan de rollback para cambios riesgosos
+    - Respetar el presupuesto de performance del prompt (bundle < 200KB gzip, OpenCV lazy)
+  specs:
+    - Usar Given/When/Then para escenarios
+    - Usar keywords RFC 2119 (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Incluir diagramas de secuencia para flujos complejos (worker, deteccion en vivo)
+    - Documentar decisiones de arquitectura con rationale
+  tasks:
+    - Agrupar por fase, numeracion jerarquica
+    - Tareas completables en una sola sesion
+  apply:
+    - Seguir patrones de codigo existentes
+    - tdd: false           # Activar cuando Vitest/Playwright esten instalados
+    - test_command: ""
+  verify:
+    - test_command: ""
+    - build_command: ""
+    - coverage_threshold: 0
+  archive:
+    - Advertir antes de mergear deltas destructivas
