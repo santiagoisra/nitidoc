@@ -2,14 +2,17 @@
  * `<video>` bound to the active MediaStream, plus a positioned container
  * for the live-detection overlay (proposal section 4.1 `CameraView.tsx`).
  *
- * Scope (Group 3 / Slice C): wires the stream into the video element only.
- * The overlay CONTENT (interpolated contour drawing) is Group 4 (Slice D) —
- * this component only reserves the layered container so that slice can drop
- * its overlay in without touching this file's layout again.
+ * Scope (Group 3 / Slice C): wires the stream into the video element.
+ * Scope (Group 4 / Slice D): forwards the underlying `<video>` element via
+ * `videoRef` so `useDocumentDetection`/the capture sequence can read frames
+ * from it directly, and renders overlay content (contour/hints) supplied by
+ * the caller. The overlay CONTENT itself (interpolated contour drawing)
+ * lives in `DetectionOverlay` and is composed by `ScannerScreen`, not owned
+ * by this component.
  */
 
-import type { ReactNode } from 'react';
-import { useEffect, useRef } from 'react';
+import type { ForwardedRef, ReactNode } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
 
 export interface CameraViewProps {
@@ -17,9 +20,14 @@ export interface CameraViewProps {
   readonly overlay?: ReactNode;
 }
 
-export function CameraView({ overlay }: CameraViewProps): ReactNode {
+function CameraViewImpl(
+  { overlay }: CameraViewProps,
+  ref: ForwardedRef<HTMLVideoElement>,
+): ReactNode {
   const videoRef = useRef<HTMLVideoElement>(null);
   const stream = useScannerStore((s) => s.stream);
+
+  useImperativeHandle(ref, () => videoRef.current as HTMLVideoElement, []);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -52,3 +60,5 @@ export function CameraView({ overlay }: CameraViewProps): ReactNode {
     </div>
   );
 }
+
+export const CameraView = forwardRef(CameraViewImpl);
