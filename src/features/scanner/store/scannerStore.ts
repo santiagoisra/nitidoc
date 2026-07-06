@@ -21,8 +21,11 @@ import type { CapturedFrame, EditRecipe } from '@/shared/types/scanner';
  * toggleAutoCapture, setNoDetectionSince) plus the minimal capture-phase
  * actions the capture sequence needs to hand a frame off to the (not yet
  * built) corner editor (setOriginalFrame, setPhase). OpenCV actions remain
- * deferred to Group 2 (already implemented as part of Slice B) and the full
- * warp/recipe capture actions remain deferred to Group 5.
+ * deferred to Group 2 (already implemented as part of Slice B).
+ *
+ * SCOPE NOTE (Group 5 / Slice E): the remaining capture-phase actions are
+ * implemented here (setWarpedImage, setRecipe) so `CornerEditor` can store
+ * the warp result and the non-destructive edit recipe (design section 5.2).
  */
 
 export type CameraPermission = 'idle' | 'prompt' | 'granted' | 'denied';
@@ -106,6 +109,15 @@ export interface CaptureActions {
   /** Stores the immutable full-res captured frame and moves the phase to 'editing-corners'. */
   readonly setOriginalFrame: (frame: CapturedFrame) => void;
   readonly setPhase: (phase: CapturePhase) => void;
+  /**
+   * Stores the latest warp result. Closes the previously retained
+   * `warpedImage` bitmap (if any, and if it isn't the same object) BEFORE
+   * assigning the new one (design section 7 memory hygiene — same close-
+   * before-overwrite pattern as `setOriginalFrame`).
+   */
+  readonly setWarpedImage: (bitmap: ImageBitmap | null) => void;
+  /** Replaces the non-destructive edit recipe (task 5.2.3 / 5.4). JSON-serializable, no binaries. */
+  readonly setRecipe: (recipe: EditRecipe | null) => void;
   /** Resets the capture slice. Does NOT close any retained ImageBitmap — callers own that (design section 7). */
   readonly resetCaptureSlice: () => void;
 }
@@ -228,5 +240,29 @@ export const useScannerStore = create<ScannerStore>((set) => ({
       return { originalFrame, phase: 'editing-corners' };
     }),
   setPhase: (phase) => set({ phase }),
-  resetCaptureSlice: () => set({ ...initialCaptureSlice }),
+  setWarpedImage: (bitmap) =>
+    set((state) => {
+      // Slice E: same close-before-overwrite hygiene as setOriginalFrame
+      // (design section 7) — a stale warpedImage bitmap must never be
+      // silently dropped without releasing it first.
+      const previous = state.warpedImage;
+      if (previous && previous !== bitmap) {
+        previous.close();
+      }
+      return { warpedImage: bitmap };
+    }),
+  setRecipe: (recipe) => set({ recipe }),
+  resetCaptureSlice: () =>
+    set((state) => {
+      // Design section 7: resetting the capture slice discards the page /
+      // starts a new capture cycle, which is exactly when the retained
+      // originalFrame + warpedImage bitmaps must be released (never left
+      // for the GC to eventually reclaim — a full-res ImageBitmap can be
+      // tens of MB).
+      state.originalFrame?.source.close();
+      if (state.warpedImage) {
+        state.warpedImage.close();
+      }
+      return { ...initialCaptureSlice };
+    }),
 }));
