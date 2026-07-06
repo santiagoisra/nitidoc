@@ -19,8 +19,8 @@ phases:
     branch: feat/scanner-scaffold
     slices:
       A-scaffold: { status: done, group: 1, verified: true, bundle_gzip_kb: 50.35 }
-      B-worker:   { status: done, group: 2, also: [7.1], branch: feat/scanner-worker, verified: true, review: pending }
-      C-camera:   { status: pending, group: 3 }
+      B-worker:   { status: done, group: 2, also: [7.1], branch: feat/scanner-worker, verified: true, review: passed, fixes: [C1, C2, H1, L2], tests: 25 }
+      C-camera:   { status: in_progress, group: 3, branch: feat/scanner-camera }
       D-detection:{ status: pending, group: 4 }
       E-editor:   { status: pending, group: 5 }
       F-edgecases:{ status: pending, groups: [6, 7] }
