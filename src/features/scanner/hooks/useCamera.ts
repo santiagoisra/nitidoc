@@ -263,6 +263,40 @@ export function useCamera(): UseCameraResult {
     };
   }, [openCamera]);
 
+  // H2 fix: if the active device is unplugged (or otherwise disappears),
+  // `devicechange` fires. Re-enumerate and reconcile `activeDeviceId` so the
+  // CameraSelector <select> doesn't keep pointing at a device that no
+  // longer exists. This intentionally does NOT re-open the camera — that
+  // would be a surprising side effect for something that just refreshes a
+  // list; re-acquisition on track death is already handled separately via
+  // visibilitychange/track.readyState above.
+  useEffect(() => {
+    function handleDeviceChange(): void {
+      void (async () => {
+        try {
+          const allDevices = await navigator.mediaDevices.enumerateDevices();
+          const videoInputs = allDevices.filter(isVideoInput);
+          setDevices(videoInputs);
+
+          const currentActiveId = useScannerStore.getState().activeDeviceId;
+          const stillPresent = videoInputs.some((device) => device.deviceId === currentActiveId);
+          if (currentActiveId != null && !stillPresent) {
+            setActiveDeviceId(null);
+          }
+        } catch {
+          // enumerateDevices() failing here is non-fatal — same reasoning
+          // as refreshDeviceList: leave devices as-is rather than throwing
+          // from an event listener.
+        }
+      })();
+    }
+
+    navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
+    return () => {
+      navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
+    };
+  }, [setActiveDeviceId, setDevices]);
+
   // Mounted guard (C1 fix): flips false on unmount so any getUserMedia
   // promise still pending at that point knows not to assign its stream.
   useEffect(() => {
