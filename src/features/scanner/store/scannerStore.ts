@@ -10,6 +10,12 @@ import type { CapturedFrame, EditRecipe } from '@/shared/types/scanner';
  * etc.) are implemented incrementally in Groups 2-5 as their owning
  * capability lands. Adding an action here before its capability exists would
  * mean shipping unimplemented behavior, which is out of scope for this slice.
+ *
+ * SCOPE NOTE (Group 3 / Slice C): camera-owning actions are implemented here
+ * (setStream, setDevices, setActiveDeviceId, setRealResolution,
+ * setTorchSupported, setTorchOn, setPermission, setCaptureCapabilities,
+ * resetCamera). Detection/capture/OpenCV actions remain deferred to their
+ * owning groups (4/5/2 respectively).
  */
 
 export type CameraPermission = 'idle' | 'prompt' | 'granted' | 'denied';
@@ -68,7 +74,24 @@ export interface OpenCvSlice {
   readonly opencv: OpenCvState;
 }
 
-export type ScannerStore = CameraSlice & DetectionSlice & CaptureSlice & OpenCvSlice;
+export interface CameraActions {
+  /** Replaces the active MediaStream (does NOT stop the previous one — callers own that). */
+  readonly setStream: (stream: MediaStream | null) => void;
+  readonly setDevices: (devices: readonly MediaDeviceInfo[]) => void;
+  readonly setActiveDeviceId: (deviceId: string | null) => void;
+  readonly setRealResolution: (resolution: { width: number; height: number } | null) => void;
+  readonly setTorchSupported: (supported: boolean) => void;
+  readonly setTorchOn: (on: boolean) => void;
+  readonly setPermission: (permission: CameraPermission) => void;
+  readonly setCaptureCapabilities: (caps: {
+    readonly imageCaptureSupported: boolean;
+    readonly offscreenSupported: boolean;
+  }) => void;
+  /** Resets the camera slice to its initial values (does NOT stop tracks — callers own that). */
+  readonly resetCamera: () => void;
+}
+
+export type ScannerStore = CameraSlice & DetectionSlice & CaptureSlice & OpenCvSlice & CameraActions;
 
 const initialCameraSlice: CameraSlice = {
   stream: null,
@@ -111,15 +134,30 @@ const initialOpenCvSlice: OpenCvSlice = {
   opencv: initialOpenCvState,
 };
 
+export type ScannerStateShape = CameraSlice & DetectionSlice & CaptureSlice & OpenCvSlice;
+
 /**
  * Re-export for reuse by future actions/tests without re-typing the initial
  * shape (Groups 2-5 will spread these into their own reset logic).
  */
-export const scannerStoreInitialState: ScannerStore = {
+export const scannerStoreInitialState: ScannerStateShape = {
   ...initialCameraSlice,
   ...initialDetectionSlice,
   ...initialCaptureSlice,
   ...initialOpenCvSlice,
 };
 
-export const useScannerStore = create<ScannerStore>(() => scannerStoreInitialState);
+export const useScannerStore = create<ScannerStore>((set) => ({
+  ...scannerStoreInitialState,
+
+  setStream: (stream) => set({ stream }),
+  setDevices: (devices) => set({ devices }),
+  setActiveDeviceId: (activeDeviceId) => set({ activeDeviceId }),
+  setRealResolution: (realResolution) => set({ realResolution }),
+  setTorchSupported: (torchSupported) => set({ torchSupported }),
+  setTorchOn: (torchOn) => set({ torchOn }),
+  setPermission: (permission) => set({ permission }),
+  setCaptureCapabilities: ({ imageCaptureSupported, offscreenSupported }) =>
+    set({ imageCaptureSupported, offscreenSupported }),
+  resetCamera: () => set({ ...initialCameraSlice }),
+}));
