@@ -260,3 +260,26 @@ export function outputSize(
   const outW = Math.round(wMeasured);
   return { outW, outH: Math.round(outW * ratio) };
 }
+
+/**
+ * Layout (bounding-box) dimensions for a warped canvas that is rotated
+ * NON-DESTRUCTIVELY via a CSS `transform: rotate()` (ADR-005; Slice E review
+ * fix H3).
+ *
+ * The warped bitmap keeps its intrinsic `outW x outH` size. When the recipe's
+ * rotation is 90 or 270 degrees the visible image occupies a box with WIDTH
+ * and HEIGHT SWAPPED, so the layout container must reserve `outH x outW` for
+ * the rotated image to fit at the correct aspect ratio instead of being
+ * clipped or squashed (a 700x990 A4 rotated 90deg needs a 990x700 box). At 0
+ * and 180 degrees the box is unchanged.
+ */
+export function layoutSizeForRotation(
+  outW: number,
+  outH: number,
+  rotation: 0 | 90 | 180 | 270,
+): { readonly outW: number; readonly outH: number } {
+  if (rotation === 90 || rotation === 270) {
+    return { outW: outH, outH: outW };
+  }
+  return { outW, outH };
+}
