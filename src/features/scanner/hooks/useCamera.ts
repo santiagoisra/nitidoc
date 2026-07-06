@@ -79,6 +79,7 @@ export function useCamera(): UseCameraResult {
   const setTorchOn = useScannerStore((s) => s.setTorchOn);
   const setPermission = useScannerStore((s) => s.setPermission);
   const setCaptureCapabilities = useScannerStore((s) => s.setCaptureCapabilities);
+  const setLastCameraError = useScannerStore((s) => s.setLastCameraError);
   const resetCamera = useScannerStore((s) => s.resetCamera);
 
   const stopStream = useCallback((stream: MediaStream | null) => {
@@ -146,6 +147,7 @@ export function useCamera(): UseCameraResult {
         streamRef.current = stream;
         setStream(stream);
         setPermission('granted');
+        setLastCameraError(null);
 
         const track = getActiveTrack(stream);
         if (track) {
@@ -175,7 +177,14 @@ export function useCamera(): UseCameraResult {
           setStream(null);
           return;
         }
-        throw error;
+
+        // M1 fix: every other failure (NotReadableError, OverconstrainedError,
+        // AbortError, etc.) used to `throw`, which becomes an unhandled
+        // promise rejection wherever the caller does `void openCamera()`
+        // (ScannerScreen does exactly that) and leaves the UI blank with no
+        // feedback. Surface it as visible state instead of rejecting.
+        const message = error instanceof Error ? error.message : 'Unknown camera error';
+        setLastCameraError(message);
       }
     },
     [
@@ -184,6 +193,7 @@ export function useCamera(): UseCameraResult {
       setActiveDeviceId,
       setCaptureCapabilities,
       setDevices,
+      setLastCameraError,
       setPermission,
       setStream,
       stopStream,
