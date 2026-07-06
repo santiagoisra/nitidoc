@@ -1,16 +1,17 @@
 /**
  * Scanner screen wiring `useCamera` + `CameraView` + `CameraSelector` +
  * `useDocumentDetection` + `DetectionOverlay` + `CaptureButton` +
- * `QualityHints` together (Group 3 / Slice C camera lifecycle + Group 4 /
- * Slice D live detection and auto-capture).
+ * `QualityHints` + `CornerEditor` together (Group 3 / Slice C camera
+ * lifecycle + Group 4 / Slice D live detection and auto-capture + Group 5 /
+ * Slice E corner editor and warp).
  *
- * Capture sequence (design section 2.2, first half — up to handing the
- * frame to the corner editor): pause the detection loop, capture the
- * full-res frame, scale the last known detected corners from the
+ * Capture sequence (design section 2.2): pause the detection loop, capture
+ * the full-res frame, scale the last known detected corners from the
  * downscaled detection space to the full-res capture space, and store the
  * immutable `CapturedFrame` (moves `CaptureSlice.phase` to
- * 'editing-corners'). The corner editor UI that consumes that phase is
- * Group 5 / Slice E — NOT built here.
+ * 'editing-corners'). Once in that phase, this screen renders `CornerEditor`
+ * (Group 5). Backing out of the editor without confirming resumes the live
+ * detection loop (this screen owns that transition, per Slice E scope).
  */
 
 import type { ReactNode } from 'react';
@@ -20,6 +21,7 @@ import { Button } from '@/shared/ui';
 import { CameraSelector } from '@/features/scanner/components/CameraSelector';
 import { CameraView } from '@/features/scanner/components/CameraView';
 import { CaptureButton } from '@/features/scanner/components/CaptureButton';
+import { CornerEditor } from '@/features/scanner/components/CornerEditor';
 import { DetectionOverlay } from '@/features/scanner/components/DetectionOverlay';
 import { QualityHints } from '@/features/scanner/components/QualityHints';
 import { useCamera } from '@/features/scanner/hooks/useCamera';
@@ -27,7 +29,9 @@ import { useDocumentDetection } from '@/features/scanner/hooks/useDocumentDetect
 import { captureFullResFrame } from '@/features/scanner/lib/captureFrame';
 import { DETECTION } from '@/features/scanner/lib/detectionConstants';
 import { isTooFar, scaleCornersToFullRes } from '@/features/scanner/lib/detectionMath';
+import { isConvex } from '@/features/scanner/lib/geometry';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
+import type { Quad } from '@/shared/types/geometry';
 
 /**
  * Fallback detection-frame height used only before the camera has reported its
@@ -60,6 +64,21 @@ export function ScannerScreen(): ReactNode {
   const noDetectionSince = useScannerStore((s) => s.noDetectionSince);
   const setOriginalFrame = useScannerStore((s) => s.setOriginalFrame);
   const setPhase = useScannerStore((s) => s.setPhase);
+  const phase = useScannerStore((s) => s.phase);
+  const originalFrame = useScannerStore((s) => s.originalFrame);
+  const resetCaptureSlice = useScannerStore((s) => s.resetCaptureSlice);
+
+  /**
+   * Corners handed off to the corner editor, scaled to the captured frame's
+   * full-res space right when the capture happened (task 5.1.1; perspective
+   * spec "Handles preseleccionados desde deteccion automatica"). Captured
+   * into a ref at capture time (see runCaptureSequence below) rather than
+   * recomputed from the CURRENT `rawCorners` here, since detection is
+   * stopped during editing and `rawCorners` would otherwise be stale or, on
+   * a second capture, referring to a different frame than the one being
+   * edited.
+   */
+  const editorInitialCornersRef = useRef<Quad | null>(null);
 
   const [started, setStarted] = useState(false);
   const [showNoDetectionHint, setShowNoDetectionHint] = useState(false);
@@ -92,16 +111,22 @@ export function ScannerScreen(): ReactNode {
   // the camera has granted access. useDocumentDetection.start() is
   // idempotent while already running, so this can safely re-run whenever
   // its dependencies change without double-starting the loop.
+  //
+  // Slice E addition: the loop must stay stopped while `phase` is
+  // 'editing-corners' or 'capturing' — the corner editor owns resuming it
+  // (via handleEditorCancel/handleEditorConfirm below) once the user is done
+  // with this frame, so DETECT never races the editor's own warp calls over
+  // the same worker.
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || permission !== 'granted') {
+    if (!video || permission !== 'granted' || phase === 'editing-corners' || phase === 'capturing') {
       return;
     }
     startDetection(video);
     return () => {
       stopDetection();
     };
-  }, [permission, startDetection, stopDetection]);
+  }, [permission, phase, startDetection, stopDetection]);
 
   // Task 4.6.1: track how long detection has been failing and surface the
   // "capture anyway" hint once NO_DETECTION_MS elapses.
@@ -145,10 +170,18 @@ export function ScannerScreen(): ReactNode {
       const captured = await captureFullResFrame(video, track, imageCaptureSupported);
       const lastRawCorners = useScannerStore.getState().rawCorners;
 
-      const fullResCorners =
+      const scaledCorners =
         lastRawCorners != null
           ? scaleCornersToFullRes(lastRawCorners, DETECTION.DOWNSCALE_WIDTH, captured.width)
           : null;
+
+      // Task 5.1.1 / scanner spec "Contorno... no convexo...": only hand a
+      // scaled detection off to the editor as a pre-seed when it is actually
+      // a valid convex quad. A non-convex or missing detection means the
+      // editor falls back to distributing handles across the full frame
+      // (CornerEditor.frameCorners) instead of pre-seeding invalid corners.
+      editorInitialCornersRef.current =
+        scaledCorners != null && isConvex(scaledCorners) ? scaledCorners : null;
 
       setOriginalFrame({
         source: captured.bitmap,
@@ -157,18 +190,10 @@ export function ScannerScreen(): ReactNode {
         capturedAt: Date.now(),
       });
 
-      // fullResCorners is handed off implicitly via the store's rawCorners
-      // (still readable by the corner editor, Slice E) plus the freshly
-      // captured frame dimensions; Slice E's CornerEditor is responsible for
-      // reading both and pre-seeding handles (perspective spec "Handles
-      // preseleccionados desde deteccion automatica" / "Sin deteccion
-      // previa, editor con frame completo"). This slice does not render
-      // that editor, only prepares the frame + scaled-corner state for it.
-      void fullResCorners;
-
-      // On success the frame is handed off; the 'editing-corners' phase (set by
-      // setOriginalFrame) belongs to Slice E, which owns resuming the loop when
-      // the user backs out. The loop stays stopped here intentionally.
+      // On success the frame is handed off; CornerEditor renders once `phase`
+      // becomes 'editing-corners' (set by setOriginalFrame). Backing out of
+      // or confirming the editor resumes the loop — see handleEditorCancel /
+      // handleEditorConfirm below.
     } catch {
       // Slice D review fix M4: if capture throws (e.g. ImageCapture failure),
       // never leave the scanner frozen in 'capturing'. Restore a usable phase
@@ -204,6 +229,35 @@ export function ScannerScreen(): ReactNode {
     void runCaptureSequence();
   }, [runCaptureSequence]);
 
+  /**
+   * Discards the current capture (original frame + any warp result/recipe)
+   * and resumes the live detection loop (Slice E owns this transition per
+   * the apply prompt: "Slice E tambien es dueña de reanudar el loop de
+   * deteccion si el usuario vuelve atras"). `resetCaptureSlice` itself closes
+   * the retained `originalFrame`/`warpedImage` bitmaps (design section 7) —
+   * this handler does not close them again.
+   */
+  const handleEditorCancel = useCallback(() => {
+    resetCaptureSlice();
+    setPhase('idle');
+    editorInitialCornersRef.current = null;
+    if (videoRef.current) {
+      startDetection(videoRef.current);
+    }
+  }, [resetCaptureSlice, setPhase, startDetection]);
+
+  /**
+   * Confirms the current recipe/warp as the finished capture. Fase 1 has a
+   * single screen with no downstream export step, so "done" simply marks
+   * the phase and leaves the warped preview + recipe in the store for the
+   * user to see; a fresh capture (handleManualCapture) starts a new cycle,
+   * whose setOriginalFrame will close this originalFrame's bitmap per the
+   * store's existing close-before-overwrite hygiene.
+   */
+  const handleEditorConfirm = useCallback(() => {
+    setPhase('done');
+  }, [setPhase]);
+
   if (!started) {
     return (
       <Button variant="primary" type="button" onClick={handleStart} data-testid="open-scanner">
@@ -226,6 +280,32 @@ export function ScannerScreen(): ReactNode {
       <p role="alert" className="max-w-sm text-center text-sm text-danger" data-testid="camera-error">
         Could not open the camera. Try again, or use the import fallback (coming in a later slice).
       </p>
+    );
+  }
+
+  // Group 5 / Slice E: once a frame is captured, hand off to the corner
+  // editor instead of the live camera view. 'capturing' also renders this
+  // branch (briefly, while captureFullResFrame resolves) so the screen
+  // never flashes back to a stale camera view mid-capture.
+  if ((phase === 'editing-corners' || phase === 'capturing') && originalFrame) {
+    return (
+      <CornerEditor
+        frame={originalFrame}
+        initialCorners={editorInitialCornersRef.current}
+        onConfirm={handleEditorConfirm}
+        onCancel={handleEditorCancel}
+      />
+    );
+  }
+
+  if (phase === 'done' && originalFrame) {
+    return (
+      <div className="flex w-full max-w-md flex-col items-center gap-4" data-testid="scan-done">
+        <p className="text-sm text-text-muted">Scan complete.</p>
+        <Button type="button" variant="primary" onClick={handleEditorCancel} data-testid="scan-again">
+          Scan another document
+        </Button>
+      </div>
     );
   }
 
