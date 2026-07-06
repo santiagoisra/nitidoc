@@ -9,6 +9,12 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  worker: {
+    // opencv.worker.ts dynamically imports OpenCV.js (lazy-load, ADR-001),
+    // which requires the worker's own bundle to support code-splitting.
+    // Rollup's default IIFE/UMD worker format cannot do that.
+    format: 'es',
+  },
   test: {
     environment: 'happy-dom',
     globals: true,
