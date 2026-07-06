@@ -29,12 +29,19 @@ import { DETECTION } from '@/features/scanner/lib/detectionConstants';
 import { isTooFar, scaleCornersToFullRes } from '@/features/scanner/lib/detectionMath';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
 
-/** Detection frame height derived from the fixed downscale width and a typical 3:4 portrait viewfinder aspect ratio, used only for the overlay's SVG viewBox — the real per-frame height comes from the video's negotiated aspect ratio, but the overlay only needs a stable coordinate space matching the corners it draws. */
-const DETECTION_FRAME_ASSUMED_HEIGHT = Math.round((DETECTION.DOWNSCALE_WIDTH * 4) / 3);
+/**
+ * Fallback detection-frame height used only before the camera has reported its
+ * real negotiated resolution. `createImageBitmap(video, { resizeWidth: 640 })`
+ * preserves the source aspect ratio, so the real height is derived per stream
+ * from `realResolution` (Slice D review fix M2). This 4:3 fallback is a
+ * reasonable default until that resolution is known and never stretches the
+ * overlay because the overlay's viewBox uses the SAME height as the isTooFar
+ * area denominator.
+ */
+const DETECTION_FRAME_FALLBACK_HEIGHT = Math.round((DETECTION.DOWNSCALE_WIDTH * 4) / 3);
 
 export function ScannerScreen(): ReactNode {
   const { openCamera, switchCamera, setTorch } = useCamera();
-  const { start: startDetection, stop: stopDetection } = useDocumentDetection();
 
   const permission = useScannerStore((s) => s.permission);
   const torchSupported = useScannerStore((s) => s.torchSupported);
@@ -42,6 +49,7 @@ export function ScannerScreen(): ReactNode {
   const devices = useScannerStore((s) => s.devices);
   const lastCameraError = useScannerStore((s) => s.lastCameraError);
   const imageCaptureSupported = useScannerStore((s) => s.imageCaptureSupported);
+  const realResolution = useScannerStore((s) => s.realResolution);
 
   const corners = useScannerStore((s) => s.corners);
   const rawCorners = useScannerStore((s) => s.rawCorners);
@@ -56,7 +64,18 @@ export function ScannerScreen(): ReactNode {
   const [started, setStarted] = useState(false);
   const [showNoDetectionHint, setShowNoDetectionHint] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const prevCountdownRef = useRef<0 | 1 | 2 | 3>(0);
+
+  // Held in a ref so the detection hook's `onAutoCapture` callback (below) is
+  // stable and always calls the latest capture sequence without re-arming the
+  // detection loop's memoized callbacks.
+  const runCaptureSequenceRef = useRef<() => Promise<void>>();
+  const handleAutoCapture = useCallback(() => {
+    void runCaptureSequenceRef.current?.();
+  }, []);
+
+  const { start: startDetection, stop: stopDetection } = useDocumentDetection({
+    onAutoCapture: handleAutoCapture,
+  });
 
   useEffect(() => {
     if (!started) {
@@ -108,6 +127,15 @@ export function ScannerScreen(): ReactNode {
       return;
     }
 
+    // Slice D review fix H1: reentrancy guard. Auto-capture (countdown -> 0)
+    // and a manual FAB tap can fire almost simultaneously; without this guard
+    // both would run captureFullResFrame and the second full-res ImageBitmap
+    // would overwrite the first. Already being in 'capturing' means a sequence
+    // owns the frame — bail out.
+    if (useScannerStore.getState().phase === 'capturing') {
+      return;
+    }
+
     // Design section 2.2: pause the loop before capturing so DETECT and the
     // full-res capture never race over the same video frame / worker.
     stopDetection();
@@ -137,23 +165,24 @@ export function ScannerScreen(): ReactNode {
       // previa, editor con frame completo"). This slice does not render
       // that editor, only prepares the frame + scaled-corner state for it.
       void fullResCorners;
-    } finally {
-      // Resume the live loop only if the user backs out of the (not yet
-      // built) editor and returns to the viewfinder — Slice E owns that
-      // transition. For now, re-starting here would fight with the
-      // 'editing-corners' phase Slice E is about to render into, so the
-      // loop stays stopped until Slice E explicitly resumes it.
-    }
-  }, [imageCaptureSupported, setOriginalFrame, setPhase, stopDetection]);
 
-  // Auto-capture: the countdown reaching 0 after having been > 0 signals
-  // the stability window completed (task 4.3.2's countdown finishing).
-  useEffect(() => {
-    if (prevCountdownRef.current > 0 && countdown === 0 && autoCaptureEnabled) {
-      void runCaptureSequence();
+      // On success the frame is handed off; the 'editing-corners' phase (set by
+      // setOriginalFrame) belongs to Slice E, which owns resuming the loop when
+      // the user backs out. The loop stays stopped here intentionally.
+    } catch {
+      // Slice D review fix M4: if capture throws (e.g. ImageCapture failure),
+      // never leave the scanner frozen in 'capturing'. Restore a usable phase
+      // and resume the live detection loop so the user can retry.
+      setPhase('idle');
+      if (videoRef.current) {
+        startDetection(videoRef.current);
+      }
     }
-    prevCountdownRef.current = countdown;
-  }, [autoCaptureEnabled, countdown, runCaptureSequence]);
+  }, [imageCaptureSupported, setOriginalFrame, setPhase, startDetection, stopDetection]);
+
+  // Keep the ref pointing at the latest capture sequence so the detection
+  // hook's stable `onAutoCapture` callback always invokes the current one.
+  runCaptureSequenceRef.current = runCaptureSequence;
 
   const handleStart = useCallback(() => {
     setStarted(true);
@@ -200,8 +229,16 @@ export function ScannerScreen(): ReactNode {
     );
   }
 
+  // Slice D review fix M2: derive the real detection-frame height from the
+  // camera's negotiated aspect ratio. createImageBitmap(video, { resizeWidth })
+  // preserves aspect, so a 16:9 stream yields a 640x360 detection frame, not
+  // 640x853. Using the real height both stops the overlay from stretching the
+  // contour and makes isTooFar's area denominator correct.
   const frameWidth = DETECTION.DOWNSCALE_WIDTH;
-  const frameHeight = DETECTION_FRAME_ASSUMED_HEIGHT;
+  const frameHeight =
+    realResolution != null && realResolution.width > 0
+      ? Math.round((DETECTION.DOWNSCALE_WIDTH * realResolution.height) / realResolution.width)
+      : DETECTION_FRAME_FALLBACK_HEIGHT;
   const tooFar = rawCorners != null && isTooFar(rawCorners, frameWidth, frameHeight);
 
   return (
