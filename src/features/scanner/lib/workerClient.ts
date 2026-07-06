@@ -152,6 +152,17 @@ export function createWorkerClient(): WorkerClient {
 
     terminate() {
       worker.terminate();
+      // Reject every in-flight request before dropping them (fix L2): a
+      // bare `.clear()` left callers awaiting `detect()`/`warp()`/`init()`
+      // hanging forever with no resolve/reject ever firing. Mirrors the
+      // worker `error` handler's own reject-then-clear behavior above.
+      const terminationError = new WorkerError(
+        'NOT_INITIALIZED',
+        'Worker terminated while a request was still in flight.',
+      );
+      for (const [, entry] of pending) {
+        entry.reject(terminationError);
+      }
       pending.clear();
       detectInFlight = false;
     },
