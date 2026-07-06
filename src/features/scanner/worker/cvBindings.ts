@@ -19,6 +19,15 @@ export interface CvMat {
   readonly cols: number;
   readonly data: Uint8Array;
   readonly data32F: Float32Array;
+  /**
+   * Int32 view over the Mat's data, used for `CV_32SC2` Mats (e.g. the
+   * output of `approxPolyDP`). OpenCV.js's Embind binding constructs this
+   * view already aligned to the Mat's actual byte offset within the WASM
+   * heap — reinterpreting `.data.buffer` manually with a raw `byteOffset`
+   * can throw `RangeError` when that offset isn't a multiple of 4 (fix
+   * H1: read contour points from this aligned view instead).
+   */
+  readonly data32S: Int32Array;
   readonly data64F: Float64Array;
   delete(): void;
   isDeleted(): boolean;
