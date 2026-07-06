@@ -21,7 +21,17 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        // Fake camera stream so useCamera's happy path (getUserMedia,
+        // enumerateDevices, track.getSettings) can be exercised headlessly
+        // without a real device or an OS permission dialog (design section
+        // 11 — "nada de mocks inventados de camara"; this uses Chromium's
+        // OWN fake-device implementation, not a hand-rolled mock).
+        launchOptions: {
+          args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
+        },
+      },
     },
   ],
 });
