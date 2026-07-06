@@ -174,43 +174,43 @@ Orden de dependencia entre grupos:
 > Depende de: grupo 2 (WorkerClient + worker DETECT) y grupo 3 (useCamera, CameraView). No empezar antes de tener 2.4/2.5 y 3.1/3.5 completos.
 
 ### 4.1 Loop de deteccion (`useDocumentDetection`)
-- [ ] 4.1.1 Implementar el loop con `requestVideoFrameCallback` (fallback `requestAnimationFrame`) que, mientras `!document.hidden`, genera `createImageBitmap(video, { resizeWidth: 640 })` y llama `workerClient.detect(bitmap, true)`.
+- [x] 4.1.1 Implementar el loop con `requestVideoFrameCallback` (fallback `requestAnimationFrame`) que, mientras `!document.hidden`, genera `createImageBitmap(video, { resizeWidth: 640 })` y llama `workerClient.detect(bitmap, true)`.
   Ref: design §2.1 (secuencia loop de deteccion)
-- [ ] 4.1.2 Implementar drop-latest: si el `WorkerClient` reporta ocupado, no crear el bitmap del frame nuevo (evitar consumo de memoria).
+- [x] 4.1.2 Implementar drop-latest: si el `WorkerClient` reporta ocupado, no crear el bitmap del frame nuevo (evitar consumo de memoria).
   Ref: design §2.1 (drop-latest); design §9 ADR-002
-- [ ] 4.1.3 Disparar `workerClient.init(onProgress)` de forma idempotente al montar (o al primer intento de abrir camara/import), respetando "no preload en Home".
+- [x] 4.1.3 Disparar `workerClient.init(onProgress)` de forma idempotente al montar (o al primer intento de abrir camara/import), respetando "no preload en Home".
   Ref: design §4.2
 
 ### 4.2 Interpolacion de esquinas y overlay
-- [ ] 4.2.1 Implementar interpolacion `lerp(prev, nuevo, INTERP_ALPHA)` de las esquinas recibidas, con fade-out del overlay cuando `corners === null` (sin salto brusco).
+- [x] 4.2.1 Implementar interpolacion `lerp(prev, nuevo, INTERP_ALPHA)` de las esquinas recibidas, con fade-out del overlay cuando `corners === null` (sin salto brusco).
   Ref: design §2.1 (interpolacion anti-jitter); scanner spec "Documento detectado y overlay estable"
-- [ ] 4.2.2 Renderizar el overlay del contorno interpolado sobre `CameraView` usando el color `--color-primary-light` de tokens.css.
+- [x] 4.2.2 Renderizar el overlay del contorno interpolado sobre `CameraView` usando el color `--color-primary-light` de tokens.css.
   Ref: proposal §5 CAP-2; design §0 (Overlay UI)
-- [ ] 4.2.3 Escribir `setCorners(interpolated, raw)` en `DetectionSlice` en cada resultado de DETECT.
+- [x] 4.2.3 Escribir `setCorners(interpolated, raw)` en `DetectionSlice` en cada resultado de DETECT.
   Ref: design §5.1 (DetectionSlice)
 
 ### 4.3 Buffer de estabilidad + auto-captura
-- [ ] 4.3.1 Implementar buffer circular de las ultimas N esquinas y calculo de varianza por punto; marcar "estable" cuando toda varianza < `STABILITY_VARIANCE_PX` durante `STABILITY_MS`. **Valores de partida a calibrar en dispositivo real — no fijar en tests como constantes exactas.**
+- [x] 4.3.1 Implementar buffer circular de las ultimas N esquinas y calculo de varianza por punto; marcar "estable" cuando toda varianza < `STABILITY_VARIANCE_PX` durante `STABILITY_MS`. **Valores de partida a calibrar en dispositivo real — no fijar en tests como constantes exactas.**
   Ref: design §2.1 (estabilidad); design §11 (umbral de estabilidad); scanner spec "Auto-captura por estabilidad de esquinas"
-- [ ] 4.3.2 Implementar countdown visual de 3 puntos que se dispara al alcanzar estabilidad y se cancela si la varianza supera el umbral antes de completarse.
+- [x] 4.3.2 Implementar countdown visual de 3 puntos que se dispara al alcanzar estabilidad y se cancela si la varianza supera el umbral antes de completarse.
   Ref: scanner spec "Esquinas estables durante la ventana de estabilidad", "Esquinas inestables interrumpen el countdown"
-- [ ] 4.3.3 Implementar toggle de auto-captura on/off en el store (`autoCaptureEnabled`), deshabilitando la evaluacion de estabilidad cuando esta apagado.
+- [x] 4.3.3 Implementar toggle de auto-captura on/off en el store (`autoCaptureEnabled`), deshabilitando la evaluacion de estabilidad cuando esta apagado.
   Ref: scanner spec "Usuario desactiva auto-captura"; design §5.1 (`autoCaptureEnabled`)
 
 ### 4.4 UI de captura
-- [ ] 4.4.1 Crear `CaptureButton.tsx` (FAB de 72px con anillo animado) que dispara captura manual en cualquier momento, independiente del estado de auto-captura.
+- [x] 4.4.1 Crear `CaptureButton.tsx` (FAB de 72px con anillo animado) que dispara captura manual en cualquier momento, independiente del estado de auto-captura.
   Ref: proposal §4.1 (`CaptureButton.tsx`); proposal §5 CAP-3
-- [ ] 4.4.2 Integrar el disparo de captura (manual o automatico) con la secuencia de `useCamera`/`useDocumentDetection` de design §2.2 (pausar loop, capturar full-res, escalar esquinas de 640px a full-res).
+- [x] 4.4.2 Integrar el disparo de captura (manual o automatico) con la secuencia de `useCamera`/`useDocumentDetection` de design §2.2 (pausar loop, capturar full-res, escalar esquinas de 640px a full-res).
   Ref: design §2.2 (secuencia captura→warp, pasos iniciales)
 
 ### 4.5 Hints de calidad
-- [ ] 4.5.1 Crear `QualityHints.tsx` con region `aria-live` que muestra "manten firme" (blur), "muy oscuro" (iluminacion) y "acercate mas" (area de contorno insuficiente) segun `DetectionSlice.quality`.
+- [x] 4.5.1 Crear `QualityHints.tsx` con region `aria-live` que muestra "manten firme" (blur), "muy oscuro" (iluminacion) y "acercate mas" (area de contorno insuficiente) segun `DetectionSlice.quality`.
   Ref: scanner spec "Feedback de calidad en vivo" (los 3 escenarios); proposal §5 CAP-5
-- [ ] 4.5.2 Implementar el calculo de "acercate mas" en el hilo de UI a partir del area del contorno detectado (proporcion respecto al frame), no depende del worker.
+- [x] 4.5.2 Implementar el calculo de "acercate mas" en el hilo de UI a partir del area del contorno detectado (proporcion respecto al frame), no depende del worker.
   Ref: scanner spec "Documento demasiado lejos del encuadre"
 
 ### 4.6 No-deteccion prolongada
-- [ ] 4.6.1 Implementar tracking de `noDetectionSince`; al superar `NO_DETECTION_MS` (5000ms) mostrar hint + boton "Capturar igual" que lleva el frame completo directo al editor manual de esquinas (grupo 5).
+- [x] 4.6.1 Implementar tracking de `noDetectionSince`; al superar `NO_DETECTION_MS` (5000ms) mostrar hint + boton "Capturar igual" que lleva el frame completo directo al editor manual de esquinas (grupo 5).
   Ref: scanner spec "No hay deteccion durante 5 segundos"; design §5.1 (`noDetectionSince`)
 
 ---
