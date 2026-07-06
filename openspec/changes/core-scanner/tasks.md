@@ -220,33 +220,33 @@ Orden de dependencia entre grupos:
 > Depende de: grupo 2 (WorkerClient.warp, geometry.isConvex), grupo 3 (captura de frame full-res), grupo 4 (esquinas detectadas escaladas a full-res, o entrada sin deteccion desde 4.6/grupo 6).
 
 ### 5.1 `CornerEditor` — handles y lupa
-- [ ] 5.1.1 Crear `CornerEditor.tsx` con 4 handles arrastrables, preseleccionados en las esquinas detectadas (si validas) o distribuidos en las esquinas del frame completo (si no hay deteccion valida).
+- [x] 5.1.1 Crear `CornerEditor.tsx` con 4 handles arrastrables, preseleccionados en las esquinas detectadas (si validas) o distribuidos en las esquinas del frame completo (si no hay deteccion valida).
   Ref: perspective spec "Handles preseleccionados desde deteccion automatica", "Sin deteccion previa, editor con frame completo"
-- [ ] 5.1.2 Implementar lupa magnificadora que se muestra centrada en el handle durante el arrastre y desaparece al soltar.
+- [x] 5.1.2 Implementar lupa magnificadora que se muestra centrada en el handle durante el arrastre y desaparece al soltar.
   Ref: perspective spec "Arrastre de un handle muestra lupa"
-- [ ] 5.1.3 Implementar validacion de convexidad con `isConvex` (2.2.1) tras cada `pointerup`/`touchend`; deshabilitar boton "Confirmar" e indicar visualmente el estado invalido cuando el cuadrilatero no sea convexo.
+- [x] 5.1.3 Implementar validacion de convexidad con `isConvex` (2.2.1) tras cada `pointerup`/`touchend`; deshabilitar boton "Confirmar" e indicar visualmente el estado invalido cuando el cuadrilatero no sea convexo.
   Ref: perspective spec "Cuadrilatero no convexo bloquea confirmacion"
-- [ ] 5.1.4 Garantizar que el recalculo de warp (llamada a `workerClient.warp`) se dispara SOLO en `pointerup`/`touchend`, nunca en posiciones intermedias de arrastre.
+- [x] 5.1.4 Garantizar que el recalculo de warp (llamada a `workerClient.warp`) se dispara SOLO en `pointerup`/`touchend`, nunca en posiciones intermedias de arrastre.
   Ref: perspective spec "Recalculo de warp solo al soltar el handle"
 
 ### 5.2 Disparo de warp desde el editor
-- [ ] 5.2.1 Implementar la extraccion de `ImageData` full-res del `CapturedFrame.source` y la llamada a `workerClient.warp(imageData, corners, aspectRatio)` al confirmar/soltar handle.
+- [x] 5.2.1 Implementar la extraccion de `ImageData` full-res del `CapturedFrame.source` y la llamada a `workerClient.warp(imageData, corners, aspectRatio)` al confirmar/soltar handle.
   Ref: design §2.2 (secuencia captura→warp, segunda mitad); perspective spec "Warp exitoso con aspect ratio inferido"
-- [ ] 5.2.2 Manejar la respuesta `WARP_RESULT` (ImageBitmap) o `WARP_RESULT_IMAGEDATA` segun `offscreenSupported`, actualizando `CaptureSlice.warpedImage` y cerrando el bitmap anterior antes de asignar el nuevo.
+- [x] 5.2.2 Manejar la respuesta `WARP_RESULT` (ImageBitmap) o `WARP_RESULT_IMAGEDATA` segun `offscreenSupported`, actualizando `CaptureSlice.warpedImage` y cerrando el bitmap anterior antes de asignar el nuevo.
   Ref: design §8 (contrato flexible WARP_RESULT); design §7 (liberacion de ImageBitmap)
-- [ ] 5.2.3 Implementar `EditRecipe` inicial al confirmar warp: `{ corners, aspectRatio, rotation: 0, flipH: false, flipV: false }`, guardado en `CaptureSlice.recipe` (JSON serializable, sin binarios).
+- [x] 5.2.3 Implementar `EditRecipe` inicial al confirmar warp: `{ corners, aspectRatio, rotation: 0, flipH: false, flipV: false }`, guardado en `CaptureSlice.recipe` (JSON serializable, sin binarios).
   Ref: design §5.2 (EditRecipe, patron no destructivo)
 
 ### 5.3 Aspect ratio — override manual
-- [ ] 5.3.1 Mostrar el aspect ratio inferido (`inferAspectRatio`, 2.2.3) y un selector para que el usuario lo sobrescriba antes de confirmar, descartando el valor inferido cuando el usuario elige otro.
+- [x] 5.3.1 Mostrar el aspect ratio inferido (`inferAspectRatio`, 2.2.3) y un selector para que el usuario lo sobrescriba antes de confirmar, descartando el valor inferido cuando el usuario elige otro.
   Ref: perspective spec "Usuario sobrescribe el aspect ratio inferido"
 
 ### 5.4 Rotacion y volteo post-warp (no destructivo)
-- [ ] 5.4.1 Implementar accion de rotar 90 grados que solo actualiza `recipe.rotation` (ciclo 0→90→180→270) y aplica un CSS transform en la capa de presentacion, sin re-invocar el worker.
+- [x] 5.4.1 Implementar accion de rotar 90 grados que solo actualiza `recipe.rotation` (ciclo 0→90→180→270) y aplica un CSS transform en la capa de presentacion, sin re-invocar el worker.
   Ref: perspective spec "Rotacion de 90 grados"; design §9 ADR-005
-- [ ] 5.4.2 Implementar accion de volteo horizontal que solo actualiza `recipe.flipH` y aplica CSS transform, sin re-invocar el worker.
+- [x] 5.4.2 Implementar accion de volteo horizontal que solo actualiza `recipe.flipH` y aplica CSS transform, sin re-invocar el worker.
   Ref: perspective spec "Volteo horizontal"; design §9 ADR-005
-- [ ] 5.4.3 Verificar (test o revision manual) que ninguna de estas ediciones muta `CapturedFrame.source`; solo la receta cambia.
+- [x] 5.4.3 Verificar (test o revision manual) que ninguna de estas ediciones muta `CapturedFrame.source`; solo la receta cambia.
   Ref: perspective spec "Ediciones no destructivas sobre el original"; design §5.2
 
 ---
