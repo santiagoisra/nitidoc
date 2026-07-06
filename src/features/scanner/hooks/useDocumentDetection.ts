@@ -3,8 +3,8 @@
  * Group 4 / Slice D).
  *
  * Responsibilities (scope of this hook, per tasks.md group 4):
- *  - Own the `WorkerClient` instance and call `init()` idempotently
- *    (task 4.1.3).
+ *  - Use the shared module-level `WorkerClient` singleton and call `init()`
+ *    idempotently (task 4.1.3; Slice D review fix C2 — see workerClient.ts).
  *  - Drive the loop with `requestVideoFrameCallback` (falls back to
  *    `requestAnimationFrame`), paused while `document.hidden` (task 4.1.1).
  *  - Drop-latest backpressure via `workerClient.isBusy()` — never creates a
@@ -24,10 +24,18 @@
  * dropped) — design section 7 memory hygiene. Drop-latest specifically does
  * NOT create a bitmap at all for a dropped frame (task 4.1.2), so there is
  * nothing to leak on the drop path.
+ *
+ * Auto-capture countdown (Slice D review fix C1): the countdown is driven
+ * IMPERATIVELY with a timer chain, not via a `useEffect` observing a ref.
+ * When a sustained stability window completes inside `runOneFrame`, the hook
+ * arms a single timer chain that writes `countdown` 3 -> 2 -> 1 -> 0 into the
+ * store (reactive, so the FAB ring reflects it) and, on reaching 0, fires the
+ * caller-supplied capture callback. Losing stability, no detection, toggling
+ * auto-capture off, or unmount all cancel the chain and reset `countdown`.
  */
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { createWorkerClient, type WorkerClient } from '@/features/scanner/lib/workerClient';
+import { useCallback, useEffect, useRef } from 'react';
+import { getSharedWorkerClient, type WorkerClient } from '@/features/scanner/lib/workerClient';
 import { DETECTION } from '@/features/scanner/lib/detectionConstants';
 import { lerpQuad, maxCornerVariance } from '@/features/scanner/lib/detectionMath';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
@@ -37,6 +45,22 @@ import type { Quad } from '@/shared/types/geometry';
 interface VideoFrameCallbackHost {
   requestVideoFrameCallback?: (callback: () => void) => number;
   cancelVideoFrameCallback?: (handle: number) => void;
+}
+
+/** A timestamped stability sample (Slice D review fix M1 — time-windowed, not count-windowed). */
+interface StabilitySample {
+  readonly t: number;
+  readonly quad: Quad;
+}
+
+export interface UseDocumentDetectionOptions {
+  /**
+   * Invoked when a sustained stability window completes and the auto-capture
+   * countdown reaches 0. The caller (ScannerScreen) runs the capture sequence.
+   * Optional so the hook stays usable in isolation / tests that only assert
+   * countdown state.
+   */
+  readonly onAutoCapture?: () => void;
 }
 
 export interface UseDocumentDetectionResult {
@@ -50,13 +74,16 @@ export interface UseDocumentDetectionResult {
   readonly initState: { readonly status: 'idle' | 'loading' | 'ready' | 'error'; readonly progress: number };
 }
 
-const STABILITY_BUFFER_CAPACITY = Math.max(
-  2,
-  Math.round(DETECTION.STABILITY_MS / 100), // ~1 sample per detected frame at a conservative 10fps floor
-);
+/** Interval between countdown ticks (3 -> 2 -> 1 -> 0), in ms. */
+const COUNTDOWN_TICK_MS = 1000;
 
-export function useDocumentDetection(): UseDocumentDetectionResult {
-  const workerClientRef = useRef<WorkerClient | null>(null);
+export function useDocumentDetection(
+  options: UseDocumentDetectionOptions = {},
+): UseDocumentDetectionResult {
+  // Slice D review fix C2: reuse the shared, module-level worker singleton so
+  // StrictMode remounts do not create a second worker / second OpenCV download.
+  const workerClient = getSharedWorkerClient();
+
   const initPromiseRef = useRef<Promise<void> | null>(null);
   const initStatusRef = useRef<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const initProgressRef = useRef(0);
@@ -66,10 +93,16 @@ export function useDocumentDetection(): UseDocumentDetectionResult {
   const runningRef = useRef(false);
   const useRvfcRef = useRef(true);
 
-  /** Stability buffer: recent (timestamp, quad) samples used by maxCornerVariance (task 4.3.1). */
-  const stabilityBufferRef = useRef<Quad[]>([]);
+  /** Stability buffer: recent timestamped samples used by maxCornerVariance (task 4.3.1; fix M1). */
+  const stabilityBufferRef = useRef<StabilitySample[]>([]);
   const stableSinceRef = useRef<number | null>(null);
-  const countdownActiveRef = useRef(false);
+
+  /** Imperative countdown timer handles (fix C1). Non-empty iff a countdown is currently armed. */
+  const countdownTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  /** Latest onAutoCapture, held in a ref so the loop callback never goes stale. */
+  const onAutoCaptureRef = useRef<UseDocumentDetectionOptions['onAutoCapture']>(options.onAutoCapture);
+  onAutoCaptureRef.current = options.onAutoCapture;
 
   const setCorners = useScannerStore((s) => s.setCorners);
   const setQuality = useScannerStore((s) => s.setQuality);
@@ -77,16 +110,13 @@ export function useDocumentDetection(): UseDocumentDetectionResult {
   const setCountdown = useScannerStore((s) => s.setCountdown);
   const setNoDetectionSince = useScannerStore((s) => s.setNoDetectionSince);
 
-  const workerClient = useMemo(() => {
-    if (!workerClientRef.current) {
-      workerClientRef.current = createWorkerClient();
-    }
-    return workerClientRef.current;
-  }, []);
-
   // Idempotent init (task 4.1.3): only the first caller actually triggers
   // workerClient.init(); subsequent calls (re-renders, remount while a
-  // previous init is still pending) share the same in-flight promise.
+  // previous init is still pending, StrictMode double-mount sharing the same
+  // singleton) share the same in-flight promise. The promise ref is module-
+  // independent per hook instance, but because the worker is shared, a second
+  // instance's init() also resolves against the same already-initialized
+  // worker without triggering a second OpenCV download.
   const ensureInit = useCallback((): Promise<void> => {
     if (initPromiseRef.current) {
       return initPromiseRef.current;
@@ -107,13 +137,47 @@ export function useDocumentDetection(): UseDocumentDetectionResult {
     return promise;
   }, [workerClient]);
 
+  /** Cancels any armed auto-capture countdown and resets the reactive countdown state (fix C1 / H2). */
+  const cancelCountdown = useCallback(() => {
+    if (countdownTimersRef.current.length > 0) {
+      countdownTimersRef.current.forEach(clearTimeout);
+      countdownTimersRef.current = [];
+      setCountdown(0);
+    }
+  }, [setCountdown]);
+
   const resetStabilityTracking = useCallback(() => {
     stabilityBufferRef.current = [];
     stableSinceRef.current = null;
-    countdownActiveRef.current = false;
-    setCountdown(0);
+    cancelCountdown();
     setStability(0);
-  }, [setCountdown, setStability]);
+  }, [cancelCountdown, setStability]);
+
+  /**
+   * Arms the imperative auto-capture countdown (fix C1). Idempotent: if a
+   * countdown is already running, this is a no-op so a sustained-stable stream
+   * of frames cannot re-arm (and reset) it every frame. Writes 3 -> 2 -> 1 -> 0
+   * into the reactive store countdown; at 0 it fires `onAutoCapture` and clears
+   * the armed handles.
+   */
+  const armCountdown = useCallback(() => {
+    if (countdownTimersRef.current.length > 0) {
+      return; // already counting down — do not re-arm
+    }
+    setCountdown(3);
+    const timers = [
+      setTimeout(() => setCountdown(2), COUNTDOWN_TICK_MS),
+      setTimeout(() => setCountdown(1), COUNTDOWN_TICK_MS * 2),
+      setTimeout(() => {
+        setCountdown(0);
+        // The chain has completed; drop the handles so a subsequent stable
+        // window can arm a fresh countdown, then fire the capture callback.
+        countdownTimersRef.current = [];
+        onAutoCaptureRef.current?.();
+      }, COUNTDOWN_TICK_MS * 3),
+    ];
+    countdownTimersRef.current = timers;
+  }, [setCountdown]);
 
   const runOneFrame = useCallback(() => {
     const video = videoRef.current;
@@ -149,37 +213,36 @@ export function useDocumentDetection(): UseDocumentDetectionResult {
           setCorners(interpolated, result.corners);
           setNoDetectionSince(null);
 
-          // Stability buffer (task 4.3.1): append the RAW corners (not the
-          // interpolated overlay ones) so variance reflects the worker's
-          // actual signal, not our own smoothing.
+          // Stability buffer (task 4.3.1; fix M1): append the RAW corners (not
+          // the interpolated overlay ones) with the frame timestamp, then drop
+          // samples older than STABILITY_MS so the variance window is a real
+          // time window regardless of frame rate (60fps vs 10fps).
+          const now = Date.now();
           const buffer = stabilityBufferRef.current;
-          buffer.push(result.corners);
-          if (buffer.length > STABILITY_BUFFER_CAPACITY) {
+          buffer.push({ t: now, quad: result.corners });
+          const windowStart = now - DETECTION.STABILITY_MS;
+          while (buffer.length > 0 && (buffer[0] as StabilitySample).t < windowStart) {
             buffer.shift();
           }
 
-          const variance = maxCornerVariance(buffer);
+          const variance = maxCornerVariance(buffer.map((sample) => sample.quad));
           const isStable = variance < DETECTION.STABILITY_VARIANCE_PX;
           setStability(isStable ? 1 : 0);
 
           if (isStable && autoCaptureEnabled) {
-            const now = Date.now();
             if (stableSinceRef.current === null) {
               stableSinceRef.current = now;
             }
             const elapsed = now - stableSinceRef.current;
             if (elapsed >= DETECTION.STABILITY_MS) {
-              countdownActiveRef.current = true;
+              // Sustained stability reached — arm the countdown (idempotent).
+              armCountdown();
             }
           } else {
-            // Variance exceeded the threshold before the countdown
-            // completed (task 4.3.2): cancel and start waiting for a new
-            // stability window.
+            // Variance exceeded the threshold before the countdown completed
+            // (task 4.3.2): cancel the countdown and wait for a new window.
             stableSinceRef.current = null;
-            if (countdownActiveRef.current) {
-              countdownActiveRef.current = false;
-              setCountdown(0);
-            }
+            cancelCountdown();
           }
         } else {
           // No valid contour this frame (scanner spec "Contorno... no
@@ -207,7 +270,16 @@ export function useDocumentDetection(): UseDocumentDetectionResult {
       }
       // eslint-disable-next-line @typescript-eslint/no-use-before-define
     })();
-  }, [resetStabilityTracking, setCorners, setCountdown, setNoDetectionSince, setQuality, setStability, workerClient]);
+  }, [
+    armCountdown,
+    cancelCountdown,
+    resetStabilityTracking,
+    setCorners,
+    setNoDetectionSince,
+    setQuality,
+    setStability,
+    workerClient,
+  ]);
 
   const scheduleNextFrame = useCallback(() => {
     if (!runningRef.current) {
@@ -276,35 +348,28 @@ export function useDocumentDetection(): UseDocumentDetectionResult {
     };
   }, [scheduleNextFrame]);
 
-  // Stop the loop (but NOT terminate the worker — a later mount within the
-  // same session should reuse init) on unmount.
+  // Cancel any armed auto-capture countdown the moment auto-capture is toggled
+  // off (Slice D review fix H2). Subscribing directly to the store (rather than
+  // re-rendering on `autoCaptureEnabled`) keeps the loop's callbacks stable.
+  useEffect(() => {
+    const unsubscribe = useScannerStore.subscribe((state, prev) => {
+      if (prev.autoCaptureEnabled && !state.autoCaptureEnabled) {
+        stableSinceRef.current = null;
+        cancelCountdown();
+      }
+    });
+    return unsubscribe;
+  }, [cancelCountdown]);
+
+  // Stop the loop and cancel any pending countdown timers on unmount. The
+  // shared worker is deliberately NOT terminated here (fix C2): a later mount
+  // within the same session reuses the singleton and its completed init().
   useEffect(() => {
     return () => {
       stop();
+      cancelCountdown();
     };
-  }, [stop]);
-
-  const isCountdownActive = countdownActiveRef.current;
-  useEffect(() => {
-    // Countdown ticks down 3, 2, 1 once stability + auto-capture triggers
-    // it (task 4.3.2). This effect only flips the visible countdown state;
-    // the actual capture trigger is wired by the caller via CaptureButton
-    // integration (task 4.4.2), which watches `countdown` reaching 0 after
-    // having been > 0.
-    if (!isCountdownActive) {
-      return;
-    }
-    setCountdown(3);
-    const timers = [
-      setTimeout(() => setCountdown(2), 1000),
-      setTimeout(() => setCountdown(1), 2000),
-      setTimeout(() => setCountdown(0), 3000),
-    ];
-    return () => {
-      timers.forEach(clearTimeout);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCountdownActive]);
+  }, [stop, cancelCountdown]);
 
   return {
     start,
