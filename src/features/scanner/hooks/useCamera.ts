@@ -224,8 +224,17 @@ export function useCamera(): UseCameraResult {
         return;
       }
       const advanced: TorchConstraintSet[] = [{ torch: on }];
-      await track.applyConstraints({ advanced: advanced as MediaTrackConstraintSet[] });
-      setTorchOn(on);
+      try {
+        await track.applyConstraints({ advanced: advanced as MediaTrackConstraintSet[] });
+        setTorchOn(on);
+      } catch {
+        // M3 fix: applyConstraints can reject (device busy, constraint not
+        // actually honorable despite advertising the capability, etc). The
+        // caller in ScannerScreen does `void setTorch(...)`, so letting this
+        // propagate becomes an unhandled rejection. Swallow it and leave
+        // `torchOn` untouched — the state must not claim a toggle succeeded
+        // when the hardware rejected it.
+      }
     },
     [setTorchOn],
   );
