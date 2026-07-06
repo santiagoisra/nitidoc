@@ -1,11 +1,11 @@
 import type { ReactNode } from 'react';
 import { ScanLine } from 'lucide-react';
-import { Button } from '@/shared/ui';
+import { ScannerScreen } from '@/features/scanner/components/ScannerScreen';
 
 /**
  * App shell — Fase 1 has a single screen (the scanner), no router.
- * The actual camera viewfinder / detection UI is wired in Groups 3-4;
- * this slice only establishes the dark-first shell layout.
+ * Live detection overlay, auto-capture, and the corner editor are wired in
+ * Groups 4-5; this slice wires the camera viewfinder itself (Group 3).
  */
 export function App(): ReactNode {
   return (
@@ -16,12 +16,7 @@ export function App(): ReactNode {
       </header>
 
       <main className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-8">
-        <p className="max-w-sm text-center text-sm text-text-muted">
-          Scanner viewfinder, live detection and capture UI are implemented in later slices.
-        </p>
-        <Button variant="primary" type="button" disabled>
-          Open scanner
-        </Button>
+        <ScannerScreen />
       </main>
     </div>
   );
