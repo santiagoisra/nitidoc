@@ -214,7 +214,19 @@ export const useScannerStore = create<ScannerStore>((set) => ({
   setNoDetectionSince: (noDetectionSince) => set({ noDetectionSince }),
   resetDetection: () => set({ ...initialDetectionSlice }),
 
-  setOriginalFrame: (originalFrame) => set({ originalFrame, phase: 'editing-corners' }),
+  setOriginalFrame: (originalFrame) =>
+    set((state) => {
+      // Slice D review fix H1 (design section 7 memory hygiene): closing a
+      // previously retained full-res ImageBitmap before overwriting it. If a
+      // second capture ever races the first (auto + manual), the earlier
+      // frame's bitmap would otherwise leak. `close()` on an already-consumed
+      // or fake bitmap is a no-op / guarded here.
+      const previous = state.originalFrame;
+      if (previous && previous.source !== originalFrame.source) {
+        previous.source.close();
+      }
+      return { originalFrame, phase: 'editing-corners' };
+    }),
   setPhase: (phase) => set({ phase }),
   resetCaptureSlice: () => set({ ...initialCaptureSlice }),
 }));
