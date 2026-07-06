@@ -128,43 +128,43 @@ Orden de dependencia entre grupos:
 > Depende de: grupo 1 (scaffold, estructura de hooks). Independiente del grupo 2 (puede desarrollarse en paralelo con 2.5/2.6), pero el grupo 4 depende de ambos.
 
 ### 3.1 `useCamera` — apertura y control basico
-- [ ] 3.1.1 Implementar `useCamera` con `getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } } })`, exponiendo el `MediaStream` al store (`CameraSlice`).
+- [x] 3.1.1 Implementar `useCamera` con `getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } } })`, exponiendo el `MediaStream` al store (`CameraSlice`).
   Ref: proposal §3.4; scanner spec "Apertura y control de camara"
-- [ ] 3.1.2 Leer `track.getSettings()` tras abrir el stream y persistir `realResolution` en el store (no asumir la resolucion `ideal`).
+- [x] 3.1.2 Leer `track.getSettings()` tras abrir el stream y persistir `realResolution` en el store (no asumir la resolucion `ideal`).
   Ref: design §5.1 (`realResolution`); scanner spec "Apertura exitosa de camara trasera en movil"
-- [ ] 3.1.3 Implementar manejo de `NotAllowedError` (permiso denegado) seteando `permission: 'denied'` en el store, sin crashear el flujo.
+- [x] 3.1.3 Implementar manejo de `NotAllowedError` (permiso denegado) seteando `permission: 'denied'` en el store, sin crashear el flujo.
   Ref: scanner spec "Permiso de camara denegado"
-- [ ] 3.1.4 Implementar manejo de `NotFoundError`/ausencia de `videoinput` en `enumerateDevices()`, marcando estado que habilita el fallback de import (grupo 6).
+- [x] 3.1.4 Implementar manejo de `NotFoundError`/ausencia de `videoinput` en `enumerateDevices()`, marcando estado que habilita el fallback de import (grupo 6).
   Ref: scanner spec "Sin camara disponible (desktop)"
 
 ### 3.2 Selector de camara + torch
-- [ ] 3.2.1 Implementar enumeracion de dispositivos (`enumerateDevices()` filtrando `videoinput`) y accion para cambiar de camara activa, actualizando el stream.
+- [x] 3.2.1 Implementar enumeracion de dispositivos (`enumerateDevices()` filtrando `videoinput`) y accion para cambiar de camara activa, actualizando el stream.
   Ref: scanner spec "Multiples camaras disponibles"; design §5.1 (`devices`, `activeDeviceId`)
-- [ ] 3.2.2 Crear componente `CameraSelector.tsx` que lista los dispositivos con su `label` y dispara el cambio de camara.
+- [x] 3.2.2 Crear componente `CameraSelector.tsx` que lista los dispositivos con su `label` y dispara el cambio de camara.
   Ref: proposal §4.1 (`CameraSelector.tsx`)
-- [ ] 3.2.3 Implementar feature-detect de torch (`track.getCapabilities().torch`) y accion `applyConstraints({ advanced: [{ torch }] })`; ocultar control si no hay soporte.
+- [x] 3.2.3 Implementar feature-detect de torch (`track.getCapabilities().torch`) y accion `applyConstraints({ advanced: [{ torch }] })`; ocultar control si no hay soporte.
   Ref: scanner spec "Torch no disponible en el dispositivo"; design §5.1 (`torchSupported`, `torchOn`)
 
 ### 3.3 `visibilitychange` — pausa/reanudacion
-- [ ] 3.3.1 Implementar listener de `visibilitychange` en `useCamera`/`useDocumentDetection` que pausa el loop de deteccion cuando `document.hidden === true` y lo reanuda al volver visible, sin detener el track salvo que haya muerto.
+- [x] 3.3.1 Implementar listener de `visibilitychange` en `useCamera`/`useDocumentDetection` que pausa el loop de deteccion cuando `document.hidden === true` y lo reanuda al volver visible, sin detener el track salvo que haya muerto.
   Ref: scanner spec "Pestaña oculta durante la deteccion en vivo"; design §8 (tabla, fila visibilitychange)
 
 ### 3.4 Feature-detect de capacidades de captura
-- [ ] 3.4.1 Detectar soporte de `ImageCapture` (`typeof ImageCapture === 'undefined'`) y de `OffscreenCanvas`/`transferControlToOffscreen`, persistiendo `imageCaptureSupported`/`offscreenSupported` en `CameraSlice`.
+- [x] 3.4.1 Detectar soporte de `ImageCapture` (`typeof ImageCapture === 'undefined'`) y de `OffscreenCanvas`/`transferControlToOffscreen`, persistiendo `imageCaptureSupported`/`offscreenSupported` en `CameraSlice`.
   Ref: design §5.1; design §8 (matriz de fallback)
 
 ### 3.5 Componente de vista de camara
-- [ ] 3.5.1 Crear `CameraView.tsx` con el elemento `<video>` conectado al `MediaStream` del store, mas contenedor para el overlay (el overlay en si se implementa en grupo 4).
+- [x] 3.5.1 Crear `CameraView.tsx` con el elemento `<video>` conectado al `MediaStream` del store, mas contenedor para el overlay (el overlay en si se implementa en grupo 4).
   Ref: proposal §4.1 (`CameraView.tsx`)
 
 ### 3.6 Captura de frame full-res
-- [ ] 3.6.1 Implementar captura via `ImageCapture.takePhoto()`/`grabFrame()` cuando `imageCaptureSupported === true`.
+- [x] 3.6.1 Implementar captura via `ImageCapture.takePhoto()`/`grabFrame()` cuando `imageCaptureSupported === true`.
   Ref: scanner spec "Captura via ImageCapture"; design §2.2 (secuencia captura→warp)
-- [ ] 3.6.2 Implementar fallback `drawImage(video)` sobre canvas al tamaño real (`getSettings()`) cuando `ImageCapture` no este disponible.
+- [x] 3.6.2 Implementar fallback `drawImage(video)` sobre canvas al tamaño real (`getSettings()`) cuando `ImageCapture` no este disponible.
   Ref: scanner spec "Fallback a drawImage sin soporte de ImageCapture"
-- [ ] 3.6.3 Aplicar cap de 16MP (`MAX_CAPTURE_PIXELS`) con downscale proporcional antes de crear cualquier canvas/bitmap de captura.
+- [x] 3.6.3 Aplicar cap de 16MP (`MAX_CAPTURE_PIXELS`) con downscale proporcional antes de crear cualquier canvas/bitmap de captura.
   Ref: scanner spec "Captura de frame full-res"; design §7 (cap 16MP), §6.4 (constante)
-- [ ] 3.6.4 Implementar liberacion de recursos inmediatamente tras cada captura: `ImageBitmap.close()`, `URL.revokeObjectURL()`, cierre del `warpedImage` previo antes de asignar uno nuevo.
+- [x] 3.6.4 Implementar liberacion de recursos inmediatamente tras cada captura: `ImageBitmap.close()`, `URL.revokeObjectURL()`, cierre del `warpedImage` previo antes de asignar uno nuevo.
   Ref: scanner spec "Liberacion de recursos tras captura"; design §7 (tabla completa)
 
 ---
