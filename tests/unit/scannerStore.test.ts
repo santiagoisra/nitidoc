@@ -65,3 +65,86 @@ describe('scannerStore.setOriginalFrame (H1)', () => {
     expect(() => useScannerStore.getState().setOriginalFrame(frame)).not.toThrow();
   });
 });
+
+/**
+ * Slice E (Group 5) additions: setWarpedImage follows the same
+ * close-before-overwrite hygiene as setOriginalFrame (design section 7), and
+ * resetCaptureSlice must release BOTH retained bitmaps before resetting the
+ * slice back to its initial state.
+ */
+describe('scannerStore.setWarpedImage', () => {
+  beforeEach(() => {
+    useScannerStore.setState({ ...scannerStoreInitialState });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('closes the previously retained warped bitmap before overwriting it', () => {
+    const firstBitmap = { close: vi.fn() } as unknown as ImageBitmap;
+    const secondBitmap = { close: vi.fn() } as unknown as ImageBitmap;
+
+    useScannerStore.getState().setWarpedImage(firstBitmap);
+    expect(useScannerStore.getState().warpedImage).toBe(firstBitmap);
+    expect((firstBitmap as unknown as { close: ReturnType<typeof vi.fn> }).close).not.toHaveBeenCalled();
+
+    useScannerStore.getState().setWarpedImage(secondBitmap);
+    expect((firstBitmap as unknown as { close: ReturnType<typeof vi.fn> }).close).toHaveBeenCalledTimes(1);
+    expect((secondBitmap as unknown as { close: ReturnType<typeof vi.fn> }).close).not.toHaveBeenCalled();
+    expect(useScannerStore.getState().warpedImage).toBe(secondBitmap);
+  });
+
+  it('does not close when the same bitmap is set again (idempotent)', () => {
+    const bitmap = { close: vi.fn() } as unknown as ImageBitmap;
+    useScannerStore.getState().setWarpedImage(bitmap);
+    useScannerStore.getState().setWarpedImage(bitmap);
+    expect((bitmap as unknown as { close: ReturnType<typeof vi.fn> }).close).not.toHaveBeenCalled();
+  });
+
+  it('does not throw when setting null (clearing the warped image)', () => {
+    const bitmap = { close: vi.fn() } as unknown as ImageBitmap;
+    useScannerStore.getState().setWarpedImage(bitmap);
+    expect(() => useScannerStore.getState().setWarpedImage(null)).not.toThrow();
+    expect((bitmap as unknown as { close: ReturnType<typeof vi.fn> }).close).toHaveBeenCalledTimes(1);
+    expect(useScannerStore.getState().warpedImage).toBeNull();
+  });
+});
+
+describe('scannerStore.resetCaptureSlice (design section 7 — release retained bitmaps on reset)', () => {
+  beforeEach(() => {
+    useScannerStore.setState({ ...scannerStoreInitialState });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('closes both originalFrame.source and warpedImage before resetting the slice', () => {
+    const { frame, bitmap: originalBitmap } = createFakeFrame();
+    const warpedBitmap = { close: vi.fn() } as unknown as ImageBitmap;
+
+    useScannerStore.getState().setOriginalFrame(frame);
+    useScannerStore.getState().setWarpedImage(warpedBitmap);
+    useScannerStore.getState().setRecipe({
+      corners: frame.source as unknown as never,
+      aspectRatio: 'a4',
+      rotation: 0,
+      flipH: false,
+      flipV: false,
+    });
+
+    useScannerStore.getState().resetCaptureSlice();
+
+    expect(originalBitmap.close).toHaveBeenCalledTimes(1);
+    expect((warpedBitmap as unknown as { close: ReturnType<typeof vi.fn> }).close).toHaveBeenCalledTimes(1);
+    expect(useScannerStore.getState().originalFrame).toBeNull();
+    expect(useScannerStore.getState().warpedImage).toBeNull();
+    expect(useScannerStore.getState().recipe).toBeNull();
+    expect(useScannerStore.getState().phase).toBe('idle');
+  });
+
+  it('does not throw when resetting with nothing retained', () => {
+    expect(() => useScannerStore.getState().resetCaptureSlice()).not.toThrow();
+  });
+});
