@@ -9,6 +9,15 @@
  * not a re-triggered animation, so it respects `prefers-reduced-motion`
  * without any extra media query (opacity transitions are not disorienting
  * motion in the same sense as translate/scale animations).
+ *
+ * Slice D review fix M2: `frameWidth`/`frameHeight` are the REAL detection
+ * frame dimensions (derived from the camera's negotiated aspect ratio), not a
+ * hardcoded 4:3 guess. The SVG uses `preserveAspectRatio="xMidYMid slice"` so
+ * the overlay coordinate space is cropped exactly the way `CameraView`'s
+ * `object-cover` crops the underlying video: both scale to cover the 3:4
+ * container and center-crop the overflow, keeping the drawn contour aligned
+ * with what the user actually sees. (Prior code used `preserveAspectRatio=none`
+ * with an assumed 4:3 height, which stretched the contour on non-4:3 streams.)
  */
 
 import type { ReactNode } from 'react';
@@ -31,7 +40,7 @@ export function DetectionOverlay({ corners, frameWidth, frameHeight }: Detection
   return (
     <svg
       viewBox={`0 0 ${frameWidth} ${frameHeight}`}
-      preserveAspectRatio="none"
+      preserveAspectRatio="xMidYMid slice"
       className="h-full w-full"
       aria-hidden="true"
       data-testid="detection-overlay"
