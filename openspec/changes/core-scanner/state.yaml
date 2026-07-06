@@ -20,8 +20,8 @@ phases:
     slices:
       A-scaffold: { status: done, group: 1, verified: true, bundle_gzip_kb: 50.35 }
       B-worker:   { status: done, group: 2, also: [7.1], branch: feat/scanner-worker, verified: true, review: passed, fixes: [C1, C2, H1, L2], tests: 25 }
-      C-camera:   { status: in_progress, group: 3, branch: feat/scanner-camera }
-      D-detection:{ status: pending, group: 4 }
+      C-camera:   { status: done, group: 3, branch: feat/scanner-camera, verified: true, review: passed, fixes: [C1, C2, H1, M1, M3, H2], tests: 40 }
+      D-detection:{ status: in_progress, group: 4, branch: feat/scanner-detection }
       E-editor:   { status: pending, group: 5 }
       F-edgecases:{ status: pending, groups: [6, 7] }
   verify:   { status: pending, artifact: verify-report.md }
