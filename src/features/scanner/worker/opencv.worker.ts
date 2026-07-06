@@ -95,16 +95,15 @@ function replyError(id: number, code: WorkerErrorCode, message: string): void {
  *
  * `approxPolyDP`'s output Mat is always `CV_32SC2` (a flat list of
  * 32-bit-signed-int x/y pairs), never `CV_32FC2` — `contour.data32F` is
- * empty for it. Points are read from the raw byte buffer reinterpreted as
- * `Int32Array`.
+ * empty for it. Points are read from `contour.data32S` (fix H1): manually
+ * reinterpreting `contour.data.buffer` with `contour.data.byteOffset` threw
+ * `RangeError` whenever that byte offset wasn't a multiple of 4 (the WASM
+ * heap offset of a given Mat is not guaranteed to be 4-byte aligned).
+ * `data32S` is the Embind-provided view, already correctly aligned.
  */
 function contourToPoints(contour: CvMat): Point[] {
   const points: Point[] = [];
-  const int32 = new Int32Array(
-    contour.data.buffer,
-    contour.data.byteOffset,
-    contour.data.byteLength / 4,
-  );
+  const int32 = contour.data32S;
   for (let i = 0; i + 1 < int32.length; i += 2) {
     points.push({ x: int32[i] as number, y: int32[i + 1] as number });
   }
@@ -183,6 +182,10 @@ async function handleDetect(request: DetectRequest): Promise<void> {
   let contours: CvMatVector | null = null;
   let hierarchy: CvMat | null = null;
   let approx: CvMat | null = null;
+  // Declared outside the try block (not just inside the loop) so the
+  // `finally` below can also release it — it is a Mat owned by this
+  // function like every other one here (design section 7).
+  let largestContour: CvMat | null = null;
 
   try {
     const ctx = getDetectContext(width, height);
@@ -204,14 +207,21 @@ async function handleDetect(request: DetectRequest): Promise<void> {
 
     const frameArea = width * height;
     let largestArea = 0;
-    let largestContour: CvMat | null = null;
     const contourCount = contours.size();
     for (let i = 0; i < contourCount; i += 1) {
+      // `MatVector.get(i)` allocates a NEW Mat on the WASM heap that the
+      // CALLER owns (design section 7: "cada cv.Mat se libera con
+      // .delete() en finally"). The loop must delete every losing contour
+      // immediately and keep only the current winner alive; the winner
+      // itself is deleted in the outer `finally` below.
       const contour = contours.get(i);
       const area = cv.contourArea(contour);
       if (area > largestArea) {
+        if (largestContour && !largestContour.isDeleted()) largestContour.delete();
         largestArea = area;
         largestContour = contour;
+      } else {
+        contour.delete();
       }
     }
 
@@ -247,6 +257,7 @@ async function handleDetect(request: DetectRequest): Promise<void> {
     if (edgesMat && !edgesMat.isDeleted()) edgesMat.delete();
     if (hierarchy && !hierarchy.isDeleted()) hierarchy.delete();
     if (approx && !approx.isDeleted()) approx.delete();
+    if (largestContour && !largestContour.isDeleted()) largestContour.delete();
     if (contours && !contours.isDeleted()) contours.delete();
   }
 }
