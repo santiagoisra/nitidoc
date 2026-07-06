@@ -98,13 +98,31 @@ export function isConvex(quad: Quad): boolean {
  * Orders 4 arbitrary corners into [topLeft, topRight, bottomRight,
  * bottomLeft] (design section 6.1).
  *
- * STARTING VALUE / R5 — the normalize-by-centroid-and-dominant-edge-angle
- * strategy below is a starting point that must be empirically verified
- * against rotated document fixtures (0/30/45/90 degrees and
- * near-vertical-inverted) per design section 11. The sum/difference
- * heuristic (TL=min(x+y), BR=max(x+y)) is used ONLY as a tie-breaker for
- * near-perfect squares where the dominant edge angle is ambiguous, exactly
- * as design section 6.1 specifies.
+ * FIX (post-review C1) — the previous implementation de-rotated the quad by
+ * the RAW dominant-edge angle (the angle of whichever edge was longest). For
+ * a PORTRAIT rectangle the longest edge is one of the VERTICAL sides, so
+ * de-rotating by that raw angle swings the whole quad ~90 degrees into a
+ * landscape-like orientation in the de-rotated space — and `min(x+y)` then
+ * picks the wrong vertex as top-left (verified: a portrait 10x20 rect with
+ * TL(0,0) TR(10,0) BR(10,20) BL(0,20) came back as [TR,BR,BL,TL]). Square
+ * and landscape quads happened to survive because their dominant edge is
+ * already close to horizontal.
+ *
+ * FIX: normalize the de-rotation angle modulo 90 degrees into the range
+ * `(-45deg, 45deg]` BEFORE de-rotating. Rotating a rectangle's dominant-edge
+ * angle by a multiple of 90 degrees does not change which pairs of edges are
+ * "the axis-aligned sides" — it only changes which one was picked as
+ * longest. Restricting to the smallest-magnitude equivalent angle guarantees
+ * the de-rotated quad is axis-aligned (both long AND short sides aligned to
+ * the x/y axes) regardless of whether the long or the short edge was
+ * dominant, so `min(x+y)` in that space reliably identifies the true
+ * top-left corner for portrait, landscape, and square quads alike, at 0,
+ * 30, and 45 degrees of rotation (verified numerically; see
+ * tests/unit/geometry.test.ts).
+ *
+ * The sum/difference heuristic (TL=min(x+y)) is applied directly in the
+ * de-rotated space; no separate axis-aligned fast path is needed since the
+ * de-rotation is a no-op (angle ~0) for already-axis-aligned input.
  */
 export function orderCorners(points: readonly Point[]): Quad {
   const c = centroid(points);
@@ -115,49 +133,33 @@ export function orderCorners(points: readonly Point[]): Quad {
     (a, b) => Math.atan2(a.y - c.y, a.x - c.x) - Math.atan2(b.y - c.y, b.x - c.x),
   );
 
-  // 2. Find the dominant edge angle and de-rotate the sorted points around
-  //    the centroid so the longest edge aligns with the horizontal axis.
-  //    In that de-rotated space, the classic sum heuristic is reliable.
-  const angle = dominantEdgeAngle(sorted);
+  // 2. Find the dominant edge angle, then normalize it modulo 90 degrees to
+  //    the smallest-magnitude equivalent in (-45deg, 45deg]. This is the
+  //    core fix: it de-rotates by an angle that aligns the rectangle's axes
+  //    without regard to which edge (long or short) happened to be
+  //    dominant, so the derotated quad is always axis-aligned.
+  const rawAngle = dominantEdgeAngle(sorted);
+  const halfPi = Math.PI / 2;
+  let angle = rawAngle;
+  while (angle > Math.PI / 4) angle -= halfPi;
+  while (angle <= -Math.PI / 4) angle += halfPi;
+
   const rotated = sorted.map((p) => rotatePoint(p, c, -angle));
 
+  // 3. In the de-rotated (axis-aligned) space, TL = min(x+y) — the standard
+  //    sum heuristic is now reliable because the quad's sides are aligned
+  //    to the axes, independent of portrait/landscape orientation.
   let tlIndex = 0;
   let tlScore = Infinity;
-  let ambiguous = false;
-  const scores: number[] = [];
   rotated.forEach((p, i) => {
     const score = p.x + p.y;
-    scores.push(score);
     if (score < tlScore) {
       tlScore = score;
       tlIndex = i;
     }
   });
 
-  // Tie-break for near-perfect squares: if two candidates are within a
-  // small epsilon of the minimum score, dominant-edge-angle discrimination
-  // is ambiguous; fall back to the plain sum heuristic on the ORIGINAL
-  // (non-derotated) points, per design section 6.1's explicit fallback.
-  const epsilon = 1e-6;
-  const tiedCount = scores.filter((s) => Math.abs(s - tlScore) < epsilon).length;
-  if (tiedCount > 1) {
-    ambiguous = true;
-  }
-
-  if (ambiguous) {
-    let fallbackIndex = 0;
-    let fallbackScore = Infinity;
-    sorted.forEach((p, i) => {
-      const score = p.x + p.y;
-      if (score < fallbackScore) {
-        fallbackScore = score;
-        fallbackIndex = i;
-      }
-    });
-    tlIndex = fallbackIndex;
-  }
-
-  // 3. Rotate the angular cycle to start at tlIndex.
+  // 4. Rotate the angular cycle to start at tlIndex.
   const ordered = [
     sorted[tlIndex % sorted.length],
     sorted[(tlIndex + 1) % sorted.length],
@@ -165,7 +167,7 @@ export function orderCorners(points: readonly Point[]): Quad {
     sorted[(tlIndex + 3) % sorted.length],
   ] as [Point, Point, Point, Point];
 
-  // 4. Force the winding that yields [TL, TR, BR, BL] in image coordinates
+  // 5. Force the winding that yields [TL, TR, BR, BL] in image coordinates
   //    (y grows downward). For a rectangle laid out as
   //    TL=(0,0), TR=(w,0), BR=(w,h), BL=(0,h), the shoelace signed area of
   //    that exact cycle is POSITIVE (verified: (0*0-w*0) + (w*h-w*0) +
