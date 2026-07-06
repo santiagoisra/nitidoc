@@ -60,6 +60,11 @@ export function createWorkerClient(): WorkerClient {
     type: 'module',
   });
 
+  return createWorkerClientForWorker(worker);
+}
+
+function createWorkerClientForWorker(worker: Worker): WorkerClient {
+
   let nextId = 1;
   const pending = new Map<number, PendingEntry>();
   let detectInFlight = false;
@@ -167,4 +172,44 @@ export function createWorkerClient(): WorkerClient {
       detectInFlight = false;
     },
   };
+}
+
+/**
+ * Module-level shared WorkerClient singleton (Slice D review fix C2).
+ *
+ * DECISION — one worker per app session, NOT one per hook instance.
+ * The detection hook previously created the worker via `useMemo` + a
+ * per-instance ref. Under React 18 StrictMode (dev) the component mounts,
+ * unmounts, and remounts with a FRESH ref, so `new Worker()` ran twice and
+ * OpenCV.js downloaded twice; the per-instance cleanup never terminated the
+ * first worker, leaking an orphan worker on every StrictMode double-mount and
+ * on every navigate-away/return.
+ *
+ * Making the worker a lazily-created module singleton guarantees:
+ *  (a) a single OpenCV download even when StrictMode double-mounts, because the
+ *      same worker (and its already-resolved / in-flight `init()` promise) is
+ *      reused instead of reconstructed;
+ *  (b) no orphaned workers accumulate on remount, because the hook no longer
+ *      owns the worker lifecycle and therefore never calls `terminate()` on
+ *      unmount — the shared instance simply stays alive for the session.
+ *
+ * Consequently, hook unmount MUST NOT terminate this client. If a full teardown
+ * is ever needed (e.g. leaving the scanner feature entirely), call
+ * `terminateSharedWorkerClient()` explicitly.
+ */
+let sharedWorkerClient: WorkerClient | null = null;
+
+export function getSharedWorkerClient(): WorkerClient {
+  if (!sharedWorkerClient) {
+    sharedWorkerClient = createWorkerClient();
+  }
+  return sharedWorkerClient;
+}
+
+/** Terminates and clears the shared client. Intended for explicit teardown / tests only. */
+export function terminateSharedWorkerClient(): void {
+  if (sharedWorkerClient) {
+    sharedWorkerClient.terminate();
+    sharedWorkerClient = null;
+  }
 }
