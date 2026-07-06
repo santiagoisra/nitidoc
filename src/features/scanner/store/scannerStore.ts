@@ -32,6 +32,13 @@ export interface CameraSlice {
   readonly imageCaptureSupported: boolean;
   /** Determines worker-internal OffscreenCanvas path vs. main-thread ImageData path. */
   readonly offscreenSupported: boolean;
+  /**
+   * Human-readable message for camera failures that are neither "permission
+   * denied" nor "no device" (e.g. `NotReadableError`, `OverconstrainedError`).
+   * Surfaced by the UI instead of letting `openCamera`'s rejection go
+   * unhandled (M1 fix — see useCamera.ts openCamera catch block).
+   */
+  readonly lastCameraError: string | null;
 }
 
 export interface DetectionSlice {
@@ -87,6 +94,7 @@ export interface CameraActions {
     readonly imageCaptureSupported: boolean;
     readonly offscreenSupported: boolean;
   }) => void;
+  readonly setLastCameraError: (message: string | null) => void;
   /** Resets the camera slice to its initial values (does NOT stop tracks — callers own that). */
   readonly resetCamera: () => void;
 }
@@ -103,6 +111,7 @@ const initialCameraSlice: CameraSlice = {
   permission: 'idle',
   imageCaptureSupported: false,
   offscreenSupported: false,
+  lastCameraError: null,
 };
 
 const initialDetectionSlice: DetectionSlice = {
@@ -159,5 +168,6 @@ export const useScannerStore = create<ScannerStore>((set) => ({
   setPermission: (permission) => set({ permission }),
   setCaptureCapabilities: ({ imageCaptureSupported, offscreenSupported }) =>
     set({ imageCaptureSupported, offscreenSupported }),
+  setLastCameraError: (lastCameraError) => set({ lastCameraError }),
   resetCamera: () => set({ ...initialCameraSlice }),
 }));

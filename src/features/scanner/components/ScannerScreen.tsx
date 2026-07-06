@@ -23,6 +23,7 @@ export function ScannerScreen(): ReactNode {
   const torchSupported = useScannerStore((s) => s.torchSupported);
   const torchOn = useScannerStore((s) => s.torchOn);
   const devices = useScannerStore((s) => s.devices);
+  const lastCameraError = useScannerStore((s) => s.lastCameraError);
   const [started, setStarted] = useState(false);
 
   useEffect(() => {
@@ -57,6 +58,14 @@ export function ScannerScreen(): ReactNode {
       <p role="alert" className="max-w-sm text-center text-sm text-danger" data-testid="permission-denied">
         Camera access was denied. Enable camera permission in your browser settings and reload, or use the
         import fallback (coming in a later slice).
+      </p>
+    );
+  }
+
+  if (lastCameraError != null) {
+    return (
+      <p role="alert" className="max-w-sm text-center text-sm text-danger" data-testid="camera-error">
+        Could not open the camera. Try again, or use the import fallback (coming in a later slice).
       </p>
     );
   }

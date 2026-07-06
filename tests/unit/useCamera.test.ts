@@ -1,4 +1,4 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useCamera } from '@/features/scanner/hooks/useCamera';
 import { useScannerStore, scannerStoreInitialState } from '@/features/scanner/store/scannerStore';
@@ -158,6 +158,30 @@ describe('useCamera lifecycle (C1 / C2 / H1)', () => {
     // clobbered the winning stream in the store.
     expect(firstTrack.stop).toHaveBeenCalledTimes(1);
     expect(useScannerStore.getState().stream).toBe(secondStream);
+
+    unmount();
+  });
+
+  it('M1: a non-permission/non-notfound getUserMedia rejection sets lastCameraError instead of throwing unhandled', async () => {
+    const { result, unmount } = renderHook(() => useCamera());
+
+    let openPromise: Promise<void>;
+    act(() => {
+      openPromise = result.current.openCamera();
+    });
+
+    const notReadableError = new DOMException('Could not start video source', 'NotReadableError');
+
+    await act(async () => {
+      getPendingCall(pendingCalls, 0).reject(notReadableError);
+      // Must resolve (not reject) — this assertion alone proves openCamera
+      // no longer rethrows for this error class.
+      await expect(openPromise).resolves.toBeUndefined();
+    });
+
+    await waitFor(() => {
+      expect(useScannerStore.getState().lastCameraError).toBe('Could not start video source');
+    });
 
     unmount();
   });
