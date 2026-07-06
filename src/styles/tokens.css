@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Design tokens — nitidoc-prompt-maestro.md section 1.2.
+ * Values are the exact hex/rgba from the master prompt color table.
+ * Do NOT rename or re-derive these; downstream components read them
+ * both as CSS variables and via tailwind.config.ts theme.extend.colors.
+ */
+:root {
+  /* Primary / accent (teal 600 family) */
+  --color-primary: #0ea5a4;
+  --color-primary-dark: #0b7c7b;
+  --color-primary-light: #5eead4;
+
+  /* Backgrounds (dark-first, slate family) */
+  --color-bg: #0f172a;
+  --color-surface: #1e293b;
+  --color-surface-light: #f8fafc;
+
+  /* Text */
+  --color-text: #f1f5f9;
+  --color-text-muted: #94a3b8;
+
+  /* Semantic */
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-overlay: rgba(15, 23, 42, 0.75);
+}
+
+/**
+ * Inter, self-hosted (variable font, latin subset).
+ * Source file: public/fonts/InterVariable.woff2
+ * If this font-face 404s, verify the file exists at that path —
+ * it is NOT loaded from any CDN (self-hosted requirement).
+ */
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/InterVariable.woff2') format('woff2-variations'), url('/fonts/InterVariable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+html {
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* Numbers / metadata use tabular figures per design system spec */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
