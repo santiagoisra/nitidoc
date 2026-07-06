@@ -19,7 +19,7 @@ phases:
     branch: feat/scanner-scaffold
     slices:
       A-scaffold: { status: done, group: 1, verified: true, bundle_gzip_kb: 50.35 }
-      B-worker:   { status: in_progress, group: 2, also: [7.1], branch: feat/scanner-worker }
+      B-worker:   { status: done, group: 2, also: [7.1], branch: feat/scanner-worker, verified: true, review: pending }
       C-camera:   { status: pending, group: 3 }
       D-detection:{ status: pending, group: 4 }
       E-editor:   { status: pending, group: 5 }
