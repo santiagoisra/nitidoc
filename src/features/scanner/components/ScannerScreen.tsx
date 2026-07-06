@@ -29,7 +29,7 @@ import { useDocumentDetection } from '@/features/scanner/hooks/useDocumentDetect
 import { captureFullResFrame } from '@/features/scanner/lib/captureFrame';
 import { DETECTION } from '@/features/scanner/lib/detectionConstants';
 import { isTooFar, scaleCornersToFullRes } from '@/features/scanner/lib/detectionMath';
-import { isConvex } from '@/features/scanner/lib/geometry';
+import { isConvex, orderCorners } from '@/features/scanner/lib/geometry';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
 import type { Quad } from '@/shared/types/geometry';
 
@@ -170,9 +170,15 @@ export function ScannerScreen(): ReactNode {
       const captured = await captureFullResFrame(video, track, imageCaptureSupported);
       const lastRawCorners = useScannerStore.getState().rawCorners;
 
+      // Fix M1: order the scaled corners defensively before handing them to
+      // the editor. Today the worker's DETECT already emits ordered corners, so
+      // this is normally a no-op — but that ordering is an undocumented
+      // upstream assumption. Re-ordering here makes the editor's [TL,TR,BR,BL]
+      // seed invariant hold regardless of the detection source (e.g. a future
+      // import path that pre-seeds corners without running DETECT).
       const scaledCorners =
         lastRawCorners != null
-          ? scaleCornersToFullRes(lastRawCorners, DETECTION.DOWNSCALE_WIDTH, captured.width)
+          ? orderCorners(scaleCornersToFullRes(lastRawCorners, DETECTION.DOWNSCALE_WIDTH, captured.width))
           : null;
 
       // Task 5.1.1 / scanner spec "Contorno... no convexo...": only hand a
@@ -290,6 +296,12 @@ export function ScannerScreen(): ReactNode {
   if ((phase === 'editing-corners' || phase === 'capturing') && originalFrame) {
     return (
       <CornerEditor
+        // Fix M3: key the editor by the frame's capture timestamp so a second
+        // capture REMOUNTS it with fresh `corners`/`aspectOverride` state.
+        // Without a key, the useState seeds only apply on first mount and the
+        // next capture would inherit the previous frame's dragged corners /
+        // aspect override.
+        key={originalFrame.capturedAt}
         frame={originalFrame}
         initialCorners={editorInitialCornersRef.current}
         onConfirm={handleEditorConfirm}
