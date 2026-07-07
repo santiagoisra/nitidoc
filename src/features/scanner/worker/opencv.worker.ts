@@ -12,6 +12,11 @@
  *   cv.matFromImageData -> cvtColor(GRAY) -> GaussianBlur -> Canny ->
  *   findContours -> largest-area contour -> approxPolyDP(4 sides) ->
  *   orderCorners + isConvex -> optional QualityMetrics.
+ * - DETECT_IMAGEDATA (task 6.7.1; design section 8): same pipeline as
+ *   DETECT (via the shared `runDetectPipeline`), but skips the internal
+ *   OffscreenCanvas draw step entirely — used when NEITHER the main thread
+ *   NOR this worker's own global scope has `OffscreenCanvas` (historically
+ *   Safari < 16.4). The main thread extracts `ImageData` itself instead.
  * - WARP: ImageDataLike -> cv.matFromImageData -> outputSize ->
  *   getPerspectiveTransform + warpPerspective -> ImageData ->
  *   OffscreenCanvas.putImageData -> transferToImageBitmap (ADR-003), or
@@ -25,6 +30,7 @@ import { loadOpenCv } from '@/features/scanner/lib/opencvLoader';
 import type { CvBindings, CvMat, CvMatVector } from './cvBindings';
 import type {
   DetectRequest,
+  DetectRequestImageData,
   DetectResponse,
   ImageDataLike,
   InitRequest,
@@ -164,16 +170,23 @@ function computeQuality(grayMat: CvMat): QualityMetrics {
   }
 }
 
-async function handleDetect(request: DetectRequest): Promise<void> {
-  if (!cv) {
-    replyError(request.id, 'NOT_INITIALIZED', 'DETECT received before INIT_DONE.');
-    request.bitmap.close();
-    return;
-  }
-
-  const { bitmap, withQuality } = request;
-  const width = bitmap.width;
-  const height = bitmap.height;
+/**
+ * Shared DETECT pipeline (design section 8 / task 6.7.1): both the normal
+ * `ImageBitmap`-transferring path (`handleDetect`, extracts pixels via the
+ * worker's internal OffscreenCanvas) and the no-OffscreenCanvas fallback
+ * (`handleDetectImageData`, receives already-extracted `ImageData` from the
+ * main thread) converge here once they have a plain `ImageData` in hand —
+ * cvtColor(GRAY) -> GaussianBlur -> Canny -> findContours -> largest-area
+ * contour -> approxPolyDP(4 sides) -> orderCorners + isConvex -> optional
+ * QualityMetrics. Single source of truth for the OpenCV pipeline itself.
+ */
+function runDetectPipeline(
+  cvBindings: CvBindings,
+  imageData: ImageData,
+  withQuality: boolean,
+): { readonly corners: Quad | null; readonly quality: QualityMetrics | null } {
+  const width = imageData.width;
+  const height = imageData.height;
 
   let srcMat: CvMat | null = null;
   let grayMat: CvMat | null = null;
@@ -188,22 +201,18 @@ async function handleDetect(request: DetectRequest): Promise<void> {
   let largestContour: CvMat | null = null;
 
   try {
-    const ctx = getDetectContext(width, height);
-    ctx.drawImage(bitmap, 0, 0, width, height);
-    const imageData = ctx.getImageData(0, 0, width, height);
+    srcMat = cvBindings.matFromImageData(imageData);
+    grayMat = new cvBindings.Mat();
+    blurredMat = new cvBindings.Mat();
+    edgesMat = new cvBindings.Mat();
+    contours = new cvBindings.MatVector();
+    hierarchy = new cvBindings.Mat();
+    approx = new cvBindings.Mat();
 
-    srcMat = cv.matFromImageData(imageData);
-    grayMat = new cv.Mat();
-    blurredMat = new cv.Mat();
-    edgesMat = new cv.Mat();
-    contours = new cv.MatVector();
-    hierarchy = new cv.Mat();
-    approx = new cv.Mat();
-
-    cv.cvtColor(srcMat, grayMat, cv.COLOR_RGBA2GRAY);
-    cv.GaussianBlur(grayMat, blurredMat, new cv.Size(5, 5), 0);
-    cv.Canny(blurredMat, edgesMat, 75, 200);
-    cv.findContours(edgesMat, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
+    cvBindings.cvtColor(srcMat, grayMat, cvBindings.COLOR_RGBA2GRAY);
+    cvBindings.GaussianBlur(grayMat, blurredMat, new cvBindings.Size(5, 5), 0);
+    cvBindings.Canny(blurredMat, edgesMat, 75, 200);
+    cvBindings.findContours(edgesMat, contours, hierarchy, cvBindings.RETR_LIST, cvBindings.CHAIN_APPROX_SIMPLE);
 
     const frameArea = width * height;
     let largestArea = 0;
@@ -215,7 +224,7 @@ async function handleDetect(request: DetectRequest): Promise<void> {
       // immediately and keep only the current winner alive; the winner
       // itself is deleted in the outer `finally` below.
       const contour = contours.get(i);
-      const area = cv.contourArea(contour);
+      const area = cvBindings.contourArea(contour);
       if (area > largestArea) {
         if (largestContour && !largestContour.isDeleted()) largestContour.delete();
         largestArea = area;
@@ -227,8 +236,8 @@ async function handleDetect(request: DetectRequest): Promise<void> {
 
     let corners: Quad | null = null;
     if (largestContour && largestArea >= frameArea * MIN_CONTOUR_AREA_RATIO) {
-      const perimeter = cv.arcLength(largestContour, true);
-      cv.approxPolyDP(largestContour, approx, 0.02 * perimeter, true);
+      const perimeter = cvBindings.arcLength(largestContour, true);
+      cvBindings.approxPolyDP(largestContour, approx, 0.02 * perimeter, true);
       const points = contourToPoints(approx);
 
       if (points.length === 4) {
@@ -243,14 +252,8 @@ async function handleDetect(request: DetectRequest): Promise<void> {
     }
 
     const quality = withQuality ? computeQuality(grayMat) : null;
-
-    const response: DetectResponse = { id: request.id, type: 'DETECT_RESULT', corners, quality };
-    postResponse(response);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown DETECT failure.';
-    replyError(request.id, 'DETECT_FAILED', message);
+    return { corners, quality };
   } finally {
-    bitmap.close();
     if (srcMat && !srcMat.isDeleted()) srcMat.delete();
     if (grayMat && !grayMat.isDeleted()) grayMat.delete();
     if (blurredMat && !blurredMat.isDeleted()) blurredMat.delete();
@@ -259,6 +262,59 @@ async function handleDetect(request: DetectRequest): Promise<void> {
     if (approx && !approx.isDeleted()) approx.delete();
     if (largestContour && !largestContour.isDeleted()) largestContour.delete();
     if (contours && !contours.isDeleted()) contours.delete();
+  }
+}
+
+async function handleDetect(request: DetectRequest): Promise<void> {
+  if (!cv) {
+    replyError(request.id, 'NOT_INITIALIZED', 'DETECT received before INIT_DONE.');
+    request.bitmap.close();
+    return;
+  }
+
+  const { bitmap, withQuality } = request;
+  const width = bitmap.width;
+  const height = bitmap.height;
+
+  try {
+    const ctx = getDetectContext(width, height);
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    const imageData = ctx.getImageData(0, 0, width, height);
+
+    const { corners, quality } = runDetectPipeline(cv, imageData, withQuality);
+    const response: DetectResponse = { id: request.id, type: 'DETECT_RESULT', corners, quality };
+    postResponse(response);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown DETECT failure.';
+    replyError(request.id, 'DETECT_FAILED', message);
+  } finally {
+    bitmap.close();
+  }
+}
+
+/**
+ * Fallback DETECT entry point (task 6.7.1; design section 8): used when
+ * NEITHER the main thread NOR the worker's own global scope has
+ * `OffscreenCanvas` available. The main thread has already extracted
+ * `ImageData` itself (via a regular `<canvas>`), so this skips the
+ * `getDetectContext`/`drawImage`/`getImageData` step entirely and feeds the
+ * SAME `runDetectPipeline` directly — single source of truth for the OpenCV
+ * algorithm regardless of which path produced the `ImageData`.
+ */
+async function handleDetectImageData(request: DetectRequestImageData): Promise<void> {
+  if (!cv) {
+    replyError(request.id, 'NOT_INITIALIZED', 'DETECT received before INIT_DONE.');
+    return;
+  }
+
+  try {
+    const imageData = imageDataLikeToImageData(request.image);
+    const { corners, quality } = runDetectPipeline(cv, imageData, request.withQuality);
+    const response: DetectResponse = { id: request.id, type: 'DETECT_RESULT', corners, quality };
+    postResponse(response);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown DETECT failure.';
+    replyError(request.id, 'DETECT_FAILED', message);
   }
 }
 
@@ -375,6 +431,9 @@ self.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
       break;
     case 'DETECT':
       void handleDetect(request);
+      break;
+    case 'DETECT_IMAGEDATA':
+      void handleDetectImageData(request);
       break;
     case 'WARP':
       void handleWarp(request, offscreenSupported);
