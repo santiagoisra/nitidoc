@@ -23,7 +23,14 @@ phases:
       C-camera:   { status: done, group: 3, branch: feat/scanner-camera, verified: true, review: passed, fixes: [C1, C2, H1, M1, M3, H2], tests: 40 }
       D-detection:{ status: done, group: 4, branch: feat/scanner-detection, verified: true, review: passed, fixes: [C1, C2, H1, H2, M2, M4, M1], tests: 70 }
       E-editor:   { status: done, group: 5, branch: feat/scanner-editor, verified: true, review: passed, fixes: [C1, C2, H1, H2, H3, M3, M1, L2], tests: 105 }
-      F-edgecases:{ status: done, groups: [6, 7.2], branch: feat/scanner-edgecases, verified: partial, review: pending, tests: 126, e2e_fixture: degraded, open_risk: opencv-worker-init-unverified }
+      F-edgecases:{ status: done, groups: [6, 7.2], branch: feat/scanner-edgecases, verified: partial, review: passed, fixes: [HIGH1, HIGH2, M1, M2, LOW2], tests: 130, e2e_fixture: degraded, open_risk: opencv-worker-init-unverified }
+  open_p0:
+    opencv-worker-init: |
+      Hipotesis (review Slice F): @techstark/opencv-js es build Emscripten clasico;
+      no carga via import() en module worker (type:module). Sintoma: init() cuelga.
+      Manejo de falla YA es robusto (degrada). FALTA: verificar en browser real si
+      OpenCV realmente arranca; si no, reformar carga (classic worker + importScripts
+      o build ESM/factory). Decide si el escaner funciona de verdad.
   verify:   { status: pending, artifact: verify-report.md }
   archive:  { status: pending }
 
