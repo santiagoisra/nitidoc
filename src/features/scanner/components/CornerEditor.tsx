@@ -106,6 +106,10 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
   const activePointerIdRef = useRef<number | null>(null);
   /** Tracks whether the active drag actually moved, to skip a redundant warp on a bare tap (fix L2). */
   const movedRef = useRef(false);
+  /** Backing canvas that shows the source document behind the handles/overlay. */
+  const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  /** Guards the one-shot initial warp so it runs exactly once per mounted frame. */
+  const initialWarpDoneRef = useRef(false);
 
   // Fix C1/C2: monotonic warp sequence + mounted flag. Every runWarp claims a
   // sequence number; a warp whose number is no longer the latest (a newer warp
@@ -122,6 +126,21 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
       warpSeqRef.current += 1;
     };
   }, []);
+
+  // Draw the source document into the backing canvas so the user can SEE the
+  // page while adjusting the corner handles (the overlay/handles alone would
+  // float over an empty surface otherwise). `frame.source` is immutable and not
+  // closed by the memoized ImageData extraction, so it stays drawable here.
+  useEffect(() => {
+    const canvas = sourceCanvasRef.current;
+    if (!canvas) return;
+    canvas.width = frame.width;
+    canvas.height = frame.height;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(frame.source, 0, 0);
+    }
+  }, [frame.source, frame.width, frame.height]);
 
   // Fix H2: `frame.source` is immutable, so extract the full-res ImageData
   // ONCE per frame instead of allocating a full-res canvas (~48MB for a
@@ -265,6 +284,20 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
     [aspectOverride, sourceImageData, setRecipe, setWarpedImage],
   );
 
+  // Run one warp as soon as the editor opens so the user immediately sees the
+  // corrected preview and can Confirm without first nudging a handle. `recipe`
+  // (required to enable Confirm) and `warpedImage` are only produced by a warp,
+  // so without this the editor would sit inert with Confirm disabled. Runs once
+  // per mounted frame (the component is keyed by `capturedAt`, so a new capture
+  // remounts and re-warps). Skipped for a non-convex seed — the user must fix
+  // the quad first, exactly like the drag path.
+  useEffect(() => {
+    if (initialWarpDoneRef.current) return;
+    if (!sourceImageData || !isConvex(seedCorners)) return;
+    initialWarpDoneRef.current = true;
+    void runWarp(seedCorners);
+  }, [sourceImageData, seedCorners, runWarp]);
+
   const handlePointerDown = useCallback(
     (index: 0 | 1 | 2 | 3) => (event: ReactPointerEvent<HTMLButtonElement>) => {
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -370,6 +403,11 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
         className="relative aspect-[3/4] w-full max-w-md overflow-hidden rounded-2xl bg-surface"
         data-testid="corner-editor-canvas"
       >
+        <canvas
+          ref={sourceCanvasRef}
+          className="absolute inset-0 h-full w-full object-cover"
+          aria-hidden="true"
+        />
         <svg
           viewBox={`0 0 ${frame.width} ${frame.height}`}
           preserveAspectRatio="xMidYMid slice"

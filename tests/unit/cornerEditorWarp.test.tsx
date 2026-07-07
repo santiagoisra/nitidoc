@@ -136,6 +136,29 @@ function warpResult(bitmap: ImageBitmap): WarpResponse {
   return { id: 1, type: 'WARP_RESULT', bitmap, outWidth: 700, outHeight: 990 };
 }
 
+/**
+ * CornerEditor now runs ONE warp on mount so the corrected preview shows
+ * immediately (and Confirm enables) without the user first nudging a handle.
+ * These tests measure only INTERACTION-triggered warps, so we let that initial
+ * mount warp fire, resolve it, and reset the mock/store before the interaction
+ * under test.
+ */
+async function flushInitialMountWarp(): Promise<void> {
+  await waitFor(() => expect(warpDeferreds.length).toBeGreaterThanOrEqual(1));
+  const initial = warpDeferreds[0];
+  if (initial) {
+    await act(async () => {
+      initial.resolve(warpResult(makeBitmap()));
+      await Promise.resolve();
+    });
+  }
+  warpMock.mockClear();
+  warpDeferreds.length = 0;
+  act(() => {
+    useScannerStore.setState({ warpedImage: null, recipe: null });
+  });
+}
+
 describe('CornerEditor warp concurrency + bitmap hygiene (C1/C2)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -159,6 +182,8 @@ describe('CornerEditor warp concurrency + bitmap hygiene (C1/C2)', () => {
         onCancel={vi.fn()}
       />,
     );
+
+    await flushInitialMountWarp();
 
     // Fire warp A (choose "letter"), then warp B (choose "ticket") BEFORE A
     // resolves. handleAspectChange runs runWarp because the seeded quad is
@@ -206,6 +231,8 @@ describe('CornerEditor warp concurrency + bitmap hygiene (C1/C2)', () => {
       />,
     );
 
+    await flushInitialMountWarp();
+
     fireEvent.click(screen.getByTestId('aspect-ratio-letter'));
     await waitFor(() => expect(warpDeferreds.length).toBe(1));
 
@@ -251,6 +278,8 @@ describe('CornerEditor redundant-tap guard (L2)', () => {
       />,
     );
 
+    await flushInitialMountWarp();
+
     const handle = screen.getByTestId('corner-handle-0');
     // happy-dom's pointer capture is a no-op on a detached-ish element; guard
     // so the handler under test still runs its warp-decision logic.
@@ -274,6 +303,8 @@ describe('CornerEditor redundant-tap guard (L2)', () => {
         onCancel={vi.fn()}
       />,
     );
+
+    await flushInitialMountWarp();
 
     const handle = screen.getByTestId('corner-handle-0');
     (handle as HTMLElement).setPointerCapture = () => {};
