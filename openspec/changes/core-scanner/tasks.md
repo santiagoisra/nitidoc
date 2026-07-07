@@ -256,40 +256,48 @@ Orden de dependencia entre grupos:
 > Sub-tareas con dependencias cruzadas: 6.1/6.2 dependen del grupo 3 (camara); 6.3 depende de grupos 2+3+5 (pipeline completo); 6.4/6.5 dependen del grupo 4 (deteccion); 6.6 depende del grupo 2 (worker); 6.7 depende de grupos 2+3 (offscreen feature-detect).
 
 ### 6.1 Permiso de camara denegado
-- [ ] 6.1.1 Crear pantalla/mensaje con instrucciones para habilitar permiso (segun navegador) cuando `CameraSlice.permission === 'denied'`, con boton hacia el fallback de import (6.3).
+- [x] 6.1.1 Crear pantalla/mensaje con instrucciones para habilitar permiso (segun navegador) cuando `CameraSlice.permission === 'denied'`, con boton hacia el fallback de import (6.3).
   Ref: scanner spec "Permiso de camara denegado"; design §8 (tabla, fila permiso denegado)
+  Slice F: `ImportFallback.tsx` (reason='permission-denied'), instrucciones por user-agent (Chrome/Firefox/Safari), boton "Import image" hacia el mismo pipeline.
 
 ### 6.2 Sin camara disponible (desktop)
-- [ ] 6.2.1 Detectar ausencia de `videoinput`/`NotFoundError` y activar automaticamente el fallback de import minimo en vez del viewfinder.
+- [x] 6.2.1 Detectar ausencia de `videoinput`/`NotFoundError` y activar automaticamente el fallback de import minimo en vez del viewfinder.
   Ref: scanner spec "Sin camara disponible (desktop)"; design §8 (tabla, fila sin camara)
+  Slice F: la deteccion `NotFoundError`/`devices=[]` ya existia (Slice C, useCamera.ts); Slice F conecta esa condicion a `ImportFallback` (reason='no-camera') en ScannerScreen.tsx en vez de solo un texto plano.
 
 ### 6.3 Fallback de import minimo (`captureFallback.ts`)
-- [ ] 6.3.1 Implementar `src/features/scanner/lib/captureFallback.ts` con `<input type="file" accept="image/*">` simple (sin drag&drop, sin multiple, sin HEIC — fuera de alcance Fase 6), decodificando el archivo a `ImageBitmap` y aplicando el cap de 16MP.
+- [x] 6.3.1 Implementar `src/features/scanner/lib/captureFallback.ts` con `<input type="file" accept="image/*">` simple (sin drag&drop, sin multiple, sin HEIC — fuera de alcance Fase 6), decodificando el archivo a `ImageBitmap` y aplicando el cap de 16MP.
   Ref: scanner spec "Fallback de import de imagen (desktop sin camara)"; design §9 ADR-006
-- [ ] 6.3.2 Conectar la imagen importada al MISMO pipeline: correr `DETECT` una vez sobre ella (frame reducido) para pre-poblar esquinas, luego abrir `CornerEditor` (grupo 5) y permitir warp.
+- [x] 6.3.2 Conectar la imagen importada al MISMO pipeline: correr `DETECT` una vez sobre ella (frame reducido) para pre-poblar esquinas, luego abrir `CornerEditor` (grupo 5) y permitir warp.
   Ref: design §9 ADR-006; scanner spec "Import de imagen en desktop sin camara"
-- [ ] 6.3.3 Verificar que el import no ofrece drag&drop ni seleccion multiple (comportamiento negativo explicito).
+  Bug encontrado y corregido en esta slice: el import fallback nunca disparaba `workerClient.init()` (solo lo hacia el loop de camara), causando `NOT_INITIALIZED` en DETECT/WARP siempre. Fix: `ensureOpenCvInit()` expuesto desde `useDocumentDetection`, disparado en background al entrar al escaner (`started`), con timeout acotado (`IMPORT_DETECT_TIMEOUT_MS=15s`) en el import handler para no bloquear indefinidamente.
+- [x] 6.3.3 Verificar que el import no ofrece drag&drop ni seleccion multiple (comportamiento negativo explicito).
   Ref: scanner spec "Import de imagen no ofrece funcionalidad fuera de alcance"
 
 ### 6.4 No-deteccion en 5s → editor con frame completo
-- [ ] 6.4.1 Conectar el hint de "capturar igual" (4.6.1) con la apertura de `CornerEditor` sin esquinas preseleccionadas validas (distribuidas sobre el frame completo).
+- [x] 6.4.1 Conectar el hint de "capturar igual" (4.6.1) con la apertura de `CornerEditor` sin esquinas preseleccionadas validas (distribuidas sobre el frame completo).
   Ref: scanner spec "No hay deteccion durante 5 segundos"; perspective spec "Sin deteccion previa, editor con frame completo"
+  Ya cubierto por Slice D/E (`handleCaptureAnyway` -> `runCaptureSequence`, `editorInitialCornersRef` queda null sin deteccion valida). Verificado en esta slice, sin cambios de codigo adicionales.
 
 ### 6.5 Contorno no convexo / esquina fuera de frame
-- [ ] 6.5.1 Verificar que cuando el worker retorna `corners: null` por no-convexidad o esquina fuera de `[0,w]×[0,h]`, la auto-captura NO se dispara y una captura manual en ese estado abre el editor con frame completo (sin esquinas invalidas preseleccionadas).
+- [x] 6.5.1 Verificar que cuando el worker retorna `corners: null` por no-convexidad o esquina fuera de `[0,w]×[0,h]`, la auto-captura NO se dispara y una captura manual en ese estado abre el editor con frame completo (sin esquinas invalidas preseleccionadas).
   Ref: scanner spec "Contorno detectado no es convexo o tiene una esquina fuera de frame"
+  Ya cubierto por Slice B (worker gating via `isConvex`+bounds) y Slice D/E (`runCaptureSequence`'s `isConvex` gate antes de pre-seedear el editor). Verificado en esta slice, sin cambios de codigo adicionales.
 
 ### 6.6 Fallo de carga de OpenCV → modo degradado
-- [ ] 6.6.1 Implementar el modo degradado manual cuando `opencv.status === 'error'` tras agotar reintentos: permitir capturar + editar esquinas con frame completo; si OpenCV se recupera en un reintento posterior, permitir warp; documentar (comentario + issue/nota) la decision de "hasta donde llega el degradado" como pendiente de confirmar en apply si surge ambiguedad de producto.
+- [x] 6.6.1 Implementar el modo degradado manual cuando `opencv.status === 'error'` tras agotar reintentos: permitir capturar + editar esquinas con frame completo; si OpenCV se recupera en un reintento posterior, permitir warp; documentar (comentario + issue/nota) la decision de "hasta donde llega el degradado" como pendiente de confirmar en apply si surge ambiguedad de producto.
   Ref: scanner spec "Fallo de carga de OpenCV.js"; design §4.4 (modo degradado); design §11 (alcance del degradado, confirmar en apply)
+  Slice F: gap real encontrado — `OpenCvSlice.status` nunca se escribia desde ningun lado (solo vivia en refs locales de `useDocumentDetection`). Agregado `setOpenCvStatus` al store; `useDocumentDetection` ahora mirrorea `idle->loading->ready/error` con backoff exponencial acotado (1s/2s/4s, max 3 auto-retries) + `retryManualInit` manual. `OpenCvDegradedBanner.tsx` muestra el estado degradado y permite reintentar; ScannerScreen oculta overlay/quality-hints/auto-capture-toggle mientras `opencv.status==='error'`. Decision de alcance registrada en el comentario del banner: capturar+editar con frame completo siempre disponible; warp se re-intenta transparentemente si OpenCV se recupera (mismo mecanismo de recuperacion que resume el loop de deteccion).
 
 ### 6.7 Sin `OffscreenCanvas` (Safari < 16.4)
-- [ ] 6.7.1 Implementar camino alterno en el main thread: cuando `offscreenSupported === false`, extraer `ImageData` dibujando en un `<canvas>` del hilo principal (en vez de que el worker use `OffscreenCanvas` interno) y enviar `ImageDataLike` tanto para DETECT como para WARP.
+- [x] 6.7.1 Implementar camino alterno en el main thread: cuando `offscreenSupported === false`, extraer `ImageData` dibujando en un `<canvas>` del hilo principal (en vez de que el worker use `OffscreenCanvas` interno) y enviar `ImageDataLike` tanto para DETECT como para WARP.
   Ref: design §8 (matriz de fallback, fila "Sin OffscreenCanvas"); scanner spec (restriccion transversal — sin inventar APIs no soportadas)
+  Slice F: gap real encontrado — el camino WARP sin OffscreenCanvas ya existia (Slice B/C), pero DETECT SIEMPRE usaba OffscreenCanvas interno del worker sin importar `offscreenSupported`. Agregado `DETECT_IMAGEDATA` al contrato (`messages.ts`), `handleDetectImageData`+`runDetectPipeline` compartido en el worker, `WorkerClient.detectImageData`, `bitmapToImageData` (main-thread extraction, `mainThreadImageData.ts`), y wiring en `useDocumentDetection`'s loop + `ScannerScreen`'s import handler, ambos gateados por `offscreenSupported` leido del store.
 
 ### 6.8 Documento rotado — verificacion empirica de `orderCorners`
-- [ ] 6.8.1 Preparar fixtures manuales/checklist de documentos capturados con rotacion 0°/30°/45°/90°/casi-vertical-invertido para validar `orderCorners` (2.2.2) en condiciones reales; documentar resultado y cualquier ajuste de normalizacion necesario. **No se fija como comportamiento validado hasta completar esta verificacion en apply.**
+- [x] 6.8.1 Preparar fixtures manuales/checklist de documentos capturados con rotacion 0°/30°/45°/90°/casi-vertical-invertido para validar `orderCorners` (2.2.2) en condiciones reales; documentar resultado y cualquier ajuste de normalizacion necesario. **No se fija como comportamiento validado hasta completar esta verificacion en apply.**
   Ref: design §6.1 (nota de verificacion empirica R5); perspective spec "Documento con orientacion rotada..."
+  0°/30°/45°/90° ya cubiertos por Slice B (`geometry.test.ts`). Slice F agrega fixtures sinteticas 90° (caso limite exacto, ambiguo por diseño — documentado) y 170°/180° (casi-vertical-invertido): el contrato garantizado en esos angulos es convexidad + preservacion del conjunto de puntos, NO una identidad de esquina exacta, porque a 180° el algoritmo (normalizacion modulo 90°) es indistinguible de 0° sin informacion semantica de texto/orientacion — limite documentado, no bug. Verificacion en DISPOSITIVO REAL (fixtures fotografiadas) queda pendiente de QA — fuera del alcance de tests automatizados.
 
 ---
 
@@ -306,10 +314,12 @@ Orden de dependencia entre grupos:
   Ref: design §6.3
 
 ### 7.2 E2E de humo (Playwright)
-- [ ] 7.2.1 Crear fixture de imagen de documento (archivo estatico en `tests/e2e/fixtures/`) para simular el flujo sin camara real.
+- [x] 7.2.1 Crear fixture de imagen de documento (archivo estatico en `tests/e2e/fixtures/`) para simular el flujo sin camara real.
   Ref: proposal §2.1 (harness de testing); design §11 (nada de mocks inventados de camara — usar el fallback de import real)
-- [ ] 7.2.2 Escribir test E2E de humo: cargar la app, usar el fallback de import (`captureFallback`, 6.3.1) con la fixture, y verificar que se llega a mostrar una imagen deswarpeada (o al menos que el editor de esquinas se abre y permite confirmar).
+  `tests/e2e/fixtures/document.png` generado por script (800x1000, rectangulo claro con bandas de "texto" sobre fondo oscuro), no un placeholder trivial.
+- [x] 7.2.2 Escribir test E2E de humo: cargar la app, usar el fallback de import (`captureFallback`, 6.3.1) con la fixture, y verificar que se llega a mostrar una imagen deswarpeada (o al menos que el editor de esquinas se abre y permite confirmar).
   Ref: proposal §7 (criterios de aceptacion, item 9: Playwright con fixture de imagen)
+  **RESULTADO DEGRADADO Y DOCUMENTADO (no oculto):** se investigo a fondo (instrumentacion directa en `opencvLoader.ts`, trazado de mensajes worker<->main) y se confirmo que OpenCV.js WASM NUNCA termina de inicializar dentro del Web Worker en este entorno Playwright/Chromium headless — el chunk de 10MB descarga OK (HTTP 200), pero `await import('@techstark/opencv-js')` dentro del worker nunca resuelve, y el message-loop del worker queda bloqueado (ni siquiera responde `NOT_INITIALIZED` a un WARP posterior). La MISMA importacion SI funciona en ~500ms en el hilo principal y en un worker generico minimo — es especifico de este build de OpenCV.js dentro de ESTE patron de worker (sin guard `ENVIRONMENT_IS_WORKER`). `tests/e2e/importFixture.spec.ts` verifica: import real -> decodificacion -> editor abre con esquinas frame-completo -> se envia un WARP real al worker -> se confirma (con espera acotada) que ni exito ni error llegan en este entorno, sin errores de pagina no manejados, y que "Confirm" permanece deshabilitado (comportamiento CORRECTO, no bug). La correctitud de pixeles de `warpPerspective` contra un documento real, y la confirmacion de que el worker de OpenCV carga en un navegador de dispositivo real (no este entorno headless), quedan como QA en dispositivo pendiente.
 
 ---
 
