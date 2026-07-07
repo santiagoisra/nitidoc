@@ -118,7 +118,7 @@ function contourToPoints(contour: CvMat): Point[] {
 
 async function handleInit(request: InitRequest): Promise<void> {
   try {
-    const loaded = await loadOpenCv((progress, indeterminate) => {
+    const { cv: loaded } = await loadOpenCv((progress, indeterminate) => {
       const event: WorkerProgressEvent = { id: request.id, type: 'PROGRESS', progress: indeterminate ? 0 : progress };
       postResponse(event);
     }, request.assetUrl);

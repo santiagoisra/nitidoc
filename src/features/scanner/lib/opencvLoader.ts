@@ -44,53 +44,6 @@ export interface CvRuntime {
 export type OnProgress = (progress: number, indeterminate: boolean) => void;
 
 /**
- * Streams the OpenCV.js asset purely to report determinate download progress
- * when the server sends a usable `Content-Length`. The bytes read here are
- * discarded — the actual runtime is still instantiated by `importScripts`
- * below (which re-reads the asset from the HTTP cache). Any failure is
- * non-fatal: we fall back to indeterminate progress and let `importScripts`
- * do the real work.
- *
- * Returns `true` if determinate progress was reported to completion, `false`
- * otherwise (caller then reports indeterminate).
- */
-async function tryStreamingProgressFetch(
-  onProgress: OnProgress,
-  assetUrl: string,
-): Promise<boolean> {
-  let response: Response;
-  try {
-    response = await fetch(assetUrl);
-  } catch {
-    return false;
-  }
-
-  if (!response.ok || !response.body) {
-    return false;
-  }
-
-  const contentLengthHeader = response.headers.get('Content-Length');
-  const total = contentLengthHeader ? Number.parseInt(contentLengthHeader, 10) : null;
-
-  if (total === null || Number.isNaN(total) || total <= 0) {
-    // No usable Content-Length: report indeterminate and let importScripts run.
-    onProgress(0, true);
-    return false;
-  }
-
-  const reader = response.body.getReader();
-  let received = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    received += value.byteLength;
-    onProgress(Math.min(received / total, 1), false);
-  }
-
-  return true;
-}
-
-/**
  * Resolves once the OpenCV WASM runtime has finished initializing.
  *
  * After `importScripts`, the global `cv` object exists but its WASM runtime
@@ -117,13 +70,31 @@ function waitForRuntime(cv: CvRuntime): Promise<void> {
   });
 }
 
+/**
+ * Non-thenable holder for the loaded OpenCV runtime.
+ *
+ * CRITICAL: the Emscripten `cv` object is itself a THENABLE — it exposes a
+ * `cv.then(fn)` that fires on runtime init. If a Promise is ever resolved with
+ * (or an async function `return`s) the raw `cv`, the Promise machinery tries to
+ * adopt the thenable's state by calling `cv.then(resolve, reject)` — and
+ * `cv.then` calls `resolve(cv)` with that SAME thenable, so resolution recurses
+ * on itself and the promise NEVER settles. Symptom: `INIT` reports progress to
+ * completion but `INIT_DONE` never fires, so DETECT/WARP never run and the UI
+ * hangs on "Processing…". We therefore hand the runtime across every `await`
+ * boundary wrapped in this plain object, never as the bare thenable.
+ */
+export interface LoadedOpenCv {
+  readonly cv: CvRuntime;
+}
+
 let cvSingleton: CvRuntime | null = null;
-let loadPromise: Promise<CvRuntime> | null = null;
+let loadPromise: Promise<LoadedOpenCv> | null = null;
 
 /**
  * Loads OpenCV.js exactly once (subsequent calls return the cached
  * promise/instance). Reports progress via `onProgress` and resolves once the
- * WASM runtime has initialized.
+ * WASM runtime has initialized. Resolves with a {@link LoadedOpenCv} wrapper —
+ * never the bare (thenable) runtime — see the note above.
  *
  * MUST run inside a CLASSIC worker: relies on `self.importScripts`.
  *
@@ -134,17 +105,17 @@ let loadPromise: Promise<CvRuntime> | null = null;
 export async function loadOpenCv(
   onProgress: OnProgress,
   assetUrl: string,
-): Promise<CvRuntime> {
+): Promise<LoadedOpenCv> {
   if (cvSingleton) {
     onProgress(1, false);
-    return cvSingleton;
+    return { cv: cvSingleton };
   }
 
   if (loadPromise) {
     return loadPromise;
   }
 
-  loadPromise = (async () => {
+  loadPromise = (async (): Promise<LoadedOpenCv> => {
     const workerScope = self as DedicatedWorkerGlobalScope;
 
     if (typeof workerScope.importScripts !== 'function') {
@@ -153,26 +124,28 @@ export async function loadOpenCv(
       );
     }
 
-    try {
-      await tryStreamingProgressFetch(onProgress, assetUrl);
-    } catch {
-      // Streaming progress is best-effort only; never let it block the load.
-      onProgress(0, true);
-    }
+    // Report indeterminate progress, then load synchronously via importScripts.
+    // We deliberately do NOT pre-stream the asset for a determinate progress
+    // bar: that re-downloads the ~10 MB asset a second time (importScripts reads
+    // it again anyway) and, in the bundled production worker, the streaming read
+    // stalled and hung init (INIT never completed → detection/warp never ran).
+    // A one-time indeterminate spinner is the right trade-off for a lazy load.
+    onProgress(0, true);
 
     // Synchronous: on return, the OpenCV runtime is assigned to `self.cv`.
     workerScope.importScripts(assetUrl);
 
-    const cv = workerScope.cv as CvRuntime | undefined;
-    if (!cv) {
+    const runtime = workerScope.cv as CvRuntime | undefined;
+    if (!runtime) {
       throw new Error('importScripts loaded opencv.js but global `cv` was not defined.');
     }
 
-    await waitForRuntime(cv);
+    await waitForRuntime(runtime);
 
     onProgress(1, false);
-    cvSingleton = cv;
-    return cv;
+    cvSingleton = runtime;
+    // Wrap: never resolve this promise with the thenable runtime itself.
+    return { cv: runtime };
   })();
 
   try {
