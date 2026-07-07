@@ -9,6 +9,9 @@ dist-ssr/
 build/
 *.local
 
+# OpenCV.js asset (~10MB, copied from node_modules by scripts/copy-opencv.mjs)
+public/opencv/
+
 # Vite
 .vite/
 
