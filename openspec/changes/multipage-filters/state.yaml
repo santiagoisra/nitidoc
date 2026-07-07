@@ -1,0 +1,27 @@
+change: multipage-filters
+title: "Fase 2 — Multipagina + filtros"
+created: 2026-07-06
+artifact_store: openspec
+base_branch: feat/multipage-filters
+depends_on: core-scanner   # Fase 1 (escaner, store, CapturedFrame, EditRecipe)
+scope: |
+  Fase 2 del roadmap Nitidoc:
+  - F5 Gestion multipagina: modo lote/bandeja, grilla con reorden drag&drop (dnd-kit),
+    duplicar, eliminar (undo por toast 5s), rotar, insertar pagina, seleccion multiple.
+  - F4 Filtros (por pagina o documento): Original, Color realzado, Escala de grises,
+    B&N (umbral adaptativo), Alto contraste B&N, Eco/Ahorro tinta; sliders brillo/contraste/
+    nitidez NO destructivos (receta); preview del filtro por thumbnail; WebGL + fallback Canvas2D.
+  Criterio de aceptacion: documento de 5 paginas con filtros mixtos.
+  NO incluye: PDF/firma/compartir (Fase 3), PWA/IndexedDB (Fase 4), Firebase (Fase 5).
+
+execution_mode: auto
+
+phases:
+  explore:  { status: pending, artifact: exploration.md }
+  propose:  { status: pending, artifact: proposal.md }
+  spec:     { status: pending, artifact: specs/ }
+  design:   { status: pending, artifact: design.md }
+  tasks:    { status: pending, artifact: tasks.md }
+  apply:    { status: pending, artifact: tasks.md }
+  verify:   { status: pending, artifact: verify-report.md }
+  archive:  { status: pending }
