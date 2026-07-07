@@ -15,7 +15,7 @@
 
 import type { ChangeEvent, ReactNode } from 'react';
 import { useCallback, useRef } from 'react';
-import { FileImage } from 'lucide-react';
+import { FileImage, Loader2 } from 'lucide-react';
 import { Button } from '@/shared/ui';
 import { IMPORT_FALLBACK_ACCEPT } from '@/features/scanner/lib/captureFallback';
 
@@ -25,6 +25,13 @@ export interface ImportFallbackProps {
   readonly reason: ImportFallbackReason;
   readonly onFileSelected: (file: File) => void;
   readonly errorMessage?: string | null;
+  /**
+   * LOW-2: true while the selected file is being processed (decode + optional
+   * OpenCV DETECT pre-seed). Disables the picker and surfaces a spinner + an
+   * `aria-live` status so the user is not left wondering whether their click
+   * registered during the wait (which can span a first-time ~10MB WASM load).
+   */
+  readonly busy?: boolean;
 }
 
 /**
@@ -47,7 +54,12 @@ function detectBrowserInstructions(): string {
   return 'Click the lock/info icon in the address bar, set Camera to "Allow", then reload the page.';
 }
 
-export function ImportFallback({ reason, onFileSelected, errorMessage }: ImportFallbackProps): ReactNode {
+export function ImportFallback({
+  reason,
+  onFileSelected,
+  errorMessage,
+  busy = false,
+}: ImportFallbackProps): ReactNode {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const handleChange = useCallback(
@@ -67,11 +79,18 @@ export function ImportFallback({ reason, onFileSelected, errorMessage }: ImportF
   );
 
   const handlePickFile = useCallback(() => {
+    if (busy) {
+      return; // LOW-2: ignore clicks while an import is already processing.
+    }
     inputRef.current?.click();
-  }, []);
+  }, [busy]);
 
   return (
-    <div className="flex w-full max-w-sm flex-col items-center gap-4 text-center" data-testid="import-fallback">
+    <div
+      className="flex w-full max-w-sm flex-col items-center gap-4 text-center"
+      data-testid="import-fallback"
+      aria-busy={busy}
+    >
       {reason === 'permission-denied' && (
         <div className="flex flex-col gap-2" data-testid="permission-denied-instructions">
           <p role="alert" className="text-sm text-danger">
@@ -93,10 +112,30 @@ export function ImportFallback({ reason, onFileSelected, errorMessage }: ImportF
         </p>
       )}
 
-      <Button type="button" variant="primary" onClick={handlePickFile} data-testid="import-fallback-button">
-        <FileImage size={18} strokeWidth={1.5} aria-hidden="true" />
-        Import image
+      <Button
+        type="button"
+        variant="primary"
+        onClick={handlePickFile}
+        disabled={busy}
+        data-testid="import-fallback-button"
+      >
+        {busy ? (
+          <Loader2 size={18} strokeWidth={1.5} aria-hidden="true" className="animate-spin" />
+        ) : (
+          <FileImage size={18} strokeWidth={1.5} aria-hidden="true" />
+        )}
+        {busy ? 'Processing…' : 'Import image'}
       </Button>
+
+      {/* LOW-2: polite live region so assistive tech announces the wait. */}
+      <p
+        role="status"
+        aria-live="polite"
+        className="sr-only"
+        data-testid="import-fallback-status"
+      >
+        {busy ? 'Processing the selected image, please wait.' : ''}
+      </p>
 
       {/*
         Single file, no `multiple`, no drag&drop handlers anywhere on this
