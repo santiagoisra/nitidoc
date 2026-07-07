@@ -10,64 +10,37 @@ const FIXTURE_PATH = path.join(__dirname, 'fixtures', 'document.png');
  * section 7, acceptance criterion 9: "Playwright con fixture de imagen").
  *
  * ============================================================================
- * IMPORTANT — HONEST RESULT OF THIS SLICE'S INVESTIGATION (read before
- * changing this test or drawing conclusions from it elsewhere):
+ * OPENCV LOAD PATH — history and current contract (read before changing this
+ * test or drawing conclusions from it elsewhere):
  * ============================================================================
  *
- * OpenCV.js WASM (`@techstark/opencv-js`, the real detection/warp engine)
- * DOES NOT successfully initialize inside `opencv.worker.ts`'s Web Worker in
- * THIS Playwright/Chromium headless environment. This was root-caused during
- * this slice with direct instrumentation, not assumed:
+ * PREVIOUS (broken) design: `opencv.worker.ts` was an ES-MODULE worker that
+ * loaded OpenCV.js via a bundled dynamic `import('@techstark/opencv-js')`. That
+ * `import()` never resolved inside the worker — the classic Emscripten UMD
+ * build does not complete its bootstrap in an ES-module worker scope — so
+ * `workerClient.init()` hung forever and the worker message loop stayed blocked
+ * (no INIT_DONE, and later WARP messages got no reply at all). Root-caused with
+ * direct instrumentation during the Slice F investigation.
  *
- *  - The worker constructs successfully and receives the `INIT` postMessage.
- *  - The `opencv-*.js` chunk (~10MB) DOES download successfully (HTTP 200).
- *  - `await import('@techstark/opencv-js')` inside the worker's own module
- *    scope never resolves — traced with `console.log` instrumentation
- *    directly inside `opencvLoader.ts` (temporarily, then reverted), which
- *    confirmed execution never even reaches the log line right after that
- *    `await`. So `onRuntimeInitialized` never fires and `workerClient.init()`
- *    hangs forever.
- *  - The SAME chunk imports successfully in ~500ms on the MAIN thread, and a
- *    minimal hand-rolled Worker importing the SAME chunk via a blob URL also
- *    resolves in ~500ms — so this is NOT a generic "WASM in workers doesn't
- *    work here" limitation. It is specific to this exact worker's bundled
- *    dynamic import of this exact OpenCV.js build (this Emscripten build has
- *    no `ENVIRONMENT_IS_WORKER` guard in its source, consistent with it not
- *    fully supporting a dedicated-Worker load path in every runtime).
- *  - Worse than a clean rejection: the worker's message loop appears to be
- *    genuinely BLOCKED by the stuck `import()` — a subsequent `WARP` message
- *    sent to the SAME worker (confirmed via direct `postMessage`
- *    instrumentation) never gets ANY response at all, not even the
- *    `NOT_INITIALIZED` error `handleWarp`'s `if (!cv)` guard would produce if
- *    it ever ran. The worker is simply never processing that message.
- *  - Consequence: `CornerEditor`'s `recipe` state (only set on a SUCCESSFUL
- *    warp) never becomes non-null, `Confirm` (`disabled={!valid || !recipe}`)
- *    can never be enabled, and the UI is left showing `warp-loading`
- *    ("Processing…") indefinitely — NOT `warp-error`, because that requires
- *    the worker to actually reply, which it never does here.
+ * CURRENT design (fix/opencv-classic-worker): the worker is now a CLASSIC
+ * worker that loads OpenCV via `self.importScripts('/opencv/opencv.js')` (the
+ * canonical opencv.js-in-worker pattern). The asset is served from
+ * `public/opencv/opencv.js` (copied from node_modules by
+ * `scripts/copy-opencv.mjs` as a pre-* hook) and bundled into `dist/opencv/`.
+ * With the WASM embedded inline, no `locateFile`/separate `.wasm` is needed.
  *
- * This is a genuine, reproducible environment limitation of THIS
- * Playwright/Chromium setup, not a bug this slice introduced — the SAME
- * limitation silently affected every earlier E2E test that touches DETECT
- * (`detection.spec.ts`, `cornerEditor.spec.ts`), which is why their own
- * docstrings already disclaim ever having verified real OpenCV execution.
- * This task (7.2) is the FIRST to wait long enough and check closely enough
- * to discover WHY that was always true, rather than attributing it solely to
- * Chromium's fake camera having no real document.
- *
- * Per this slice's explicit instructions ("si la carga de OpenCV en
- * Playwright es demasiado lenta/flaky o no viable en este entorno, decilo
- * explicitamente y degrada el E2E"), this test is DEGRADED accordingly: it
- * verifies import -> decode -> editor-opens-with-frame-completo-corners ->
- * a warp attempt is sent to the worker, all with zero unhandled page errors,
- * and asserts the (bounded, short) wait for either a successful warp or an
- * error is NOT met in this environment — proving the finding above rather
- * than silently timing out. It does NOT claim a de-skewed image was
- * produced. Real pixel-correctness of `warpPerspective` against a real
- * document, and confirming OpenCV's worker-load path on an ACTUAL target
- * browser (not this CI-style headless Chromium), remain device QA work (see
- * this slice's apply-progress notes) — same category as design section 11's
- * already-flagged R1/R5/degraded-mode empirical calibration items.
+ * This test is written to be HONEST about both outcomes rather than hardcoding
+ * either: it drives the real import -> decode -> editor -> warp pipeline with
+ * zero tolerance for unhandled page errors, and then asserts the worker
+ * ACTUALLY RESPONDS to the warp request — success (`warp-preview`) OR a clean
+ * error (`warp-error`) — instead of hanging indefinitely as the old ES-module
+ * worker did. It does NOT assert pixel-correctness of `warpPerspective` against
+ * a real document; that, plus confirming the load path on ACTUAL target
+ * browsers (not this CI-style headless Chromium), remains device QA work (see
+ * design section 11's R1/R5/degraded-mode calibration items). If OpenCV fails
+ * to load in this specific headless environment for an unrelated reason, the
+ * warp path degrades to `warp-error` (a reply), which this test still accepts —
+ * what it will NOT tolerate is the old silent infinite hang.
  *
  * How the import fallback is reached: via `--use-fake-ui-for-media-stream=deny`
  * (the SAME Chromium fake-UI flag `camera.spec.ts` already uses for its
@@ -137,16 +110,16 @@ test.describe('Phase 1 acceptance: import fallback -> detect -> edit -> warp (ta
       }
       // eslint-disable-next-line no-console
       console.log(`[task 7.2] seeded corner-handle positions (percent): ${JSON.stringify(handlePositions)}`);
-      // In THIS environment OpenCV never finishes initializing (see
-      // docstring), so DETECT never ran successfully either — the seed is
-      // the frameCorners() full-frame fallback (5%/95% inset), not a real
-      // detected quad. Asserted explicitly rather than silently assumed.
-      expect(handlePositions).toEqual([
-        { left: '5%', top: '5%' },
-        { left: '95%', top: '5%' },
-        { left: '95%', top: '95%' },
-        { left: '5%', top: '95%' },
-      ]);
+      // The seed is EITHER a real detected quad (if the one-shot DETECT ran on
+      // this fixture) OR the frameCorners() full-frame fallback (5%/95% inset,
+      // used when DETECT found nothing / OpenCV was not ready in time). Both
+      // are valid — we only assert four positioned handles exist, not their
+      // exact coordinates, so this stays honest whether or not detection fired.
+      expect(handlePositions).toHaveLength(4);
+      for (const pos of handlePositions) {
+        expect(pos.left).toMatch(/%$/);
+        expect(pos.top).toMatch(/%$/);
+      }
 
       // `CornerEditor` only invokes `workerClient.warp` on a handle
       // pointerup/aspect-ratio change (task 5.1.4 "recalculo solo al
@@ -155,22 +128,27 @@ test.describe('Phase 1 acceptance: import fallback -> detect -> edit -> warp (ta
       // real user's drag-release would, and puts the UI into the
       // `warp-loading` ("Processing…") state while the request is in flight.
       await page.getByTestId('aspect-ratio-unknown').click();
-      await expect(page.getByTestId('warp-loading')).toBeVisible({ timeout: 5_000 });
 
-      // Per the file docstring: in THIS environment the worker never replies
-      // to the WARP request at all (not even NOT_INITIALIZED), because its
-      // message loop is blocked on the still-pending OpenCV `import()`. A
-      // short, bounded wait (well under a real timeout) confirms neither a
-      // successful warp NOR an error response ever arrives — proving the
-      // documented finding rather than silently passing/failing for an
-      // unrelated reason. `Confirm` staying disabled throughout is the
-      // CORRECT, designed behavior (CornerEditor.tsx:
-      // `disabled={!valid || !recipe}`): the app must never let the user
-      // confirm a scan that was never actually processed.
-      await page.waitForTimeout(8_000);
-      await expect(page.getByTestId('warp-preview')).not.toBeVisible();
-      await expect(page.getByTestId('warp-error')).not.toBeVisible();
-      await expect(page.getByTestId('corner-editor-confirm')).toBeDisabled();
+      // The worker MUST respond to the warp request — the whole point of the
+      // classic-worker fix is that `init()` (and therefore the warp pipeline)
+      // no longer hangs. We accept EITHER a successful de-skewed preview
+      // (`warp-preview`) OR a clean error (`warp-error`); what we do NOT accept
+      // is the old silent infinite hang, which this timeout-bounded wait would
+      // surface as a failure. (`warp-loading` may flash by faster than a poll
+      // can catch on a fast machine, so we wait on the terminal states, not the
+      // transient loading state.)
+      const warpPreview = page.getByTestId('warp-preview');
+      const warpError = page.getByTestId('warp-error');
+      await expect(warpPreview.or(warpError)).toBeVisible({ timeout: 30_000 });
+
+      // If the warp succeeded, Confirm becomes enabled (recipe is set); if it
+      // errored, Confirm stays disabled. Assert the invariant that matches
+      // whichever terminal state was reached, so the test is correct either way.
+      if (await warpPreview.isVisible()) {
+        await expect(page.getByTestId('corner-editor-confirm')).toBeEnabled();
+      } else {
+        await expect(page.getByTestId('corner-editor-confirm')).toBeDisabled();
+      }
 
       expect(pageErrors, `Unhandled page errors: ${pageErrors.map((e) => e.message).join('; ')}`).toHaveLength(0);
     } finally {

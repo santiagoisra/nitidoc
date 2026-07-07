@@ -4,9 +4,13 @@
  * `id`, using a `Map<number, {resolve, reject}>` (design ADR-002).
  *
  * Vite worker convention: constructed with
- * `new Worker(new URL('./opencv.worker.ts', import.meta.url), { type: 'module' })`
- * so Vite's worker plugin picks it up and code-splits it correctly (both
- * in dev and in the production build).
+ * `new Worker(new URL('./opencv.worker.ts', import.meta.url), { type: 'classic' })`.
+ * A CLASSIC worker is required because OpenCV.js is loaded inside the worker
+ * via `self.importScripts('/opencv/opencv.js')` (see `opencv.worker.ts`) —
+ * `importScripts` exists only in classic workers, and the classic
+ * `@techstark/opencv-js` Emscripten build never completes its bootstrap inside
+ * an ES-module worker. Vite still bundles the worker's own TS imports into a
+ * single IIFE classic script (see `vite.config.ts` `worker.format: 'iife'`).
  */
 
 import type {
@@ -64,7 +68,7 @@ function isErrorResponse(
 
 export function createWorkerClient(): WorkerClient {
   const worker = new Worker(new URL('../worker/opencv.worker.ts', import.meta.url), {
-    type: 'module',
+    type: 'classic',
   });
 
   return createWorkerClientForWorker(worker);
