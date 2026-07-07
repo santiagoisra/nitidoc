@@ -33,7 +33,7 @@ phases:
   remaining:
     - QA dispositivo: precision deteccion doc real, calibracion R1/R5, orderCorners fotos rotadas, feel lupa/handles
     - sdd-verify de todo el change + merge/PRs cuando haya remoto
-  verify:   { status: pending, artifact: verify-report.md }
+  verify:   { status: done, artifact: verify-report.md, verdict: pass-with-warnings }
   archive:  { status: pending }
 
 execution_mode: auto
