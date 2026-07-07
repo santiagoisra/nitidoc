@@ -121,7 +121,7 @@ async function handleInit(request: InitRequest): Promise<void> {
     const loaded = await loadOpenCv((progress, indeterminate) => {
       const event: WorkerProgressEvent = { id: request.id, type: 'PROGRESS', progress: indeterminate ? 0 : progress };
       postResponse(event);
-    });
+    }, request.assetUrl);
     cv = loaded as unknown as CvBindings;
     postResponse({ id: request.id, type: 'INIT_DONE' });
   } catch (error) {

@@ -141,7 +141,13 @@ function createWorkerClientForWorker(worker: Worker): WorkerClient {
     async init(onProgress) {
       progressCallback = onProgress;
       const id = nextId++;
-      await send({ id, type: 'INIT' }, []);
+      // Resolve the OpenCV.js asset to an ABSOLUTE URL here on the main thread,
+      // where `location.origin` is always reliable, and hand it to the worker.
+      // The worker must NOT resolve a relative path itself: in Vite's dev server
+      // the worker's own base is opaque, so a relative fetch/importScripts of
+      // '/opencv/opencv.js' fails and init hangs.
+      const assetUrl = new URL('/opencv/opencv.js', globalThis.location.origin).href;
+      await send({ id, type: 'INIT', assetUrl }, []);
     },
 
     async detect(bitmap, withQuality) {

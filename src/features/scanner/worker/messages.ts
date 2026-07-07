@@ -27,6 +27,16 @@ export type { Point, Quad, QualityMetrics, AspectRatioName };
 export interface InitRequest {
   readonly id: number;
   readonly type: 'INIT';
+  /**
+   * ABSOLUTE URL of the served OpenCV.js asset, computed on the main thread
+   * (where `location.origin` is always reliable) and passed in so the worker
+   * never resolves a relative path itself. In some worker contexts (notably
+   * Vite's dev server) the worker's own base URL is opaque/blob-like, so a
+   * relative `fetch('/opencv/opencv.js')` throws "Failed to parse URL" and a
+   * relative `importScripts` fails to resolve — hanging init. An absolute URL
+   * works uniformly in dev and production.
+   */
+  readonly assetUrl: string;
 }
 
 export interface DetectRequest {
