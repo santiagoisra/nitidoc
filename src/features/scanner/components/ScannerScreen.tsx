@@ -1,9 +1,10 @@
 /**
  * Scanner screen wiring `useCamera` + `CameraView` + `CameraSelector` +
  * `useDocumentDetection` + `DetectionOverlay` + `CaptureButton` +
- * `QualityHints` + `CornerEditor` together (Group 3 / Slice C camera
- * lifecycle + Group 4 / Slice D live detection and auto-capture + Group 5 /
- * Slice E corner editor and warp).
+ * `QualityHints` + `CornerEditor` + `ImportFallback` +
+ * `OpenCvDegradedBanner` together (Group 3 / Slice C camera lifecycle +
+ * Group 4 / Slice D live detection and auto-capture + Group 5 / Slice E
+ * corner editor and warp + Group 6 / Slice F edge cases and fallbacks).
  *
  * Capture sequence (design section 2.2): pause the detection loop, capture
  * the full-res frame, scale the last known detected corners from the
@@ -12,6 +13,15 @@
  * 'editing-corners'). Once in that phase, this screen renders `CornerEditor`
  * (Group 5). Backing out of the editor without confirming resumes the live
  * detection loop (this screen owns that transition, per Slice E scope).
+ *
+ * Import fallback sequence (task 6.3.2; design ADR-006): the SAME
+ * pipeline is reused for a desktop-without-camera or permission-denied
+ * import. `handleImportedFile` decodes the file (`decodeImportedFile`),
+ * runs ONE `workerClient.detect` call on a downscaled copy of the imported
+ * bitmap to pre-populate corners (falling back to `null` -> full-frame
+ * corners in `CornerEditor` exactly like the no-detection/non-convex camera
+ * paths), stores the full-res bitmap as `originalFrame`, and lets
+ * `CornerEditor` take over — no separate warp code path exists for import.
  */
 
 import type { ReactNode } from 'react';
@@ -23,13 +33,17 @@ import { CameraView } from '@/features/scanner/components/CameraView';
 import { CaptureButton } from '@/features/scanner/components/CaptureButton';
 import { CornerEditor } from '@/features/scanner/components/CornerEditor';
 import { DetectionOverlay } from '@/features/scanner/components/DetectionOverlay';
+import { ImportFallback } from '@/features/scanner/components/ImportFallback';
+import { OpenCvDegradedBanner } from '@/features/scanner/components/OpenCvDegradedBanner';
 import { QualityHints } from '@/features/scanner/components/QualityHints';
 import { useCamera } from '@/features/scanner/hooks/useCamera';
 import { useDocumentDetection } from '@/features/scanner/hooks/useDocumentDetection';
+import { decodeImportedFile } from '@/features/scanner/lib/captureFallback';
 import { captureFullResFrame } from '@/features/scanner/lib/captureFrame';
 import { DETECTION } from '@/features/scanner/lib/detectionConstants';
 import { isTooFar, scaleCornersToFullRes } from '@/features/scanner/lib/detectionMath';
 import { isConvex, orderCorners } from '@/features/scanner/lib/geometry';
+import { bitmapToImageData } from '@/features/scanner/lib/mainThreadImageData';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
 import type { Quad } from '@/shared/types/geometry';
 
@@ -43,6 +57,15 @@ import type { Quad } from '@/shared/types/geometry';
  * area denominator.
  */
 const DETECTION_FRAME_FALLBACK_HEIGHT = Math.round((DETECTION.DOWNSCALE_WIDTH * 4) / 3);
+
+/**
+ * Bounds how long the import fallback waits for OpenCV to finish loading
+ * before giving up on a DETECT pre-seed and opening the editor with
+ * frame-completo corners instead (fix M5). A generous 15s covers a slow
+ * first-time ~10MB WASM download on a real connection without leaving the
+ * UI looking frozen indefinitely if OpenCV never becomes ready at all.
+ */
+const IMPORT_DETECT_TIMEOUT_MS = 15_000;
 
 export function ScannerScreen(): ReactNode {
   const { openCamera, switchCamera, setTorch } = useCamera();
@@ -67,6 +90,10 @@ export function ScannerScreen(): ReactNode {
   const phase = useScannerStore((s) => s.phase);
   const originalFrame = useScannerStore((s) => s.originalFrame);
   const resetCaptureSlice = useScannerStore((s) => s.resetCaptureSlice);
+  const opencvStatus = useScannerStore((s) => s.opencv.status);
+  const opencvLastError = useScannerStore((s) => s.opencv.lastError);
+
+  const [importError, setImportError] = useState<string | null>(null);
 
   /**
    * Corners handed off to the corner editor, scaled to the captured frame's
@@ -92,7 +119,13 @@ export function ScannerScreen(): ReactNode {
     void runCaptureSequenceRef.current?.();
   }, []);
 
-  const { start: startDetection, stop: stopDetection } = useDocumentDetection({
+  const {
+    start: startDetection,
+    stop: stopDetection,
+    workerClient,
+    retryManualInit,
+    ensureOpenCvInit,
+  } = useDocumentDetection({
     onAutoCapture: handleAutoCapture,
   });
 
@@ -106,6 +139,35 @@ export function ScannerScreen(): ReactNode {
     // needlessly reopen the stream.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started]);
+
+  // Bug fix found while building the task 7.2 E2E fixture test: OpenCV was
+  // ONLY ever initialized as a side effect of the live-detection loop
+  // starting (`useDocumentDetection.start()`, which requires a granted
+  // camera permission and a mounted <video>). When the import fallback is
+  // reached WITHOUT the camera ever opening (permission denied, or no
+  // camera at all — tasks 6.1/6.2), NOTHING ever called `ensureOpenCvInit()`,
+  // so both the one-shot DETECT (task 6.3.2) and the editor's later WARP
+  // call failed with NOT_INITIALIZED every single time. Kicking it off here
+  // — as soon as the scanner screen is entered, regardless of camera outcome,
+  // matching design section 4.2's own trigger condition ("al montar la ruta
+  // del escaner... o al primer intento de abrir camara") — lets OpenCV load
+  // in the BACKGROUND while the permission-denied/no-camera screen is
+  // showing, so by the time the user has picked a file the worker is likely
+  // already ready. `ensureOpenCvInit` shares the SAME status-mirroring +
+  // bounded-backoff-retry machinery `useDocumentDetection.start()` uses
+  // (task 6.6.1), so this call site gets identical degraded-mode behavior
+  // instead of a parallel, untracked `init()` call.
+  useEffect(() => {
+    if (!started) {
+      return;
+    }
+    ensureOpenCvInit().catch(() => {
+      // Load failure (even after exhausted retries) is already surfaced
+      // reactively via `OpenCvSlice.status === 'error'` (task 6.6.1's
+      // degraded-mode banner) — nothing further to do with the rejection
+      // here.
+    });
+  }, [started, ensureOpenCvInit]);
 
   // Task 4.1.3: start the detection loop once the video element exists and
   // the camera has granted access. useDocumentDetection.start() is
@@ -215,6 +277,97 @@ export function ScannerScreen(): ReactNode {
   // hook's stable `onAutoCapture` callback always invokes the current one.
   runCaptureSequenceRef.current = runCaptureSequence;
 
+  /**
+   * Import fallback pipeline (task 6.3.2; design ADR-006): decode the
+   * user-selected file, run ONE `DETECT` against a downscaled copy to
+   * pre-populate corners (same contract as the camera loop: non-convex or
+   * missing detection means `editorInitialCornersRef` stays null and
+   * `CornerEditor` falls back to `frameCorners`), store the full-res bitmap
+   * as `originalFrame`, and let `CornerEditor` take over. Reuses the SAME
+   * `workerClient`/`CapturedFrame`/`CornerEditor` path the camera capture
+   * sequence uses — no parallel warp logic.
+   *
+   * IMPORTANT (bug found and fixed while building the task 7.2 E2E fixture
+   * test): when the import fallback is reached WITHOUT the camera ever
+   * opening (permission denied, or no camera at all), `useDocumentDetection`'s
+   * `start()` — previously the ONLY caller of OpenCV `INIT` — never runs, so
+   * OpenCV was never even asked to load, and BOTH the one-shot DETECT below
+   * and the editor's later `WARP` call failed with `NOT_INITIALIZED` every
+   * single time. Fixed by having ScannerScreen's own `ensureOpenCvInit`
+   * effect (above) kick off the load as soon as the scanner screen mounts,
+   * regardless of camera outcome; `await ensureOpenCvInit()` here is a
+   * defensive re-await of that SAME idempotent promise in case the user
+   * picks a file before the background load finished.
+   */
+  const handleImportedFile = useCallback(
+    async (file: File) => {
+      setImportError(null);
+      try {
+        const captured = await decodeImportedFile(file);
+
+        // Ensure OpenCV is loading/loaded BEFORE attempting DETECT — see the
+        // bug note above. Bounded with a timeout race (fix M5, found while
+        // building the task 7.2 E2E fixture test): `ensureOpenCvInit` can
+        // legitimately take a long time (first-ever ~10MB WASM download) or,
+        // in a true degraded-mode/never-recovers scenario, never resolve at
+        // all — awaiting it unconditionally would leave the import fallback
+        // frozen forever with no visible feedback. `IMPORT_DETECT_TIMEOUT_MS`
+        // bounds the wait; timing out is treated exactly like a DETECT
+        // failure by the catch below — fall through with no pre-seed, same
+        // as task 6.6.1's degraded mode (the user still reaches the editor
+        // with frame-completo corners and can confirm once/if OpenCV
+        // eventually becomes ready for the WARP step).
+        let scaledCorners: Quad | null = null;
+        try {
+          await Promise.race([
+            ensureOpenCvInit(),
+            new Promise((_resolve, reject) =>
+              setTimeout(() => reject(new Error('OpenCV init timed out')), IMPORT_DETECT_TIMEOUT_MS),
+            ),
+          ]);
+
+          // One-shot DETECT on a downscaled copy (mirrors the live loop's
+          // `createImageBitmap(video, { resizeWidth })`, but against the
+          // imported bitmap instead of a <video> frame).
+          const detectionBitmap = await createImageBitmap(captured.bitmap, {
+            resizeWidth: Math.min(DETECTION.DOWNSCALE_WIDTH, captured.width),
+          });
+          // Task 6.7.1: same offscreenSupported gating as the live loop —
+          // extract ImageData on the main thread and use detectImageData
+          // when the worker cannot rely on its own OffscreenCanvas.
+          const offscreenSupported = useScannerStore.getState().offscreenSupported;
+          const result = offscreenSupported
+            ? await workerClient.detect(detectionBitmap, false)
+            : await workerClient.detectImageData(bitmapToImageData(detectionBitmap), false);
+          if (result.corners) {
+            const upscaled = orderCorners(
+              scaleCornersToFullRes(result.corners, detectionBitmap.width, captured.width),
+            );
+            scaledCorners = isConvex(upscaled) ? upscaled : null;
+          }
+        } catch {
+          // OPENCV_LOAD_FAILED (degraded mode, task 6.6.1), a timed-out
+          // init, or DETECT_FAILED: fall through with no pre-seed, same as a
+          // non-convex/missing camera detection (task 6.5.1 parity). The
+          // editor's own WARP call will fail too in true degraded mode,
+          // surfaced via `warp-error` — this is the documented degraded-mode
+          // limit.
+        }
+
+        editorInitialCornersRef.current = scaledCorners;
+        setOriginalFrame({
+          source: captured.bitmap,
+          width: captured.width,
+          height: captured.height,
+          capturedAt: Date.now(),
+        });
+      } catch (error) {
+        setImportError(error instanceof Error ? error.message : 'Could not read the selected image.');
+      }
+    },
+    [ensureOpenCvInit, setOriginalFrame, workerClient],
+  );
+
   const handleStart = useCallback(() => {
     setStarted(true);
   }, []);
@@ -272,20 +425,41 @@ export function ScannerScreen(): ReactNode {
     );
   }
 
-  if (permission === 'denied') {
+  // Task 6.1.1 (permission denied) and task 6.2.1 (no camera on desktop):
+  // both render the SAME `ImportFallback`, which shares the pipeline with
+  // the camera path (ADR-006) via `handleImportedFile`. `phase` still gates
+  // the corner-editor branch below, so once a file is imported the screen
+  // falls straight through to `CornerEditor` exactly like a camera capture.
+  if (permission === 'denied' && !(phase === 'editing-corners' || phase === 'capturing' || phase === 'done')) {
     return (
-      <p role="alert" className="max-w-sm text-center text-sm text-danger" data-testid="permission-denied">
-        Camera access was denied. Enable camera permission in your browser settings and reload, or use the
-        import fallback (coming in a later slice).
-      </p>
+      <ImportFallback reason="permission-denied" onFileSelected={(file) => void handleImportedFile(file)} errorMessage={importError} />
     );
   }
 
-  if (lastCameraError != null) {
+  // Task 6.2.1: no videoinput device at all (desktop without a camera) — do
+  // NOT show a camera-open error; go straight to the import fallback. This
+  // check must come before `lastCameraError` because a `NotFoundError`
+  // clears `devices` (see useCamera.ts) without necessarily setting
+  // `lastCameraError`, and even if some other camera error is ALSO present,
+  // having zero devices is the more specific, more actionable condition.
+  if (
+    devices.length === 0 &&
+    permission !== 'granted' &&
+    !(phase === 'editing-corners' || phase === 'capturing' || phase === 'done')
+  ) {
     return (
-      <p role="alert" className="max-w-sm text-center text-sm text-danger" data-testid="camera-error">
-        Could not open the camera. Try again, or use the import fallback (coming in a later slice).
-      </p>
+      <ImportFallback reason="no-camera" onFileSelected={(file) => void handleImportedFile(file)} errorMessage={importError} />
+    );
+  }
+
+  if (lastCameraError != null && !(phase === 'editing-corners' || phase === 'capturing' || phase === 'done')) {
+    return (
+      <div className="flex w-full max-w-sm flex-col items-center gap-3 text-center">
+        <p role="alert" className="text-sm text-danger" data-testid="camera-error">
+          Could not open the camera. Try again, or import an image instead.
+        </p>
+        <ImportFallback reason="no-camera" onFileSelected={(file) => void handleImportedFile(file)} errorMessage={importError} />
+      </div>
     );
   }
 
@@ -333,16 +507,29 @@ export function ScannerScreen(): ReactNode {
       : DETECTION_FRAME_FALLBACK_HEIGHT;
   const tooFar = rawCorners != null && isTooFar(rawCorners, frameWidth, frameHeight);
 
+  // Task 6.6.1: OpenCV failed to load (backoff exhausted or still mid-retry
+  // in the 'error' state). Degraded mode still shows the live camera view —
+  // capture is manual-only (no overlay/auto-capture/quality hints, all of
+  // which need OpenCV) — and the banner communicates why + offers a manual
+  // retry. `CornerEditor`'s warp call succeeds transparently once OpenCV
+  // recovers (design section 4.4 rationale documented on the banner
+  // component itself).
+  const openCvDegraded = opencvStatus === 'error';
+
   return (
     <div className="flex w-full max-w-md flex-col items-center gap-4">
+      {openCvDegraded && <OpenCvDegradedBanner lastError={opencvLastError} onRetry={retryManualInit} />}
+
       <CameraView
         ref={videoRef}
-        overlay={<DetectionOverlay corners={corners} frameWidth={frameWidth} frameHeight={frameHeight} />}
+        overlay={
+          !openCvDegraded && <DetectionOverlay corners={corners} frameWidth={frameWidth} frameHeight={frameHeight} />
+        }
       />
 
-      <QualityHints quality={quality} tooFar={tooFar} />
+      {!openCvDegraded && <QualityHints quality={quality} tooFar={tooFar} />}
 
-      {showNoDetectionHint && (
+      {!openCvDegraded && showNoDetectionHint && (
         <div className="flex flex-col items-center gap-2 text-center" data-testid="no-detection-hint">
           <p className="text-sm text-text-muted">No document detected yet.</p>
           <Button variant="secondary" type="button" onClick={handleCaptureAnyway} data-testid="capture-anyway">
@@ -354,15 +541,17 @@ export function ScannerScreen(): ReactNode {
       <div className="flex w-full items-center justify-between gap-3">
         <CameraSelector onSelect={(deviceId) => void switchCamera(deviceId)} />
         <div className="flex items-center gap-2">
-          <Button
-            variant="secondary"
-            type="button"
-            onClick={handleToggleAutoCapture}
-            aria-pressed={autoCaptureEnabled}
-            data-testid="auto-capture-toggle"
-          >
-            {autoCaptureEnabled ? 'Auto on' : 'Auto off'}
-          </Button>
+          {!openCvDegraded && (
+            <Button
+              variant="secondary"
+              type="button"
+              onClick={handleToggleAutoCapture}
+              aria-pressed={autoCaptureEnabled}
+              data-testid="auto-capture-toggle"
+            >
+              {autoCaptureEnabled ? 'Auto on' : 'Auto off'}
+            </Button>
+          )}
           {torchSupported && (
             <Button
               variant="secondary"
@@ -383,12 +572,6 @@ export function ScannerScreen(): ReactNode {
       </div>
 
       <CaptureButton onCapture={handleManualCapture} countdown={countdown} />
-
-      {devices.length === 0 && (
-        <p className="text-center text-sm text-text-muted" data-testid="no-camera-hint">
-          No camera detected. An import fallback will be available in a later slice.
-        </p>
-      )}
     </div>
   );
 }

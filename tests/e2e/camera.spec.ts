@@ -54,8 +54,14 @@ test('opening the scanner starts the fake camera stream and renders video', asyn
  * build, `getUserMedia` would hang waiting for a real permission prompt
  * headlessly and this test would time out — that failure mode itself would
  * be the signal to report back rather than force a workaround.
+ *
+ * Group 6 / Slice F update (task 6.1.1): the permission-denied screen is now
+ * `ImportFallback` (shared with the no-camera fallback, task 6.2.1), showing
+ * `permission-denied-instructions` (browser-specific unblock copy) plus an
+ * `import-fallback-button` into the SAME capture pipeline — this test now
+ * asserts that UI instead of the old bare `<p data-testid="permission-denied">`.
  */
-test('denying camera permission shows the permission-denied state', async () => {
+test('denying camera permission shows the import fallback with permission instructions', async () => {
   const browser = await chromium.launch({
     args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream=deny'],
   });
@@ -70,9 +76,14 @@ test('denying camera permission shows the permission-denied state', async () => 
 
     await page.getByTestId('open-scanner').click();
 
-    const denied = page.getByTestId('permission-denied');
-    await expect(denied).toBeVisible();
-    await expect(denied).toHaveText(/denied/i);
+    const fallback = page.getByTestId('import-fallback');
+    await expect(fallback).toBeVisible();
+
+    const instructions = page.getByTestId('permission-denied-instructions');
+    await expect(instructions).toBeVisible();
+    await expect(instructions).toHaveText(/denied/i);
+
+    await expect(page.getByTestId('import-fallback-button')).toBeVisible();
   } finally {
     await browser.close();
   }
