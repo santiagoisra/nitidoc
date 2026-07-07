@@ -24,13 +24,16 @@ phases:
       D-detection:{ status: done, group: 4, branch: feat/scanner-detection, verified: true, review: passed, fixes: [C1, C2, H1, H2, M2, M4, M1], tests: 70 }
       E-editor:   { status: done, group: 5, branch: feat/scanner-editor, verified: true, review: passed, fixes: [C1, C2, H1, H2, H3, M3, M1, L2], tests: 105 }
       F-edgecases:{ status: done, groups: [6, 7.2], branch: feat/scanner-edgecases, verified: partial, review: passed, fixes: [HIGH1, HIGH2, M1, M2, LOW2], tests: 130, e2e_fixture: degraded, open_risk: opencv-worker-init-unverified }
-  open_p0:
-    opencv-worker-init: |
-      Hipotesis (review Slice F): @techstark/opencv-js es build Emscripten clasico;
-      no carga via import() en module worker (type:module). Sintoma: init() cuelga.
-      Manejo de falla YA es robusto (degrada). FALTA: verificar en browser real si
-      OpenCV realmente arranca; si no, reformar carga (classic worker + importScripts
-      o build ESM/factory). Decide si el escaner funciona de verdad.
+  opencv_worker_init:
+    status: RESOLVED
+    branch: fix/opencv-classic-worker
+    fix: worker clasico (type:classic) + importScripts('/opencv/opencv.js') (asset copiado a public/opencv por scripts/copy-opencv.mjs)
+    verified_browser: "produccion build: OpenCV listo en 540ms (msgs has-then-waiting->ready-then); sin banner degradado"
+    caveat_dev: "vite dev AUN cuelga (worker handling distinto); produccion OK. Follow-up DX."
+  remaining:
+    - fix dev-mode OpenCV loading (DX; produccion ya funciona)
+    - QA dispositivo: precision deteccion doc real, calibracion R1/R5, orderCorners fotos rotadas, feel lupa/handles
+    - sdd-verify de todo el change + merge/PRs cuando haya remoto
   verify:   { status: pending, artifact: verify-report.md }
   archive:  { status: pending }
 
