@@ -8,10 +8,12 @@ import {
   nextRotation,
   recipeToCssTransform,
   rotateRecipe,
+  withFilter,
 } from '@/features/scanner/lib/editRecipe';
 import { isConvex } from '@/features/scanner/lib/geometry';
 import type { Quad } from '@/shared/types/geometry';
-import type { EditRecipe } from '@/shared/types/scanner';
+import type { EditRecipe, FilterParams } from '@/shared/types/scanner';
+import { NEUTRAL_FILTER } from '@/shared/types/scanner';
 
 describe('frameCorners (task 5.1.1 — no valid detection fallback)', () => {
   it('distributes 4 corners across the full frame with a small inset', () => {
@@ -60,7 +62,7 @@ describe('isConvex applied to editor-produced quads (task 5.1.3 gate, reused fro
 });
 
 describe('createInitialRecipe (task 5.2.3)', () => {
-  it('builds the initial recipe with rotation 0 and no flips', () => {
+  it('builds the initial recipe with rotation 0, no flips, and a neutral filter', () => {
     const corners = frameCorners(800, 1000);
     const recipe = createInitialRecipe(corners, 'a4');
     expect(recipe).toEqual({
@@ -69,6 +71,18 @@ describe('createInitialRecipe (task 5.2.3)', () => {
       rotation: 0,
       flipH: false,
       flipV: false,
+      filter: NEUTRAL_FILTER,
+    });
+  });
+
+  it('seeds filter: NEUTRAL_FILTER (task 1a.2 — every page starts unfiltered)', () => {
+    const corners = frameCorners(800, 1000);
+    const recipe = createInitialRecipe(corners, 'a4');
+    expect(recipe.filter).toEqual({
+      preset: 'original',
+      brightness: 0,
+      contrast: 0,
+      sharpness: 0,
     });
   });
 
@@ -78,6 +92,64 @@ describe('createInitialRecipe (task 5.2.3)', () => {
     expect(() => JSON.stringify(recipe)).not.toThrow();
     const roundTripped = JSON.parse(JSON.stringify(recipe)) as EditRecipe;
     expect(roundTripped).toEqual(recipe);
+  });
+});
+
+describe('withFilter (task 1a.2 — non-destructive filter update, ADR-009)', () => {
+  it('returns a new recipe with filter replaced, without mutating the input', () => {
+    const corners = frameCorners(800, 1000);
+    const recipe = createInitialRecipe(corners, 'a4');
+    const newFilter: FilterParams = { preset: 'grayscale', brightness: 10, contrast: -5, sharpness: 0 };
+
+    const updated = withFilter(recipe, newFilter);
+
+    expect(updated.filter).toEqual(newFilter);
+    expect(recipe.filter).toEqual(NEUTRAL_FILTER); // original untouched
+    expect(updated).not.toBe(recipe);
+  });
+
+  it('leaves every other recipe field unchanged (corners, aspectRatio, rotation, flips)', () => {
+    const corners = frameCorners(800, 1000);
+    const recipe = rotateRecipe(flipHorizontalRecipe(createInitialRecipe(corners, 'a4')));
+    const newFilter: FilterParams = { preset: 'bw', brightness: 0, contrast: 0, sharpness: 0 };
+
+    const updated = withFilter(recipe, newFilter);
+
+    expect(updated.corners).toBe(recipe.corners);
+    expect(updated.aspectRatio).toBe(recipe.aspectRatio);
+    expect(updated.rotation).toBe(recipe.rotation);
+    expect(updated.flipH).toBe(recipe.flipH);
+    expect(updated.flipV).toBe(recipe.flipV);
+  });
+
+  it('never re-invokes the warp — filter changes are a pure JSON overlay (spec "Cambio de preset no re-invoca el warp")', () => {
+    // Structural/contract test: withFilter takes ONLY an EditRecipe + FilterParams
+    // (both JSON) and returns a new EditRecipe. There is no ImageBitmap/warp
+    // argument anywhere in the signature for a real implementation to
+    // accidentally reach into and re-warp.
+    const corners = frameCorners(800, 1000);
+    const recipe = createInitialRecipe(corners, 'a4');
+    const updated = withFilter(recipe, { preset: 'bw-high-contrast', brightness: 0, contrast: 0, sharpness: 0 });
+    expect(updated.corners).toBe(recipe.corners);
+  });
+});
+
+describe('EditRecipe.filter JSON round-trip (spec "Receta con filtro se serializa sin binarios")', () => {
+  it('serializes and reconstructs a filtered recipe with no ImageBitmap/Blob/Mat references', () => {
+    const corners = frameCorners(800, 1000);
+    const filtered = withFilter(createInitialRecipe(corners, 'a4'), {
+      preset: 'bw',
+      brightness: 10,
+      contrast: 0,
+      sharpness: 20,
+    });
+
+    const json = JSON.stringify(filtered);
+    expect(json).not.toMatch(/ImageBitmap|Blob|Mat/);
+
+    const roundTripped = JSON.parse(json) as EditRecipe;
+    expect(roundTripped).toEqual(filtered);
+    expect(roundTripped.filter).toEqual({ preset: 'bw', brightness: 10, contrast: 0, sharpness: 20 });
   });
 });
 

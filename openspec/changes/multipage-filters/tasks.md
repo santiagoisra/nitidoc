@@ -47,11 +47,11 @@ AC8. Spec: `filters` Req "FilterParams embebido en EditRecipe".
 Start: `EditRecipe` has no `filter` field. Finish: `FilterParams`/`NEUTRAL_FILTER` exist, JSON-only, recipe
 helpers seed the neutral filter. Rollback: revert the PR1 branch -- zero consumers yet, no blast radius.
 
-- [ ] 1a.1 `src/shared/types/scanner.ts`: add `FilterPreset`, `FilterParams`, `NEUTRAL_FILTER`, `EditRecipe.filter: FilterParams`.
-- [ ] 1a.2 `src/features/scanner/lib/editRecipe.ts`: `createInitialRecipe` seeds `filter: NEUTRAL_FILTER`; add `withFilter(recipe, filter)`.
-- [ ] 1a.3 New `src/features/scanner/lib/filterConstants.ts`: `FILTER` constants (design section 4.4) -- JPEG_QUALITY, THUMBNAIL_MAX_EDGE, PAGE_CAP, ENHANCED_SATURATION, BETA_SCALE, SLIDER_DEBOUNCE_MS, per-preset block/C, MORPH_KERNEL.
-- [ ] 1a.4 Extend `tests/unit/editRecipe.test.ts`: `withFilter`, neutral-filter seeding, JSON round-trip has no binaries (spec scenario "Receta con filtro se serializa sin binarios").
-- [ ] 1a.5 Verify: `tsc --noEmit` clean; `vitest run editRecipe`.
+- [x] 1a.1 `src/shared/types/scanner.ts`: add `FilterPreset`, `FilterParams`, `NEUTRAL_FILTER`, `EditRecipe.filter: FilterParams`.
+- [x] 1a.2 `src/features/scanner/lib/editRecipe.ts`: `createInitialRecipe` seeds `filter: NEUTRAL_FILTER`; add `withFilter(recipe, filter)`.
+- [x] 1a.3 New `src/features/scanner/lib/filterConstants.ts`: `FILTER` constants (design section 4.4) -- JPEG_QUALITY, THUMBNAIL_MAX_EDGE, PAGE_CAP, ENHANCED_SATURATION, BETA_SCALE, SLIDER_DEBOUNCE_MS, per-preset block/C, MORPH_KERNEL.
+- [x] 1a.4 Extend `tests/unit/editRecipe.test.ts`: `withFilter`, neutral-filter seeding, JSON round-trip has no binaries (spec scenario "Receta con filtro se serializa sin binarios").
+- [x] 1a.5 Verify: `tsc --noEmit` clean; `vitest run editRecipe`.
 
 ## Group 1b -- `DocumentSlice` store (PR2)
 
