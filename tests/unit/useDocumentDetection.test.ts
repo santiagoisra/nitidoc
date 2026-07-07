@@ -63,10 +63,21 @@ const fakeWorkerClient: WorkerClient = {
   terminate: vi.fn(),
 };
 
-vi.mock('@/features/scanner/lib/workerClient', () => ({
-  getSharedWorkerClient: () => fakeWorkerClient,
-  terminateSharedWorkerClient: vi.fn(),
-}));
+// `WorkerError` is a real class the hook now imports (HIGH-2: it constructs a
+// `WorkerError('OPENCV_LOAD_FAILED', ...)` when the init race times out), so
+// the mock MUST re-export it (or a compatible stand-in) rather than dropping
+// it. Re-export the genuine class via importActual so `instanceof`/`.code`
+// semantics stay intact.
+vi.mock('@/features/scanner/lib/workerClient', async () => {
+  const actual = await vi.importActual<typeof import('@/features/scanner/lib/workerClient')>(
+    '@/features/scanner/lib/workerClient',
+  );
+  return {
+    ...actual,
+    getSharedWorkerClient: () => fakeWorkerClient,
+    terminateSharedWorkerClient: vi.fn(),
+  };
+});
 
 import { useDocumentDetection } from '@/features/scanner/hooks/useDocumentDetection';
 import { useScannerStore, scannerStoreInitialState } from '@/features/scanner/store/scannerStore';
@@ -479,5 +490,140 @@ describe('useDocumentDetection no-OffscreenCanvas fallback (task 6.7.1)', () => 
 
     expect(fakeWorkerClient.detect).toHaveBeenCalledTimes(1);
     expect(fakeWorkerClient.detectImageData).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Slice F review fix HIGH-2 / test coverage MEDIUM-2: the "init HANGS" failure
+ * mode. Distinct from the "init REJECTS" case already covered above — here
+ * `workerClient.init()` returns a promise that NEVER settles (the real
+ * reported failure: the OpenCV `import()` inside the worker never resolves).
+ *
+ * Against the OLD hook (no hard init timeout) these tests FAIL: `initStatusRef`
+ * stays 'loading' forever, `runAttemptWithAutoRetry`'s `.catch` never fires,
+ * the store status never flips to 'error', and the degraded banner never
+ * becomes available — a semi-dead screen. The `INIT_TIMEOUT_MS` (18s) ceiling
+ * added in the hook makes a hung init reject with OPENCV_LOAD_FAILED so the
+ * SAME backoff -> degraded -> banner path fires uniformly.
+ *
+ * `INIT_TIMEOUT_MS` is an internal constant (18_000); referenced here as a
+ * literal since the hook does not export it.
+ */
+const INIT_TIMEOUT_MS = 18_000;
+
+describe('useDocumentDetection OpenCV init hang timeout (HIGH-2 / MEDIUM-2)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    detectQueue = [];
+    isBusyValue = false;
+    vi.clearAllMocks();
+    useScannerStore.setState({ ...scannerStoreInitialState });
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ close: vi.fn() }) as unknown as ImageBitmap));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('a HANGING init (never resolves) still flips opencv.status to error after INIT_TIMEOUT_MS (degraded banner available; loop is not left semi-dead)', async () => {
+    const initMock = fakeWorkerClient.init as unknown as ReturnType<typeof vi.fn>;
+    // The real hung-worker failure mode: init() never resolves NOR rejects.
+    initMock.mockImplementation(() => new Promise<void>(() => {}));
+
+    const video = createFakeVideo();
+    const { result } = renderHook(() => useDocumentDetection());
+
+    await act(async () => {
+      result.current.start(video.el);
+      await flushMicrotasks();
+    });
+
+    // While within the timeout window, status is still 'loading' — but crucially
+    // it must NOT stay there forever (that is the bug this test proves).
+    expect(useScannerStore.getState().opencv.status).toBe('loading');
+
+    // Advance PAST the hard init ceiling: the timeout must reject the attempt,
+    // driving the SAME error path a real OPENCV_LOAD_FAILED rejection would.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(INIT_TIMEOUT_MS + 1);
+      await flushMicrotasks();
+    });
+
+    expect(useScannerStore.getState().opencv.status).toBe('error');
+    expect(useScannerStore.getState().opencv.lastError).toContain('hung');
+    // ScannerScreen renders the degraded banner off `opencv.status === 'error'`,
+    // so reaching 'error' is exactly the "banner available + editor
+    // frame-completo reachable" state the review required (never semi-dead).
+  });
+
+  it('a HANGING init then triggers the SAME bounded backoff retries as a rejecting init', async () => {
+    const initMock = fakeWorkerClient.init as unknown as ReturnType<typeof vi.fn>;
+    initMock.mockImplementation(() => new Promise<void>(() => {}));
+
+    const video = createFakeVideo();
+    const { result } = renderHook(() => useDocumentDetection());
+
+    await act(async () => {
+      result.current.start(video.el);
+      await flushMicrotasks();
+    });
+
+    // First attempt hangs -> times out at INIT_TIMEOUT_MS -> error.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(INIT_TIMEOUT_MS + 1);
+      await flushMicrotasks();
+    });
+    expect(initMock).toHaveBeenCalledTimes(1);
+    expect(useScannerStore.getState().opencv.status).toBe('error');
+
+    // First auto-retry fires 1s after the timeout-induced failure; it too hangs
+    // and times out, proving the hung path feeds the identical backoff chain.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+      await flushMicrotasks();
+    });
+    expect(initMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(INIT_TIMEOUT_MS + 1);
+      await flushMicrotasks();
+    });
+    expect(useScannerStore.getState().opencv.status).toBe('error');
+  });
+
+  it('a SLOW-but-successful init that resolves BEFORE the timeout does NOT spuriously error (timer cleared on success)', async () => {
+    const initMock = fakeWorkerClient.init as unknown as ReturnType<typeof vi.fn>;
+    // Resolves well within the timeout window.
+    initMock.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, INIT_TIMEOUT_MS - 1000);
+        }),
+    );
+
+    const video = createFakeVideo();
+    const { result } = renderHook(() => useDocumentDetection());
+
+    await act(async () => {
+      result.current.start(video.el);
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(INIT_TIMEOUT_MS - 1000 + 1);
+      await flushMicrotasks();
+    });
+    expect(useScannerStore.getState().opencv.status).toBe('ready');
+
+    // Advancing well past when the timeout WOULD have fired must not flip it
+    // back to error — the success path cleared the timer (no leak / no
+    // spurious rejection).
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(INIT_TIMEOUT_MS);
+      await flushMicrotasks();
+    });
+    expect(useScannerStore.getState().opencv.status).toBe('ready');
   });
 });
