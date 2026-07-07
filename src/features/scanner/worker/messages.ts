@@ -45,6 +45,23 @@ export interface ImageDataLike {
   readonly data: Uint8ClampedArray;
 }
 
+/**
+ * Fallback DETECT request for environments where NEITHER the main thread NOR
+ * the worker's own global scope has `OffscreenCanvas` (design section 8, "Sin
+ * OffscreenCanvas" — historically Safari < 16.4, whose worker global scope
+ * also lacked `OffscreenCanvas` before it existed on the main thread). The
+ * worker cannot draw an `ImageBitmap` into a canvas to extract pixels without
+ * `OffscreenCanvas` (it has no `<canvas>` DOM element to fall back to), so in
+ * this case the MAIN thread extracts `ImageData` itself (via a regular
+ * `<canvas>`) and sends it directly instead of a bitmap.
+ */
+export interface DetectRequestImageData {
+  readonly id: number;
+  readonly type: 'DETECT_IMAGEDATA';
+  readonly image: ImageDataLike;
+  readonly withQuality: boolean;
+}
+
 export interface WarpRequest {
   readonly id: number;
   readonly type: 'WARP';
@@ -59,7 +76,7 @@ export interface WarpRequest {
   readonly aspectRatio: AspectRatioName;
 }
 
-export type WorkerRequest = InitRequest | DetectRequest | WarpRequest;
+export type WorkerRequest = InitRequest | DetectRequest | DetectRequestImageData | WarpRequest;
 
 // ─────────────── Responses (worker -> main) ───────────────
 

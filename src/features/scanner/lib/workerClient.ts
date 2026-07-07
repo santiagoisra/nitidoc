@@ -39,6 +39,13 @@ interface PendingEntry {
 export interface WorkerClient {
   init(onProgress: (progress: number) => void): Promise<void>;
   detect(bitmap: ImageBitmap, withQuality: boolean): Promise<DetectResponse>;
+  /**
+   * Fallback DETECT path (task 6.7.1; design section 8) for when NEITHER the
+   * main thread NOR the worker's own global scope has `OffscreenCanvas`. The
+   * caller has already extracted `ImageData` itself (e.g. via a regular
+   * `<canvas>`) instead of a transferable `ImageBitmap`.
+   */
+  detectImageData(image: ImageDataLike, withQuality: boolean): Promise<DetectResponse>;
   warp(
     image: ImageDataLike,
     corners: Quad,
@@ -138,6 +145,19 @@ function createWorkerClientForWorker(worker: Worker): WorkerClient {
       detectInFlight = true;
       try {
         return await send<DetectResponse>({ id, type: 'DETECT', bitmap, withQuality }, [bitmap]);
+      } finally {
+        detectInFlight = false;
+      }
+    },
+
+    async detectImageData(image, withQuality) {
+      const id = nextId++;
+      detectInFlight = true;
+      try {
+        return await send<DetectResponse>(
+          { id, type: 'DETECT_IMAGEDATA', image, withQuality },
+          [image.data.buffer],
+        );
       } finally {
         detectInFlight = false;
       }
