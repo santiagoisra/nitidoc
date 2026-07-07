@@ -5,11 +5,15 @@
   "type": "module",
   "description": "Nitidoc — free, offline-first document scanner PWA",
   "scripts": {
+    "copy-opencv": "node scripts/copy-opencv.mjs",
+    "predev": "node scripts/copy-opencv.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/copy-opencv.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "pretest:e2e": "node scripts/copy-opencv.mjs",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit"
   },
