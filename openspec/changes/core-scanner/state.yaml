@@ -29,9 +29,8 @@ phases:
     branch: fix/opencv-classic-worker
     fix: worker clasico (type:classic) + importScripts('/opencv/opencv.js') (asset copiado a public/opencv por scripts/copy-opencv.mjs)
     verified_browser: "produccion build: OpenCV listo en 540ms (msgs has-then-waiting->ready-then); sin banner degradado"
-    caveat_dev: "vite dev AUN cuelga (worker handling distinto); produccion OK. Follow-up DX."
+    caveat_dev: "vite dev no bundlea el worker -> OpenCV NO corre en `npm run dev` (falla rapido + degrada). Root cause diagnosticado. DECIDIDO: aceptar dev degradado + documentar; testear OpenCV con build+preview. Fix parcial commiteado (URL absoluta, e6ac1a6). README.md creado."
   remaining:
-    - fix dev-mode OpenCV loading (DX; produccion ya funciona)
     - QA dispositivo: precision deteccion doc real, calibracion R1/R5, orderCorners fotos rotadas, feel lupa/handles
     - sdd-verify de todo el change + merge/PRs cuando haya remoto
   verify:   { status: pending, artifact: verify-report.md }
