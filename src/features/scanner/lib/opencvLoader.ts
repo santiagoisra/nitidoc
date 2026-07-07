@@ -21,8 +21,13 @@
  * are needed — a single `importScripts` is sufficient.
  */
 
-/** URL of the served OpenCV.js UMD asset (see scripts/copy-opencv.mjs). */
-const OPENCV_ASSET_URL = '/opencv/opencv.js';
+/**
+ * Path of the served OpenCV.js UMD asset (see scripts/copy-opencv.mjs).
+ * NOTE: consumers resolve this to an ABSOLUTE URL on the main thread and pass
+ * it into `loadOpenCv`. The worker must never fetch/importScripts a bare
+ * relative path — in Vite's dev worker the base URL is opaque and it fails.
+ */
+export const OPENCV_ASSET_PATH = '/opencv/opencv.js';
 
 /**
  * Minimal surface of the Emscripten-style `cv` runtime this app depends on.
@@ -49,10 +54,13 @@ export type OnProgress = (progress: number, indeterminate: boolean) => void;
  * Returns `true` if determinate progress was reported to completion, `false`
  * otherwise (caller then reports indeterminate).
  */
-async function tryStreamingProgressFetch(onProgress: OnProgress): Promise<boolean> {
+async function tryStreamingProgressFetch(
+  onProgress: OnProgress,
+  assetUrl: string,
+): Promise<boolean> {
   let response: Response;
   try {
-    response = await fetch(OPENCV_ASSET_URL);
+    response = await fetch(assetUrl);
   } catch {
     return false;
   }
@@ -118,8 +126,15 @@ let loadPromise: Promise<CvRuntime> | null = null;
  * WASM runtime has initialized.
  *
  * MUST run inside a CLASSIC worker: relies on `self.importScripts`.
+ *
+ * @param assetUrl ABSOLUTE URL of the served OpenCV.js asset. Resolved on the
+ *   main thread (reliable `location.origin`) — never a bare relative path,
+ *   which fails to resolve in Vite's dev worker context.
  */
-export async function loadOpenCv(onProgress: OnProgress): Promise<CvRuntime> {
+export async function loadOpenCv(
+  onProgress: OnProgress,
+  assetUrl: string,
+): Promise<CvRuntime> {
   if (cvSingleton) {
     onProgress(1, false);
     return cvSingleton;
@@ -139,14 +154,14 @@ export async function loadOpenCv(onProgress: OnProgress): Promise<CvRuntime> {
     }
 
     try {
-      await tryStreamingProgressFetch(onProgress);
+      await tryStreamingProgressFetch(onProgress, assetUrl);
     } catch {
       // Streaming progress is best-effort only; never let it block the load.
       onProgress(0, true);
     }
 
     // Synchronous: on return, the OpenCV runtime is assigned to `self.cv`.
-    workerScope.importScripts(OPENCV_ASSET_URL);
+    workerScope.importScripts(assetUrl);
 
     const cv = workerScope.cv as CvRuntime | undefined;
     if (!cv) {
