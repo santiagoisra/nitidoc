@@ -46,6 +46,21 @@
  * already handles transparently — it just calls `workerClient.warp` again,
  * which now succeeds once `cv` is loaded in the worker.
  *
+ * INIT hang timeout (Slice F review fix HIGH-2): `workerClient.init()` can
+ * fail in TWO shapes — it can REJECT (`OPENCV_LOAD_FAILED`, already handled by
+ * the backoff/degraded machinery above), or it can HANG (never resolve nor
+ * reject — the real reported failure mode: the OpenCV `import()` inside the
+ * worker never settles). A hang would leave `initStatusRef` stuck on
+ * `'loading'` forever: `runAttemptWithAutoRetry`'s `.catch` never fires (no
+ * rejection), the store status never flips to `'error'`, and the degraded
+ * banner never appears — a semi-dead screen (camera alive, no overlay, no
+ * banner, no explanation). `attemptInit` therefore races `init()` against a
+ * hard `INIT_TIMEOUT_MS` timer: if init has not settled by then, the timeout
+ * REJECTS with `OPENCV_LOAD_FAILED`, which the existing backoff -> degraded ->
+ * banner path handles UNIFORMLY at every call site (live loop AND import). The
+ * timer is always cleared on whichever side of the race settles first, so it
+ * never leaks.
+ *
  * No-OffscreenCanvas fallback (Group 6 / Slice F, task 6.7.1; design section
  * 8): `runOneFrame` reads `CameraSlice.offscreenSupported` on every frame and
  * routes DETECT through `workerClient.detectImageData` (extracting pixels via
@@ -56,7 +71,7 @@
  */
 
 import { useCallback, useEffect, useRef } from 'react';
-import { getSharedWorkerClient, type WorkerClient } from '@/features/scanner/lib/workerClient';
+import { getSharedWorkerClient, WorkerError, type WorkerClient } from '@/features/scanner/lib/workerClient';
 import { DETECTION } from '@/features/scanner/lib/detectionConstants';
 import { lerpQuad, maxCornerVariance } from '@/features/scanner/lib/detectionMath';
 import { bitmapToImageData } from '@/features/scanner/lib/mainThreadImageData';
@@ -118,6 +133,18 @@ const COUNTDOWN_TICK_MS = 1000;
 /** Bounded exponential backoff delays for automatic INIT retries (design section 4.4: "1s/2s/4s, max 3"). */
 const AUTO_RETRY_DELAYS_MS: readonly number[] = [1000, 2000, 4000];
 
+/**
+ * Hard ceiling for a single OpenCV `INIT` attempt (Slice F review fix HIGH-2).
+ * If `workerClient.init()` neither resolves nor rejects within this window
+ * (the real reported failure mode: the OpenCV `import()` inside the worker
+ * hangs and never settles), `attemptInit` treats it as an `OPENCV_LOAD_FAILED`
+ * rejection so the backoff -> degraded -> banner path fires uniformly instead
+ * of the screen hanging silently on `status: 'loading'` forever. 18s is
+ * generous enough to cover a genuinely slow first-time ~10MB WASM download on
+ * a real connection before declaring the attempt hung.
+ */
+const INIT_TIMEOUT_MS = 18_000;
+
 export function useDocumentDetection(
   options: UseDocumentDetectionOptions = {},
 ): UseDocumentDetectionResult {
@@ -174,12 +201,40 @@ export function useDocumentDetection(
   const attemptInit = useCallback((): Promise<void> => {
     initStatusRef.current = 'loading';
     setOpenCvStatus({ status: 'loading' });
-    const promise = workerClient
-      .init((progress) => {
+
+    // HIGH-2: race the (possibly hanging) init against a hard timeout. The
+    // timer handle lives in this closure so both the success and the failure
+    // arms below can clear it — a resolved/rejected init must never leave the
+    // timer armed to fire later (which would surface a spurious
+    // OPENCV_LOAD_FAILED after a genuine success, or leak the timer).
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    const clearInitTimeout = (): void => {
+      if (timeoutHandle !== null) {
+        clearTimeout(timeoutHandle);
+        timeoutHandle = null;
+      }
+    };
+    const initTimeout = new Promise<never>((_resolve, reject) => {
+      timeoutHandle = setTimeout(() => {
+        timeoutHandle = null;
+        reject(
+          new WorkerError(
+            'OPENCV_LOAD_FAILED',
+            `OpenCV init did not settle within ${INIT_TIMEOUT_MS}ms (worker init hung).`,
+          ),
+        );
+      }, INIT_TIMEOUT_MS);
+    });
+
+    const promise = Promise.race([
+      workerClient.init((progress) => {
         initProgressRef.current = progress;
         setOpenCvStatus({ progress, progressIndeterminate: progress <= 0 });
-      })
+      }),
+      initTimeout,
+    ])
       .then(() => {
+        clearInitTimeout();
         initStatusRef.current = 'ready';
         autoRetryCountRef.current = 0;
         setOpenCvStatus({ status: 'ready', progress: 1, progressIndeterminate: false, lastError: null });
@@ -197,6 +252,7 @@ export function useDocumentDetection(
         }
       })
       .catch((error: unknown) => {
+        clearInitTimeout();
         initStatusRef.current = 'error';
         const message = error instanceof Error ? error.message : 'Unknown OpenCV load failure.';
         setOpenCvStatus({ status: 'error', lastError: message });
