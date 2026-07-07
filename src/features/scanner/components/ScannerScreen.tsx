@@ -94,6 +94,10 @@ export function ScannerScreen(): ReactNode {
   const opencvLastError = useScannerStore((s) => s.opencv.lastError);
 
   const [importError, setImportError] = useState<string | null>(null);
+  // LOW-2: reflects that an import is being processed (decode + optional
+  // OpenCV DETECT pre-seed) so the fallback UI can disable its picker and
+  // announce progress. Cleared on both success and failure.
+  const [importing, setImporting] = useState(false);
 
   /**
    * Corners handed off to the corner editor, scaled to the captured frame's
@@ -302,28 +306,34 @@ export function ScannerScreen(): ReactNode {
   const handleImportedFile = useCallback(
     async (file: File) => {
       setImportError(null);
+      setImporting(true); // LOW-2: mark processing before any async work runs.
       try {
         const captured = await decodeImportedFile(file);
 
         // Ensure OpenCV is loading/loaded BEFORE attempting DETECT — see the
-        // bug note above. Bounded with a timeout race (fix M5, found while
-        // building the task 7.2 E2E fixture test): `ensureOpenCvInit` can
-        // legitimately take a long time (first-ever ~10MB WASM download) or,
-        // in a true degraded-mode/never-recovers scenario, never resolve at
-        // all — awaiting it unconditionally would leave the import fallback
-        // frozen forever with no visible feedback. `IMPORT_DETECT_TIMEOUT_MS`
-        // bounds the wait; timing out is treated exactly like a DETECT
-        // failure by the catch below — fall through with no pre-seed, same
-        // as task 6.6.1's degraded mode (the user still reaches the editor
-        // with frame-completo corners and can confirm once/if OpenCV
-        // eventually becomes ready for the WARP step).
+        // bug note above. Bounded with a timeout race (fix M5): `ensureOpenCvInit`
+        // can legitimately take a long time (first-ever ~10MB WASM download).
+        // `ensureOpenCvInit` itself no longer hangs indefinitely — HIGH-2 gave
+        // its underlying `INIT` attempt a hard `INIT_TIMEOUT_MS` ceiling that
+        // rejects with OPENCV_LOAD_FAILED on a hung worker — so this race is no
+        // longer the ONLY thing standing between the import and a frozen screen.
+        // It is kept purely as a tighter, import-specific bound (feedback sooner
+        // than the full init ceiling) that also falls through to the
+        // frame-completo editor. HIGH-1: the timer handle is captured and
+        // ALWAYS cleared in `finally`, so a race won by `ensureOpenCvInit()`
+        // never leaves a live timer whose eventual rejection becomes an
+        // unhandled promise rejection.
         let scaledCorners: Quad | null = null;
+        let importTimeoutHandle: ReturnType<typeof setTimeout> | null = null;
         try {
           await Promise.race([
             ensureOpenCvInit(),
-            new Promise((_resolve, reject) =>
-              setTimeout(() => reject(new Error('OpenCV init timed out')), IMPORT_DETECT_TIMEOUT_MS),
-            ),
+            new Promise((_resolve, reject) => {
+              importTimeoutHandle = setTimeout(
+                () => reject(new Error('OpenCV init timed out')),
+                IMPORT_DETECT_TIMEOUT_MS,
+              );
+            }),
           ]);
 
           // One-shot DETECT on a downscaled copy (mirrors the live loop's
@@ -336,22 +346,41 @@ export function ScannerScreen(): ReactNode {
           // extract ImageData on the main thread and use detectImageData
           // when the worker cannot rely on its own OffscreenCanvas.
           const offscreenSupported = useScannerStore.getState().offscreenSupported;
-          const result = offscreenSupported
-            ? await workerClient.detect(detectionBitmap, false)
-            : await workerClient.detectImageData(bitmapToImageData(detectionBitmap), false);
-          if (result.corners) {
-            const upscaled = orderCorners(
-              scaleCornersToFullRes(result.corners, detectionBitmap.width, captured.width),
-            );
-            scaledCorners = isConvex(upscaled) ? upscaled : null;
+          try {
+            const result = offscreenSupported
+              ? await workerClient.detect(detectionBitmap, false)
+              : await workerClient.detectImageData(bitmapToImageData(detectionBitmap), false);
+            if (result.corners) {
+              const upscaled = orderCorners(
+                scaleCornersToFullRes(result.corners, detectionBitmap.width, captured.width),
+              );
+              scaledCorners = isConvex(upscaled) ? upscaled : null;
+            }
+          } finally {
+            // MEDIUM-1: on the OffscreenCanvas path the worker only closes the
+            // transferred bitmap on the HAPPY path, so a rejecting `detect()`
+            // would leak `detectionBitmap` in the main thread. Close it here.
+            // On the detectImageData path `bitmapToImageData` ALREADY consumed
+            // and closed the bitmap, so closing again must be avoided (double
+            // close) — only close when we took the OffscreenCanvas branch.
+            if (offscreenSupported) {
+              detectionBitmap.close();
+            }
           }
         } catch {
-          // OPENCV_LOAD_FAILED (degraded mode, task 6.6.1), a timed-out
-          // init, or DETECT_FAILED: fall through with no pre-seed, same as a
-          // non-convex/missing camera detection (task 6.5.1 parity). The
-          // editor's own WARP call will fail too in true degraded mode,
+          // OPENCV_LOAD_FAILED (degraded mode, task 6.6.1 / HIGH-2 hung init),
+          // a timed-out init, or DETECT_FAILED: fall through with no pre-seed,
+          // same as a non-convex/missing camera detection (task 6.5.1 parity).
+          // The editor's own WARP call will fail too in true degraded mode,
           // surfaced via `warp-error` — this is the documented degraded-mode
           // limit.
+        } finally {
+          // HIGH-1: always clear the race timer. If `ensureOpenCvInit()` won
+          // the race, the timer is still armed; left uncleared its later
+          // rejection has no `.catch` and becomes an unhandled rejection.
+          if (importTimeoutHandle !== null) {
+            clearTimeout(importTimeoutHandle);
+          }
         }
 
         editorInitialCornersRef.current = scaledCorners;
@@ -363,6 +392,8 @@ export function ScannerScreen(): ReactNode {
         });
       } catch (error) {
         setImportError(error instanceof Error ? error.message : 'Could not read the selected image.');
+      } finally {
+        setImporting(false); // LOW-2: clear processing on success OR failure.
       }
     },
     [ensureOpenCvInit, setOriginalFrame, workerClient],
@@ -432,7 +463,7 @@ export function ScannerScreen(): ReactNode {
   // falls straight through to `CornerEditor` exactly like a camera capture.
   if (permission === 'denied' && !(phase === 'editing-corners' || phase === 'capturing' || phase === 'done')) {
     return (
-      <ImportFallback reason="permission-denied" onFileSelected={(file) => void handleImportedFile(file)} errorMessage={importError} />
+      <ImportFallback reason="permission-denied" onFileSelected={(file) => void handleImportedFile(file)} errorMessage={importError} busy={importing} />
     );
   }
 
@@ -448,7 +479,7 @@ export function ScannerScreen(): ReactNode {
     !(phase === 'editing-corners' || phase === 'capturing' || phase === 'done')
   ) {
     return (
-      <ImportFallback reason="no-camera" onFileSelected={(file) => void handleImportedFile(file)} errorMessage={importError} />
+      <ImportFallback reason="no-camera" onFileSelected={(file) => void handleImportedFile(file)} errorMessage={importError} busy={importing} />
     );
   }
 
@@ -458,7 +489,7 @@ export function ScannerScreen(): ReactNode {
         <p role="alert" className="text-sm text-danger" data-testid="camera-error">
           Could not open the camera. Try again, or import an image instead.
         </p>
-        <ImportFallback reason="no-camera" onFileSelected={(file) => void handleImportedFile(file)} errorMessage={importError} />
+        <ImportFallback reason="no-camera" onFileSelected={(file) => void handleImportedFile(file)} errorMessage={importError} busy={importing} />
       </div>
     );
   }
