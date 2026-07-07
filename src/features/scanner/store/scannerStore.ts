@@ -26,6 +26,14 @@ import type { CapturedFrame, EditRecipe } from '@/shared/types/scanner';
  * SCOPE NOTE (Group 5 / Slice E): the remaining capture-phase actions are
  * implemented here (setWarpedImage, setRecipe) so `CornerEditor` can store
  * the warp result and the non-destructive edit recipe (design section 5.2).
+ *
+ * SCOPE NOTE (Group 6 / Slice F): `setOpenCvStatus` is implemented here so
+ * `useDocumentDetection` can surface the OpenCV load state machine (design
+ * section 4.1) to the UI — this was previously tracked ONLY in a local ref
+ * inside the hook (never written to the store), which meant no component
+ * could render a degraded-mode banner when OpenCV failed to load (task
+ * 6.6.1). `setCaptureCapabilities`/`setDevices([])` already existed from
+ * Slice C for the permission-denied (6.1) and no-camera (6.2) cases.
  */
 
 export type CameraPermission = 'idle' | 'prompt' | 'granted' | 'denied';
@@ -91,6 +99,11 @@ export interface OpenCvSlice {
   readonly opencv: OpenCvState;
 }
 
+export interface OpenCvActions {
+  /** Patches the OpenCV load state machine (design section 4.1). Merges onto the existing state. */
+  readonly setOpenCvStatus: (patch: Partial<OpenCvState>) => void;
+}
+
 export interface DetectionActions {
   /** Writes both the interpolated and raw corners from the latest DETECT result (design section 5.1). */
   readonly setCorners: (interpolated: Quad | null, raw: Quad | null) => void;
@@ -146,7 +159,8 @@ export type ScannerStore = CameraSlice &
   OpenCvSlice &
   CameraActions &
   DetectionActions &
-  CaptureActions;
+  CaptureActions &
+  OpenCvActions;
 
 const initialCameraSlice: CameraSlice = {
   stream: null,
@@ -252,6 +266,9 @@ export const useScannerStore = create<ScannerStore>((set) => ({
       return { warpedImage: bitmap };
     }),
   setRecipe: (recipe) => set({ recipe }),
+
+  setOpenCvStatus: (patch) => set((state) => ({ opencv: { ...state.opencv, ...patch } })),
+
   resetCaptureSlice: () =>
     set((state) => {
       // Design section 7: resetting the capture slice discards the page /

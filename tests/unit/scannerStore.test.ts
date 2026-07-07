@@ -148,3 +148,43 @@ describe('scannerStore.resetCaptureSlice (design section 7 — release retained 
     expect(() => useScannerStore.getState().resetCaptureSlice()).not.toThrow();
   });
 });
+
+/**
+ * Group 6 / Slice F addition: setOpenCvStatus merges a partial patch onto the
+ * existing OpenCvState (task 6.6.1) so callers (useDocumentDetection) don't
+ * need to re-read+spread the whole state to update just `status` or just
+ * `progress`.
+ */
+describe('scannerStore.setOpenCvStatus (task 6.6.1)', () => {
+  beforeEach(() => {
+    useScannerStore.setState({ ...scannerStoreInitialState });
+  });
+
+  it('merges a partial patch onto the existing OpenCvState without clobbering other fields', () => {
+    useScannerStore.getState().setOpenCvStatus({ status: 'loading', progress: 0.4 });
+    expect(useScannerStore.getState().opencv).toMatchObject({
+      status: 'loading',
+      progress: 0.4,
+      retryCount: 0,
+      lastError: null,
+    });
+
+    useScannerStore.getState().setOpenCvStatus({ status: 'error', lastError: 'boom' });
+    expect(useScannerStore.getState().opencv).toMatchObject({
+      status: 'error',
+      // progress from the PREVIOUS patch must survive this merge.
+      progress: 0.4,
+      lastError: 'boom',
+    });
+  });
+
+  it('starts at the idle initial state', () => {
+    expect(useScannerStore.getState().opencv).toEqual({
+      status: 'idle',
+      progress: 0,
+      progressIndeterminate: false,
+      retryCount: 0,
+      lastError: null,
+    });
+  });
+});

@@ -30,6 +30,17 @@ vi.mock('@/features/scanner/hooks/useDocumentDetection', () => ({
   useDocumentDetection: () => ({
     start: startDetectionMock,
     stop: stopDetectionMock,
+    workerClient: {
+      init: vi.fn(async () => {}),
+      detect: vi.fn(),
+      detectImageData: vi.fn(),
+      warp: vi.fn(),
+      isBusy: vi.fn(() => false),
+      terminate: vi.fn(),
+    },
+    initState: { status: 'idle', progress: 0 },
+    retryManualInit: vi.fn(),
+    ensureOpenCvInit: vi.fn(async () => {}),
   }),
 }));
 

@@ -32,12 +32,34 @@
  * store (reactive, so the FAB ring reflects it) and, on reaching 0, fires the
  * caller-supplied capture callback. Losing stability, no detection, toggling
  * auto-capture off, or unmount all cancel the chain and reset `countdown`.
+ *
+ * OpenCV load state machine + backoff (Group 6 / Slice F, task 6.6.1; design
+ * section 4.4): `ensureInit` now also mirrors `idle -> loading -> ready` /
+ * `error` into `OpenCvSlice` (`setOpenCvStatus`) so the UI can render a
+ * degraded-mode banner — this state previously lived ONLY in local refs,
+ * invisible outside this hook. On `INIT` failure, up to
+ * `AUTO_RETRY_DELAYS_MS.length` automatic retries are attempted with bounded
+ * exponential backoff (1s/2s/4s); once exhausted, the status stays `error`
+ * and `retryManualInit` (returned from this hook) lets the UI retry on
+ * demand indefinitely. A successful retry (auto or manual) transitions back
+ * to `ready`, which is the "OpenCV se recupera" case Group 5's `CornerEditor`
+ * already handles transparently — it just calls `workerClient.warp` again,
+ * which now succeeds once `cv` is loaded in the worker.
+ *
+ * No-OffscreenCanvas fallback (Group 6 / Slice F, task 6.7.1; design section
+ * 8): `runOneFrame` reads `CameraSlice.offscreenSupported` on every frame and
+ * routes DETECT through `workerClient.detectImageData` (extracting pixels via
+ * a main-thread `<canvas>`, `bitmapToImageData`) instead of transferring the
+ * `ImageBitmap` when that capability is absent, so the worker's own
+ * `OffscreenCanvas`-based extraction (which may equally be absent in that
+ * environment) is never required.
  */
 
 import { useCallback, useEffect, useRef } from 'react';
 import { getSharedWorkerClient, type WorkerClient } from '@/features/scanner/lib/workerClient';
 import { DETECTION } from '@/features/scanner/lib/detectionConstants';
 import { lerpQuad, maxCornerVariance } from '@/features/scanner/lib/detectionMath';
+import { bitmapToImageData } from '@/features/scanner/lib/mainThreadImageData';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
 import type { Quad } from '@/shared/types/geometry';
 
@@ -72,10 +94,29 @@ export interface UseDocumentDetectionResult {
   readonly workerClient: WorkerClient;
   /** OpenCV init progress state, surfaced for a loading indicator (design section 4). */
   readonly initState: { readonly status: 'idle' | 'loading' | 'ready' | 'error'; readonly progress: number };
+  /**
+   * Manually retries `INIT` after automatic backoff has been exhausted
+   * (design section 4.4 "reintento manual desde UI"). Safe to call even
+   * while a retry is already in flight (idempotent, same as `ensureInit`).
+   */
+  readonly retryManualInit: () => void;
+  /**
+   * Triggers OpenCV `INIT` (idempotent, with the SAME status-mirroring +
+   * backoff-retry machinery as the live-detection loop's own internal
+   * trigger) without needing a `<video>` element or a running loop. Added
+   * for the import-fallback pipeline (task 6.3.2): that path has no camera
+   * stream at all, so it cannot rely on `start()` to have already kicked
+   * off `INIT` — see the fix note in ScannerScreen.tsx's import handler for
+   * the bug this closes (NOT_INITIALIZED on every import-fallback DETECT/WARP).
+   */
+  readonly ensureOpenCvInit: () => Promise<void>;
 }
 
 /** Interval between countdown ticks (3 -> 2 -> 1 -> 0), in ms. */
 const COUNTDOWN_TICK_MS = 1000;
+
+/** Bounded exponential backoff delays for automatic INIT retries (design section 4.4: "1s/2s/4s, max 3"). */
+const AUTO_RETRY_DELAYS_MS: readonly number[] = [1000, 2000, 4000];
 
 export function useDocumentDetection(
   options: UseDocumentDetectionOptions = {},
@@ -109,33 +150,143 @@ export function useDocumentDetection(
   const setStability = useScannerStore((s) => s.setStability);
   const setCountdown = useScannerStore((s) => s.setCountdown);
   const setNoDetectionSince = useScannerStore((s) => s.setNoDetectionSince);
+  const setOpenCvStatus = useScannerStore((s) => s.setOpenCvStatus);
 
-  // Idempotent init (task 4.1.3): only the first caller actually triggers
-  // workerClient.init(); subsequent calls (re-renders, remount while a
-  // previous init is still pending, StrictMode double-mount sharing the same
-  // singleton) share the same in-flight promise. The promise ref is module-
-  // independent per hook instance, but because the worker is shared, a second
-  // instance's init() also resolves against the same already-initialized
-  // worker without triggering a second OpenCV download.
-  const ensureInit = useCallback((): Promise<void> => {
-    if (initPromiseRef.current) {
-      return initPromiseRef.current;
-    }
+  /** Count of automatic retries already attempted this session (task 6.6.1 / design section 4.4). */
+  const autoRetryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * Forward reference to `scheduleNextFrame` (defined further down, after
+   * `runOneFrame`), set via the effect right after its own definition. Needed
+   * because `attemptInit`'s success handler (defined BEFORE `scheduleNextFrame`
+   * in this file) must be able to resume a stalled loop on OpenCV recovery
+   * (task 6.6.1) without introducing a circular `useCallback` dependency.
+   */
+  const scheduleNextFrameRef = useRef<() => void>(() => {});
+
+  /**
+   * Runs a single INIT attempt against the shared worker client, mirroring
+   * progress/status into both the local refs (initState return value) and
+   * the store's `OpenCvSlice` (task 6.6.1). Does NOT retry by itself —
+   * retry scheduling is `scheduleAutoRetry`'s job below.
+   */
+  const attemptInit = useCallback((): Promise<void> => {
     initStatusRef.current = 'loading';
+    setOpenCvStatus({ status: 'loading' });
     const promise = workerClient
       .init((progress) => {
         initProgressRef.current = progress;
+        setOpenCvStatus({ progress, progressIndeterminate: progress <= 0 });
       })
       .then(() => {
         initStatusRef.current = 'ready';
+        autoRetryCountRef.current = 0;
+        setOpenCvStatus({ status: 'ready', progress: 1, progressIndeterminate: false, lastError: null });
+        // Task 6.6.1 recovery: if `start()` was already called and is
+        // "supposed to be running" but never got to schedule a frame because
+        // the FIRST `ensureInit()` call rejected, a later successful attempt
+        // (background auto-retry or `retryManualInit`) must resume the loop
+        // itself — nothing else re-invokes `scheduleNextFrame` in that case.
+        // Guarded by `loopHandleRef` so this never double-schedules on top of
+        // an already-running loop (e.g. the ordinary first-success path via
+        // `start()`'s own `.then()` below, or a loop that paused only because
+        // the tab is hidden, which must stay paused until visible again).
+        if (runningRef.current && loopHandleRef.current === null && !document.hidden) {
+          scheduleNextFrameRef.current();
+        }
       })
       .catch((error: unknown) => {
         initStatusRef.current = 'error';
+        const message = error instanceof Error ? error.message : 'Unknown OpenCV load failure.';
+        setOpenCvStatus({ status: 'error', lastError: message });
         throw error;
       });
     initPromiseRef.current = promise;
     return promise;
-  }, [workerClient]);
+  }, [setOpenCvStatus, workerClient]);
+
+  /**
+   * Idempotent init (task 4.1.3): only the first caller actually triggers
+   * workerClient.init(); subsequent calls (re-renders, remount while a
+   * previous init is still pending, StrictMode double-mount sharing the same
+   * singleton) share the same in-flight promise. The promise ref is module-
+   * independent per hook instance, but because the worker is shared, a second
+   * instance's init() also resolves against the same already-initialized
+   * worker without triggering a second OpenCV download.
+   *
+   * On failure (task 6.6.1 / design section 4.4), schedules up to
+   * `AUTO_RETRY_DELAYS_MS.length` automatic retries with bounded exponential
+   * backoff. Each retry replaces `initPromiseRef` with a fresh attempt so a
+   * caller awaiting `ensureInit()` again after a failure observes the retry
+   * rather than the original rejection. Callers that don't re-invoke
+   * `ensureInit` (e.g. the loop already gave up) still see the store's
+   * `opencv.status` flip to `ready` reactively if a background retry
+   * succeeds.
+   */
+  /**
+   * Schedules ONE automatic retry (if the backoff budget allows) after
+   * `attemptInit` has already failed. Recursive: the scheduled retry itself
+   * calls `runAttemptWithAutoRetry` again on failure, so failure #2 schedules
+   * the SECOND backoff delay, failure #3 the third, and failure #4 (after the
+   * budget of `AUTO_RETRY_DELAYS_MS.length` retries is exhausted) schedules
+   * nothing further — only `retryManualInit` can trigger another attempt at
+   * that point. This is the piece the original single `.catch` on `ensureInit`
+   * was missing: that only ever scheduled the FIRST retry, since the
+   * retry's own `attemptInit()` call had no failure handler chasing it.
+   */
+  const runAttemptWithAutoRetry = useCallback((): Promise<void> => {
+    return attemptInit().catch((error: unknown) => {
+      if (autoRetryCountRef.current < AUTO_RETRY_DELAYS_MS.length) {
+        const delay = AUTO_RETRY_DELAYS_MS[autoRetryCountRef.current] as number;
+        autoRetryCountRef.current += 1;
+        retryTimerRef.current = setTimeout(() => {
+          retryTimerRef.current = null;
+          // The scheduled retry's own promise chain is intentionally NOT
+          // returned/awaited from this `setTimeout` callback (a timer
+          // callback can't be "returned into" anything) — swallow a
+          // still-failing retry's rejection here explicitly so it never
+          // becomes an unhandled promise rejection. The failure is already
+          // fully surfaced via `OpenCvSlice.status`/`lastError`, and a
+          // FURTHER retry (if the budget allows) is scheduled by this same
+          // recursive call before the rejection reaches here.
+          runAttemptWithAutoRetry().catch(() => {});
+        }, delay);
+      }
+      throw error;
+    });
+  }, [attemptInit]);
+
+  const ensureInit = useCallback((): Promise<void> => {
+    if (initPromiseRef.current && initStatusRef.current !== 'error') {
+      return initPromiseRef.current;
+    }
+    const promise = runAttemptWithAutoRetry();
+    initPromiseRef.current = promise;
+    return promise;
+  }, [runAttemptWithAutoRetry]);
+
+  /**
+   * Manual retry (design section 4.4: "reintento manual desde UI"),
+   * available even after the automatic backoff budget is exhausted. Resets
+   * the auto-retry counter so a manual click effectively grants a fresh
+   * backoff budget for any subsequent automatic retries. Routed through
+   * `runAttemptWithAutoRetry` (not a bare `attemptInit()`) so a manual retry
+   * that ALSO fails re-arms the automatic backoff chain instead of silently
+   * giving up after one attempt; the trailing `.catch(() => {})` prevents an
+   * unhandled rejection warning (the failure is already fully surfaced via
+   * `OpenCvSlice.status`/`lastError`, same as `start()`'s own catch above).
+   */
+  const retryManualInit = useCallback(() => {
+    if (retryTimerRef.current !== null) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+    autoRetryCountRef.current = 0;
+    const promise = runAttemptWithAutoRetry();
+    initPromiseRef.current = promise;
+    promise.catch(() => {});
+  }, [runAttemptWithAutoRetry]);
 
   /** Cancels any armed auto-capture countdown and resets the reactive countdown state (fix C1 / H2). */
   const cancelCountdown = useCallback(() => {
@@ -203,7 +354,23 @@ export function useDocumentDetection(
       }
 
       try {
-        const result = await workerClient.detect(bitmap, true);
+        // Task 6.7.1 (design section 8): when the main thread has no
+        // `OffscreenCanvas`, extract `ImageData` here and send it directly
+        // (`detectImageData`) instead of transferring the bitmap — the
+        // worker's own `OffscreenCanvas`-based extraction may not exist
+        // either in that environment. `offscreenSupported` is read fresh
+        // from the store each frame rather than captured in a closure,
+        // since Slice C sets it once at camera-open time.
+        const offscreenSupported = useScannerStore.getState().offscreenSupported;
+        const result = offscreenSupported
+          ? await workerClient.detect(bitmap, true)
+          : await workerClient.detectImageData(bitmapToImageData(bitmap), true);
+        // `detectImageData` already closed `bitmap` inside `bitmapToImageData`
+        // — clear the local reference so the `finally` below's `bitmap?.close()`
+        // does not double-close it.
+        if (!offscreenSupported) {
+          bitmap = null;
+        }
 
         const autoCaptureEnabled = useScannerStore.getState().autoCaptureEnabled;
         const prevCorners = useScannerStore.getState().corners;
@@ -303,6 +470,12 @@ export function useDocumentDetection(
     }
   }, [runOneFrame]);
 
+  // Keep the forward-reference ref pointing at the latest `scheduleNextFrame`
+  // so `attemptInit`'s success handler (defined earlier in this file) can
+  // resume a stalled loop on OpenCV recovery (task 6.6.1) without a circular
+  // `useCallback` dependency.
+  scheduleNextFrameRef.current = scheduleNextFrame;
+
   const stop = useCallback(() => {
     runningRef.current = false;
     const video = videoRef.current;
@@ -323,11 +496,26 @@ export function useDocumentDetection(
         return;
       }
       runningRef.current = true;
-      void ensureInit().then(() => {
-        if (runningRef.current) {
-          scheduleNextFrame();
-        }
-      });
+      void ensureInit()
+        .then(() => {
+          if (runningRef.current) {
+            scheduleNextFrame();
+          }
+        })
+        .catch(() => {
+          // Task 6.6.1: INIT failing (even after exhausting automatic
+          // retries) must not become an unhandled rejection — the failure is
+          // already surfaced reactively via `OpenCvSlice.status === 'error'`
+          // (read by ScannerScreen's degraded-mode banner). The loop stays
+          // un-started for now, but `runningRef` is intentionally left
+          // `true`: `attemptInit`'s own success handler (via
+          // `scheduleNextFrameRef`) is what actually resumes the loop once a
+          // LATER attempt (background auto-retry or `retryManualInit`)
+          // succeeds — see that handler's comment for why gating on
+          // `runningRef.current` there is exactly the "was this loop
+          // supposed to be running" check needed to resume automatically
+          // without any caller having to call `start()` again.
+        });
     },
     [ensureInit, scheduleNextFrame],
   );
@@ -364,10 +552,18 @@ export function useDocumentDetection(
   // Stop the loop and cancel any pending countdown timers on unmount. The
   // shared worker is deliberately NOT terminated here (fix C2): a later mount
   // within the same session reuses the singleton and its completed init().
+  // The pending auto-retry timer (task 6.6.1), if any, IS cleared here: it
+  // closes over this hook instance's callbacks, and a later remount's
+  // `ensureInit`/`retryManualInit` schedules its own retry against the
+  // still-shared worker/store state instead.
   useEffect(() => {
     return () => {
       stop();
       cancelCountdown();
+      if (retryTimerRef.current !== null) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
     };
   }, [stop, cancelCountdown]);
 
@@ -376,5 +572,7 @@ export function useDocumentDetection(
     stop,
     workerClient,
     initState: { status: initStatusRef.current, progress: initProgressRef.current },
+    retryManualInit,
+    ensureOpenCvInit: ensureInit,
   };
 }

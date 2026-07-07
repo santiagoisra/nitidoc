@@ -51,6 +51,13 @@ const fakeWorkerClient: WorkerClient = {
     }
     return next;
   }),
+  detectImageData: vi.fn(async (): Promise<DetectResponse> => {
+    const next = detectQueue.shift();
+    if (!next) {
+      return { type: 'DETECT_RESULT', id: 0, corners: null, quality: null };
+    }
+    return next;
+  }),
   warp: vi.fn(),
   isBusy: vi.fn(() => isBusyValue),
   terminate: vi.fn(),
@@ -119,7 +126,10 @@ describe('useDocumentDetection auto-capture countdown (C1 / M1)', () => {
     detectQueue = [];
     isBusyValue = false;
     vi.clearAllMocks();
-    useScannerStore.setState({ ...scannerStoreInitialState, autoCaptureEnabled: true });
+    // offscreenSupported: true keeps these tests on the ORIGINAL `detect()`
+    // path (task 6.7.1 added a separate `detectImageData()` path gated on
+    // this flag — covered by its own describe block below).
+    useScannerStore.setState({ ...scannerStoreInitialState, autoCaptureEnabled: true, offscreenSupported: true });
 
     // createImageBitmap is not in happy-dom; the hook only needs it to resolve.
     vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ close: vi.fn() }) as unknown as ImageBitmap));
@@ -249,5 +259,225 @@ describe('useDocumentDetection auto-capture countdown (C1 / M1)', () => {
     detectQueue.push(detectResult(STABLE_QUAD));
     await runFrame(video);
     expect(useScannerStore.getState().countdown).toBe(3);
+  });
+});
+
+/**
+ * Group 6 / Slice F (task 6.6.1; design section 4.4): OpenCV INIT failure
+ * mirrors into `OpenCvSlice` and retries with bounded exponential backoff
+ * (1s/2s/4s, max 3 automatic retries), then stays retriable manually via
+ * `retryManualInit` forever after the automatic budget is exhausted.
+ *
+ * `waitFor` (real-timer based) is deliberately NOT used here — it conflicts
+ * with `vi.useFakeTimers()` (its internal polling never advances the fake
+ * clock, so it always times out). Microtask flushing under fake timers is
+ * done explicitly via `flushMicrotasks` instead.
+ */
+async function flushMicrotasks(times = 4): Promise<void> {
+  for (let i = 0; i < times; i += 1) {
+    await Promise.resolve();
+  }
+}
+
+describe('useDocumentDetection OpenCV load state machine + backoff (task 6.6.1)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    detectQueue = [];
+    isBusyValue = false;
+    vi.clearAllMocks();
+    useScannerStore.setState({ ...scannerStoreInitialState });
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ close: vi.fn() }) as unknown as ImageBitmap));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('mirrors a successful INIT into opencv.status: idle -> loading -> ready', async () => {
+    const initMock = fakeWorkerClient.init as unknown as ReturnType<typeof vi.fn>;
+    initMock.mockImplementation(async (onProgress: (p: number) => void) => {
+      onProgress(0.5);
+    });
+
+    const video = createFakeVideo();
+    expect(useScannerStore.getState().opencv.status).toBe('idle');
+
+    const { result } = renderHook(() => useDocumentDetection());
+    await act(async () => {
+      result.current.start(video.el);
+      await flushMicrotasks();
+    });
+
+    expect(useScannerStore.getState().opencv.status).toBe('ready');
+    expect(useScannerStore.getState().opencv.lastError).toBeNull();
+  });
+
+  it('transitions to error and schedules bounded automatic retries (1s/2s/4s) on repeated INIT failure', async () => {
+    const initMock = fakeWorkerClient.init as unknown as ReturnType<typeof vi.fn>;
+    initMock.mockRejectedValue(new Error('WASM instantiate failed'));
+
+    const video = createFakeVideo();
+    const { result } = renderHook(() => useDocumentDetection());
+
+    await act(async () => {
+      result.current.start(video.el);
+      await flushMicrotasks();
+    });
+
+    // First attempt fails — status flips to error.
+    expect(useScannerStore.getState().opencv.status).toBe('error');
+    expect(useScannerStore.getState().opencv.lastError).toBe('WASM instantiate failed');
+    expect(initMock).toHaveBeenCalledTimes(1);
+
+    // First auto-retry after 1s.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+      await flushMicrotasks();
+    });
+    expect(initMock).toHaveBeenCalledTimes(2);
+
+    // Second auto-retry after 2s more.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+      await flushMicrotasks();
+    });
+    expect(initMock).toHaveBeenCalledTimes(3);
+
+    // Third auto-retry after 4s more.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+      await flushMicrotasks();
+    });
+    expect(initMock).toHaveBeenCalledTimes(4);
+
+    // Automatic budget (3 retries) is now exhausted — no further calls even
+    // after a long wait, until a manual retry is requested.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+      await flushMicrotasks();
+    });
+    expect(initMock).toHaveBeenCalledTimes(4);
+    expect(useScannerStore.getState().opencv.status).toBe('error');
+  });
+
+  it('retryManualInit retries immediately even after the automatic backoff budget is exhausted, and succeeding recovers to ready', async () => {
+    const initMock = fakeWorkerClient.init as unknown as ReturnType<typeof vi.fn>;
+    initMock.mockRejectedValue(new Error('network error'));
+
+    const video = createFakeVideo();
+    const { result } = renderHook(() => useDocumentDetection());
+
+    await act(async () => {
+      result.current.start(video.el);
+      await flushMicrotasks();
+    });
+    expect(useScannerStore.getState().opencv.status).toBe('error');
+
+    // Exhaust the automatic budget (1s + 2s + 4s).
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(7000);
+      await flushMicrotasks();
+    });
+    expect(initMock).toHaveBeenCalledTimes(4);
+
+    // Now let a manual retry succeed (task 6.6.1: "si OpenCV se recupera en
+    // un reintento posterior, permitir warp" — recovery is just INIT
+    // succeeding again).
+    initMock.mockResolvedValueOnce(undefined);
+    await act(async () => {
+      result.current.retryManualInit();
+      await flushMicrotasks();
+    });
+
+    expect(useScannerStore.getState().opencv.status).toBe('ready');
+    expect(initMock).toHaveBeenCalledTimes(5);
+  });
+});
+
+/**
+ * Group 6 / Slice F (task 6.7.1; design section 8): the live loop must route
+ * DETECT through `detectImageData` (extracting pixels on the main thread via
+ * `bitmapToImageData`) instead of transferring the bitmap when
+ * `CameraSlice.offscreenSupported` is false, so the worker's own
+ * `OffscreenCanvas`-based extraction is never required.
+ */
+describe('useDocumentDetection no-OffscreenCanvas fallback (task 6.7.1)', () => {
+  let closeSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    detectQueue = [];
+    isBusyValue = false;
+    vi.clearAllMocks();
+    useScannerStore.setState({ ...scannerStoreInitialState });
+
+    closeSpy = vi.fn();
+    vi.stubGlobal(
+      'createImageBitmap',
+      vi.fn(async () => ({ width: 640, height: 480, close: closeSpy }) as unknown as ImageBitmap),
+    );
+
+    const originalGetContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = vi.fn(() => ({
+      drawImage: vi.fn(),
+      getImageData: vi.fn(() => ({ width: 640, height: 480, data: new Uint8ClampedArray(4) })),
+    })) as unknown as typeof HTMLCanvasElement.prototype.getContext;
+
+    // Restore after this describe block via a closure captured in afterEach.
+    (globalThis as { __originalGetContext?: typeof HTMLCanvasElement.prototype.getContext }).__originalGetContext =
+      originalGetContext;
+  });
+
+  afterEach(() => {
+    const originalGetContext = (
+      globalThis as { __originalGetContext?: typeof HTMLCanvasElement.prototype.getContext }
+    ).__originalGetContext;
+    if (originalGetContext) {
+      HTMLCanvasElement.prototype.getContext = originalGetContext;
+    }
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('calls detectImageData (not detect) and closes the bitmap when offscreenSupported is false', async () => {
+    useScannerStore.setState({ offscreenSupported: false });
+    const video = createFakeVideo();
+    detectQueue.push(detectResult(null));
+
+    const { result } = renderHook(() => useDocumentDetection());
+    await act(async () => {
+      result.current.start(video.el);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await runFrame(video);
+
+    expect(fakeWorkerClient.detectImageData).toHaveBeenCalledTimes(1);
+    expect(fakeWorkerClient.detect).not.toHaveBeenCalled();
+    // bitmapToImageData closes the bitmap itself; runOneFrame must not
+    // double-close an already-nulled-out reference.
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls detect (not detectImageData) when offscreenSupported is true', async () => {
+    useScannerStore.setState({ offscreenSupported: true });
+    const video = createFakeVideo();
+    detectQueue.push(detectResult(null));
+
+    const { result } = renderHook(() => useDocumentDetection());
+    await act(async () => {
+      result.current.start(video.el);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await runFrame(video);
+
+    expect(fakeWorkerClient.detect).toHaveBeenCalledTimes(1);
+    expect(fakeWorkerClient.detectImageData).not.toHaveBeenCalled();
   });
 });
