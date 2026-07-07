@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useScannerStore, scannerStoreInitialState } from '@/features/scanner/store/scannerStore';
 import type { CapturedFrame } from '@/shared/types/scanner';
+import { NEUTRAL_FILTER } from '@/shared/types/scanner';
 
 /**
  * Slice D adversarial review regression test for the store (H1).
@@ -132,6 +133,7 @@ describe('scannerStore.resetCaptureSlice (design section 7 — release retained 
       rotation: 0,
       flipH: false,
       flipV: false,
+      filter: NEUTRAL_FILTER,
     });
 
     useScannerStore.getState().resetCaptureSlice();

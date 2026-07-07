@@ -11,7 +11,8 @@
  */
 
 import type { AspectRatioName, Quad } from '@/shared/types/geometry';
-import type { EditRecipe } from '@/shared/types/scanner';
+import type { EditRecipe, FilterParams } from '@/shared/types/scanner';
+import { NEUTRAL_FILTER } from '@/shared/types/scanner';
 
 /**
  * Distributes 4 corners across the full frame rectangle
@@ -40,7 +41,9 @@ export function frameCorners(
 /**
  * Creates the initial `EditRecipe` once a warp completes
  * (task 5.2.3; perspective spec "Warp exitoso con aspect ratio inferido"):
- * `{ corners, aspectRatio, rotation: 0, flipH: false, flipV: false }`.
+ * `{ corners, aspectRatio, rotation: 0, flipH: false, flipV: false, filter: NEUTRAL_FILTER }`.
+ * The filter seeds to `NEUTRAL_FILTER` (design section 1.1) — every page
+ * starts unfiltered until the user picks a preset.
  */
 export function createInitialRecipe(corners: Quad, aspectRatio: AspectRatioName): EditRecipe {
   return {
@@ -49,6 +52,7 @@ export function createInitialRecipe(corners: Quad, aspectRatio: AspectRatioName)
     rotation: 0,
     flipH: false,
     flipV: false,
+    filter: NEUTRAL_FILTER,
   };
 }
 
@@ -78,6 +82,15 @@ export function flipHorizontalRecipe(recipe: EditRecipe): EditRecipe {
 /** Returns a new recipe with `flipV` toggled — vertical flip counterpart, same non-destructive contract. */
 export function flipVerticalRecipe(recipe: EditRecipe): EditRecipe {
   return { ...recipe, flipV: !recipe.flipV };
+}
+
+/**
+ * Returns a new recipe with `filter` replaced (design section 1.1; ADR-009).
+ * Non-destructive, JSON-only: never re-invokes the warp — filter changes are
+ * a presentation-layer overlay applied on top of the cached warp base.
+ */
+export function withFilter(recipe: EditRecipe, filter: FilterParams): EditRecipe {
+  return { ...recipe, filter };
 }
 
 /**
