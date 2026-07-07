@@ -342,6 +342,12 @@ export function ScannerScreen(): ReactNode {
           const detectionBitmap = await createImageBitmap(captured.bitmap, {
             resizeWidth: Math.min(DETECTION.DOWNSCALE_WIDTH, captured.width),
           });
+          // Capture the detection width NOW: `workerClient.detect` transfers
+          // (detaches) the bitmap to the worker, after which `detectionBitmap.width`
+          // reads 0 — which fed `scaleCornersToFullRes` a 0 and made it throw, so a
+          // perfectly good detection was swallowed and the editor fell back to
+          // frame-complete corners.
+          const detectionWidth = detectionBitmap.width;
           // Task 6.7.1: same offscreenSupported gating as the live loop —
           // extract ImageData on the main thread and use detectImageData
           // when the worker cannot rely on its own OffscreenCanvas.
@@ -352,7 +358,7 @@ export function ScannerScreen(): ReactNode {
               : await workerClient.detectImageData(bitmapToImageData(detectionBitmap), false);
             if (result.corners) {
               const upscaled = orderCorners(
-                scaleCornersToFullRes(result.corners, detectionBitmap.width, captured.width),
+                scaleCornersToFullRes(result.corners, detectionWidth, captured.width),
               );
               scaledCorners = isConvex(upscaled) ? upscaled : null;
             }
