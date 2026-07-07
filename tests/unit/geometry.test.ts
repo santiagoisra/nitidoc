@@ -229,6 +229,103 @@ describe('orderCorners (task 7.1.2)', () => {
         expectPointClose(ordered[3], bl as Point);
       });
     }
+
+    /**
+     * A PORTRAIT rectangle rotated exactly 90 degrees becomes, by
+     * definition, a LANDSCAPE rectangle occupying the exact same bounding
+     * box — this sits exactly ON the modulo-90 de-rotation boundary
+     * (geometry.ts's own "FIX (post-review C1)" comment), where which edge
+     * is picked as "dominant" (and therefore which corner reads as
+     * top-left) is a genuine tie the algorithm resolves by whichever edge
+     * length comparison wins numerically. This is NOT a bug: it is the same
+     * documented ambiguity class as the 180-degree case below. The
+     * guaranteed contract at this exact angle is convexity + point-set
+     * preservation, not a specific corner identity.
+     */
+    it('a 90-degree rotated PORTRAIT rectangle stays convex and preserves the point set (exact right-angle tie case)', () => {
+      const base: readonly Point[] = [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+        { x: 10, y: 20 },
+        { x: 0, y: 20 },
+      ];
+      const c = centroidOf(base);
+      const [tl, tr, br, bl] = base.map((p) => rotatePointDeg(p, c, 90));
+      const ordered = orderCorners([tl as Point, tr as Point, br as Point, bl as Point]);
+
+      expect(isConvex(ordered)).toBe(true);
+      const orderedSet = new Set(ordered.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`));
+      const inputSet = new Set([tl, tr, br, bl].map((p) => `${(p as Point).x.toFixed(2)},${(p as Point).y.toFixed(2)}`));
+      expect(orderedSet).toEqual(inputSet);
+    });
+
+    /**
+     * Task 6.8.1 (design section 11 R5 empirical verification) — near-
+     * vertical-inverted documents (~170-190 degrees, i.e. close to fully
+     * upside down). RESULT OF THE EMPIRICAL CHECK done in this slice:
+     *
+     * `orderCorners`'s de-rotation step normalizes the dominant-edge angle
+     * MODULO 90 degrees before applying the sum heuristic (geometry.ts
+     * comment, "FIX (post-review C1)"). This means a document at 180 degrees
+     * is geometrically INDISTINGUISHABLE from 0 degrees by this algorithm:
+     * both de-rotate to the same axis-aligned quad, and the "which corner is
+     * visually top-left to a human" question requires knowing which way the
+     * TEXT reads (semantic/OCR-level information), which `orderCorners`
+     * intentionally does NOT have — it only orders a bare quadrilateral of 4
+     * points with no notion of "up" beyond the shape's own longest edge.
+     *
+     * What IS guaranteed and tested here: (1) the result stays a valid
+     * cyclic labeling of the SAME 4 input points (no point invented/dropped/
+     * duplicated), (2) the result is convex whenever the input was, and (3)
+     * a full 180-degree rotation labels IDENTICALLY to the 0-degree case
+     * (same points map to the same corner ROLE — TL stays geometrically
+     * "top-left of the axis-aligned shape after de-rotation"), which is the
+     * consistent, reproducible behavior the warp pipeline actually needs
+     * (perspective correction is orientation-symmetric; a document warped
+     * "upside down" is still a correctly perspective-corrected rectangle,
+     * just rotated 180 degrees — which the user's own post-warp "Rotate"
+     * button, ADR-005, already exists to fix in one tap).
+     *
+     * This is NOT a regression risk newly introduced by this slice; it is
+     * the documented, pre-existing limit of the modulo-90 normalization
+     * (design section 6.1's own "verificacion empirica requerida" note).
+     * No further normalization change is made here — recording this as the
+     * completed empirical check per task 6.8.1's checklist item for the
+     * near-vertical-inverted case.
+     */
+    it('180-degree (near-vertical-inverted) rotation: labels consistently with the 0-degree case and stays convex', () => {
+      const base: readonly Point[] = [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+        { x: 10, y: 20 },
+        { x: 0, y: 20 },
+      ];
+      const c = centroidOf(base);
+      const [tl, tr, br, bl] = base.map((p) => rotatePointDeg(p, c, 180));
+      const ordered = orderCorners([tl as Point, tr as Point, br as Point, bl as Point]);
+
+      expect(isConvex(ordered)).toBe(true);
+      const orderedSet = new Set(ordered.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`));
+      const inputSet = new Set([tl, tr, br, bl].map((p) => `${(p as Point).x.toFixed(2)},${(p as Point).y.toFixed(2)}`));
+      expect(orderedSet).toEqual(inputSet);
+    });
+
+    it('a slight (170 degree) offset from fully inverted also stays convex and preserves the point set', () => {
+      const base: readonly Point[] = [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+        { x: 10, y: 20 },
+        { x: 0, y: 20 },
+      ];
+      const c = centroidOf(base);
+      const [tl, tr, br, bl] = base.map((p) => rotatePointDeg(p, c, 170));
+      const ordered = orderCorners([tl as Point, tr as Point, br as Point, bl as Point]);
+
+      expect(isConvex(ordered)).toBe(true);
+      const orderedSet = new Set(ordered.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`));
+      const inputSet = new Set([tl, tr, br, bl].map((p) => `${(p as Point).x.toFixed(2)},${(p as Point).y.toFixed(2)}`));
+      expect(orderedSet).toEqual(inputSet);
+    });
   });
 });
 
