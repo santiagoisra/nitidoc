@@ -61,15 +61,15 @@ Start: only `CaptureSlice` exists. Finish: `documentSlice.ts` exists with full s
 design section 1.4-1.5, wired into `scannerStore.ts` ALONGSIDE `CaptureSlice` (additive -- no UI consumer yet).
 Rollback: revert PR2 branch; `CaptureSlice` still governs the app, so this is a safe intermediate state.
 
-- [ ] 1b.1 New `src/features/scanner/store/documentSlice.ts`: `DocumentPage`, `ActivePageResources`, `DocumentPhase`, `DocumentSlice`, `DocumentActions` per design section 1.2-1.4.
-- [ ] 1b.2 Implement `addPage` (30-cap no-op guard), `setActivePageId`, `setActiveWorking` (close-before-overwrite on `originalBitmap`/`warpedBase`), `setActiveDirty`.
-- [ ] 1b.3 Implement `updateRecipe`, `updatePageWarpBase` (closes previous thumbnail), `applyFilterToAll` (pure recipe rewrite, no bitmap work).
-- [ ] 1b.4 Implement `reorderPages` (full re-index from ordered id list), `setSelectedPageIds`, `setPhase`.
-- [ ] 1b.5 Implement `deletePage`/`restorePage`/`hardReleaseDeletion` per the hygiene table (design section 1.5): active-page delete closes `activeWorking`; a second `deletePage` while one is pending hard-releases the older one first.
-- [ ] 1b.6 Implement `resetDocument` (closes `activeWorking`, every `page.thumbnail`, `pendingDeletion.thumbnail`).
-- [ ] 1b.7 Wire `DocumentSlice` into `scannerStore.ts`'s combined store type, alongside (not replacing yet) `CaptureSlice`.
-- [ ] 1b.8 New `tests/unit/documentSlice.test.ts`: cap-30 block, close-before-overwrite on `setActiveWorking`, delete->pendingDeletion->undo restores `order`, delete->expiry hard-releases, second-delete-while-pending supersedes, `reorderPages` produces dense 0..n-1 with no gaps/dupes (spec scenario "Reorder por drag-and-drop").
-- [ ] 1b.9 Verify: `tsc --noEmit` clean; `vitest run documentSlice`.
+- [x] 1b.1 New `src/features/scanner/store/documentSlice.ts`: `DocumentPage`, `ActivePageResources`, `DocumentPhase`, `DocumentSlice`, `DocumentActions` per design section 1.2-1.4.
+- [x] 1b.2 Implement `addPage` (30-cap no-op guard), `setActivePageId`, `setActiveWorking` (close-before-overwrite on `originalBitmap`/`warpedBase`), `setActiveDirty`.
+- [x] 1b.3 Implement `updateRecipe`, `updatePageWarpBase` (closes previous thumbnail), `applyFilterToAll` (pure recipe rewrite, no bitmap work).
+- [x] 1b.4 Implement `reorderPages` (full re-index from ordered id list), `setSelectedPageIds`, `setPhase`.
+- [x] 1b.5 Implement `deletePage`/`restorePage`/`hardReleaseDeletion` per the hygiene table (design section 1.5): active-page delete closes `activeWorking`; a second `deletePage` while one is pending hard-releases the older one first.
+- [x] 1b.6 Implement `resetDocument` (closes `activeWorking`, every `page.thumbnail`, `pendingDeletion.thumbnail`).
+- [x] 1b.7 Wire `DocumentSlice` into `scannerStore.ts`'s combined store type, alongside (not replacing yet) `CaptureSlice`.
+- [x] 1b.8 New `tests/unit/documentSlice.test.ts`: cap-30 block, close-before-overwrite on `setActiveWorking`, delete->pendingDeletion->undo restores `order`, delete->expiry hard-releases, second-delete-while-pending supersedes, `reorderPages` produces dense 0..n-1 with no gaps/dupes (spec scenario "Reorder por drag-and-drop").
+- [x] 1b.9 Verify: `tsc --noEmit` clean; `vitest run documentSlice`.
 
 ## Group 1c -- Rewire screen/editor, remove `CaptureSlice` (PR3)
 
