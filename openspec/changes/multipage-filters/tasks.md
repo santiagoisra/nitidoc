@@ -109,12 +109,12 @@ Start: `DocumentSlice` has sync actions only; no controller drives activate/deac
 Finish: `pageResources.ts` pure helpers + `useActivePage` hook implement Materialize/Activate/Deactivate/
 Re-warp per design section 2.2. Rollback: revert PR5 branch; grid/tray (PR8) simply has no activation path yet.
 
-- [ ] 2.1 New `src/features/scanner/lib/pageResources.ts`: `compressBitmapToJpeg(bitmap, quality)`, `decodeBlobToBitmap(blob)`, `makeThumbnail(bitmap, maxEdge)` -- DOM/OffscreenCanvas only, no OpenCV, unit-testable.
-- [ ] 2.2 New `src/features/scanner/hooks/useActivePage.ts`: Materialize-on-capture, Activate (decode + `setActiveWorking` + deactivate-previous-first), Deactivate (recompress if `activeDirty`, `updatePageWarpBase`, close bitmaps), Re-warp integration.
-- [ ] 2.3 Wire the 30-page cap check into the capture controller (blocks BEFORE capturing, per spec "Cap duro de 30 paginas alcanzado").
-- [ ] 2.4 New `tests/unit/pageResources.test.ts`: compress/decode/thumbnail round-trip, dimension math.
-- [ ] 2.5 New `tests/unit/useActivePage.test.ts`: activate closes previous working set, deactivate recompresses only when dirty, cap-reached blocks capture with hint.
-- [ ] 2.6 Verify: `vitest run pageResources useActivePage`; manual iOS/low-memory smoke deferred to full-suite verify (empirical AC7 item, design section 8).
+- [x] 2.1 New `src/features/scanner/lib/pageResources.ts`: `compressBitmapToJpeg(bitmap, quality)`, `decodeBlobToBitmap(blob)`, `makeThumbnail(bitmap, maxEdge)` -- DOM/OffscreenCanvas only, no OpenCV, unit-testable.
+- [x] 2.2 New `src/features/scanner/hooks/useActivePage.ts`: Materialize-on-capture, Activate (decode + `setActiveWorking` + deactivate-previous-first), Deactivate (recompress if `activeDirty`, `updatePageWarpBase`, close bitmaps), Re-warp integration.
+- [x] 2.3 Expose the 30-page cap guard (`isAtCap`/`canAddPage`) from `useActivePage`, derived from `pages.length` vs `FILTER.PAGE_CAP`, plus a defensive `blocked-cap` guard inside `materializeCapture` itself. NOT wired into `ScannerScreen`/the capture controller yet -- that lands with Group 1c/Group 5's capture controller, which is out of scope for this PR (build-order note: Group 2 landed BEFORE Group 1c on this branch).
+- [x] 2.4 New `tests/unit/pageResources.test.ts`: compress/decode/thumbnail round-trip, dimension math.
+- [x] 2.5 New `tests/unit/useActivePage.test.ts`: activate closes previous working set, deactivate recompresses only when dirty, cap-reached blocks capture with hint.
+- [x] 2.6 Verify: `vitest run pageResources useActivePage`; manual iOS/low-memory smoke deferred to full-suite verify (empirical AC7 item, design section 8).
 
 ## Group 3 -- Worker `APPLY_FILTER` (PR6)
 
