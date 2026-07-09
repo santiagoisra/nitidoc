@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import type { Quad, QualityMetrics } from '@/shared/types/geometry';
 import type { CapturedFrame, EditRecipe } from '@/shared/types/scanner';
+import type { DocumentActions, DocumentSlice } from './documentSlice';
+import { createDocumentActions, initialDocumentSlice } from './documentSlice';
 
 /**
  * Scanner store — Zustand, 4 typed slices (design section 5.1).
@@ -34,6 +36,16 @@ import type { CapturedFrame, EditRecipe } from '@/shared/types/scanner';
  * could render a degraded-mode banner when OpenCV failed to load (task
  * 6.6.1). `setCaptureCapabilities`/`setDevices([])` already existed from
  * Slice C for the permission-denied (6.1) and no-camera (6.2) cases.
+ *
+ * SCOPE NOTE (Fase 2, Group 1b / PR2): `DocumentSlice` (multipage-filters
+ * design section 1.2-1.5) is wired in ALONGSIDE `CaptureSlice` — additive,
+ * no UI consumer yet. Its types/state/actions live in `documentSlice.ts`
+ * (a zustand "slices pattern" module) and are spread into this single
+ * `create()` call via `createDocumentActions(documentSet, documentGet)`
+ * (a small local adapter around this store's own `set`/`get` — see the
+ * `Omit<DocumentSlice, 'phase'>` comment above `ScannerStore` for why).
+ * `CaptureSlice` is removed in Group 1c once `ScannerScreen`/`CornerEditor`
+ * are rewired to the active-page model (ADR-010).
  */
 
 export type CameraPermission = 'idle' | 'prompt' | 'granted' | 'denied';
@@ -153,14 +165,25 @@ export interface CameraActions {
   readonly resetCamera: () => void;
 }
 
+// `Omit<DocumentSlice, 'phase'>` / `Omit<DocumentActions, 'setPhase'>`: the
+// combined store's `phase` key is still owned by `CaptureSlice.phase`
+// (`CapturePhase`) during this transitional PR (Group 1b — `DocumentSlice`
+// wired in ALONGSIDE `CaptureSlice`, not replacing it; ADR-010 removes
+// `CaptureSlice`, including its `phase`/`setPhase`, in Group 1c). `DocumentSlice`
+// itself still declares the full `phase: DocumentPhase` + `setPhase` shape
+// (design section 1.4) and both are exercised directly in
+// `documentSlice.test.ts` against an isolated store — they are only excluded
+// from this SPECIFIC combined-store type, not from the module.
 export type ScannerStore = CameraSlice &
   DetectionSlice &
   CaptureSlice &
   OpenCvSlice &
+  Omit<DocumentSlice, 'phase'> &
   CameraActions &
   DetectionActions &
   CaptureActions &
-  OpenCvActions;
+  OpenCvActions &
+  Omit<DocumentActions, 'setPhase'>;
 
 const initialCameraSlice: CameraSlice = {
   stream: null,
@@ -204,20 +227,31 @@ const initialOpenCvSlice: OpenCvSlice = {
   opencv: initialOpenCvState,
 };
 
-export type ScannerStateShape = CameraSlice & DetectionSlice & CaptureSlice & OpenCvSlice;
+export type ScannerStateShape = CameraSlice & DetectionSlice & CaptureSlice & OpenCvSlice & DocumentSlice;
 
 /**
  * Re-export for reuse by future actions/tests without re-typing the initial
  * shape (Groups 2-5 will spread these into their own reset logic).
+ *
+ * Spread ORDER matters for the single `phase` key: `CaptureSlice.phase`
+ * (`CapturePhase`) and `DocumentSlice.phase` (`DocumentPhase`) share the same
+ * name during this transitional PR (Group 1b: `DocumentSlice` wired in
+ * ALONGSIDE `CaptureSlice`, not replacing it yet — ADR-010 removes
+ * `CaptureSlice`, including its `phase`/`setPhase`, in Group 1c). Spreading
+ * `initialCaptureSlice` LAST keeps `CaptureSlice.phase` authoritative for the
+ * combined store's value AND inferred type; `DocumentSlice`'s own `phase` is
+ * still exercised directly in `documentSlice.test.ts` against an isolated
+ * store built from `documentSlice.ts` alone.
  */
 export const scannerStoreInitialState: ScannerStateShape = {
+  ...initialDocumentSlice,
   ...initialCameraSlice,
   ...initialDetectionSlice,
-  ...initialCaptureSlice,
   ...initialOpenCvSlice,
+  ...initialCaptureSlice,
 };
 
-export const useScannerStore = create<ScannerStore>((set) => ({
+export const useScannerStore = create<ScannerStore>((set, get) => ({
   ...scannerStoreInitialState,
 
   setStream: (stream) => set({ stream }),
@@ -282,4 +316,25 @@ export const useScannerStore = create<ScannerStore>((set) => ({
       }
       return { ...initialCaptureSlice };
     }),
+
+  // `setPhase` is intentionally excluded from this spread for this
+  // transitional PR: `CaptureActions.setPhase` (above) stays authoritative
+  // for the combined store's `phase` key since `CaptureSlice` is still the
+  // acting owner of `phase` until Group 1c (ADR-010) removes it entirely.
+  // `DocumentActions.setPhase` is exercised directly in
+  // `documentSlice.test.ts` against an isolated store.
+  //
+  // `documentSet`/`documentGet` adapt this store's combined `set`/`get`
+  // (typed against `ScannerStore`, whose `phase` key is `CapturePhase`-only
+  // right now) to the narrower `DocumentSlice`-only shape `documentSlice.ts`
+  // expects. The cast is safe in practice: `setPhase` — the only action that
+  // could write a `DocumentPhase` value (e.g. `'grid'`/`'tray'`) `ScannerStore`
+  // doesn't yet accept — is stripped from the spread below before it ever
+  // reaches a consumer.
+  ...(({ setPhase: _documentSetPhase, ...documentActions }) => documentActions)(
+    createDocumentActions(
+      (partial) => set(partial as Partial<ScannerStore> | ((state: ScannerStore) => Partial<ScannerStore>)),
+      () => get(),
+    ),
+  ),
 }));
