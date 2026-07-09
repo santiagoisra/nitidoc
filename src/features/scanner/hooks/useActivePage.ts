@@ -1,0 +1,241 @@
+/**
+ * `useActivePage` — layered-memory page lifecycle controller (design section
+ * 2.2, D-MEM / ADR-007; Group 2 / PR5). Drives Materialize-on-capture,
+ * Activate, Deactivate, and Re-warp against `DocumentSlice`'s synchronous
+ * store actions (`documentSlice.ts`) plus the pure async helpers in
+ * `pageResources.ts`.
+ *
+ * Scope: this hook owns compress/decode/close ORCHESTRATION only. It does
+ * NOT own the camera, the OpenCV worker, or the WARP call itself — callers
+ * (`ScannerScreen`/`CornerEditor`, rewired in Group 1c) capture the live
+ * `originalBitmap`/`warpedBase` bitmaps (from the capture sequence / a
+ * `WARP_RESULT`) and pass them into `materializeCapture`/`rewarpActivePage`.
+ * This keeps the hook standalone and unit-testable without a real camera or
+ * worker (design section 7, task group 2: "Verify peak-memory behavior on
+ * iOS in apply" — deferred manual smoke; the async orchestration itself is
+ * covered here).
+ *
+ * NOTE on build order: this hook is landing BEFORE Group 1c
+ * (`ScannerScreen`/`CornerEditor` rewrite). It has no consumer yet — it is
+ * exercised directly by `tests/unit/useActivePage.test.ts` against the
+ * `DocumentSlice` fields already wired into `scannerStore.ts` (Group 1b).
+ */
+
+import { useCallback } from 'react';
+import { useScannerStore } from '@/features/scanner/store/scannerStore';
+import type { ActivePageResources } from '@/features/scanner/store/documentSlice';
+import { compressBitmapToJpeg, decodeBlobToBitmap, makeThumbnail } from '@/features/scanner/lib/pageResources';
+import { FILTER } from '@/features/scanner/lib/filterConstants';
+import type { EditRecipe } from '@/shared/types/scanner';
+
+/** Input for `materializeCapture` (design section 2.2 "Materialize on capture"). */
+export interface MaterializeCaptureInput {
+  /** `crypto.randomUUID()`, assigned by the caller (capture controller) before calling this. */
+  readonly pageId: string;
+  readonly recipe: EditRecipe;
+  /** Live, from the capture sequence. OWNERSHIP TRANSFERS to this call — it is closed once compressed. */
+  readonly originalBitmap: ImageBitmap;
+  /** Live, from `WARP_RESULT`, UNFILTERED. OWNERSHIP TRANSFERS to this call — closed once compressed+thumbnailed. */
+  readonly warpedBase: ImageBitmap;
+  readonly originalWidth: number;
+  readonly originalHeight: number;
+  readonly warpedWidth: number;
+  readonly warpedHeight: number;
+}
+
+export interface MaterializeCaptureResult {
+  /**
+   * `'blocked-cap'` when the 30-page cap (`FILTER.PAGE_CAP`) was already
+   * reached (design section 2.2 "Cap reached"). The capture controller is
+   * expected to check `canAddPage` BEFORE even capturing a frame — reaching
+   * this path means a caller skipped that pre-check (or lost a race). The
+   * live bitmaps handed in are still released (never leaked) even when
+   * blocked.
+   */
+  readonly status: 'added' | 'blocked-cap';
+}
+
+/** Input for `rewarpActivePage` (design section 2.2 "Re-warp (active)"). */
+export interface RewarpActivePageInput {
+  readonly pageId: string;
+  /** Fresh `warpedBase` returned by the caller's own WARP call. UNFILTERED (D4 — filter changes never re-warp). */
+  readonly freshWarpedBase: ImageBitmap;
+  /** The page's recipe with updated `corners`/`aspectRatio` already merged in by the caller. */
+  readonly recipe: EditRecipe;
+}
+
+export interface UseActivePageResult {
+  readonly activePageId: string | null;
+  readonly activeWorking: ActivePageResources | null;
+  readonly activeDirty: boolean;
+  /** True once `pages.length >= FILTER.PAGE_CAP` (design section 2.3 / D-MEM). */
+  readonly isAtCap: boolean;
+  /** Convenience negation of `isAtCap` for capture-button gating (task 2.3). */
+  readonly canAddPage: boolean;
+  /** Materialize-on-capture (design section 2.2). Compresses+thumbnails, `addPage`s, releases the live bitmaps. */
+  readonly materializeCapture: (input: MaterializeCaptureInput) => Promise<MaterializeCaptureResult>;
+  /** Activate a page (design section 2.2). Deactivates the current active page first, then decodes+materializes. */
+  readonly activatePage: (pageId: string) => Promise<void>;
+  /** Deactivate the current active page (design section 2.2). Recompresses ONLY if `activeDirty`, then closes bitmaps. */
+  readonly deactivateActivePage: () => Promise<void>;
+  /** Re-warp integration (design section 2.2). Synchronous — swaps `warpedBase`, marks dirty, writes the recipe. */
+  readonly rewarpActivePage: (input: RewarpActivePageInput) => void;
+}
+
+export function useActivePage(): UseActivePageResult {
+  const activePageId = useScannerStore((state) => state.activePageId);
+  const activeWorking = useScannerStore((state) => state.activeWorking);
+  const activeDirty = useScannerStore((state) => state.activeDirty);
+  const pagesLength = useScannerStore((state) => state.pages.length);
+
+  const isAtCap = pagesLength >= FILTER.PAGE_CAP;
+  const canAddPage = !isAtCap;
+
+  const materializeCapture = useCallback(
+    async (input: MaterializeCaptureInput): Promise<MaterializeCaptureResult> => {
+      const { pages, addPage, setActiveWorking } = useScannerStore.getState();
+
+      if (pages.length >= FILTER.PAGE_CAP) {
+        // Defensive guard (design section 2.2 "Cap reached"; mirrors
+        // `addPage`'s own no-op over the cap in documentSlice.ts). The live
+        // bitmaps were handed to us with ownership transferred — release
+        // them rather than leaking, even though nothing gets added.
+        input.originalBitmap.close();
+        input.warpedBase.close();
+        return { status: 'blocked-cap' };
+      }
+
+      const [thumbnail, originalBlob, warpedBlob] = await Promise.all([
+        // Thumbnail is derived from the UNFILTERED warpedBase (design section 2.3).
+        makeThumbnail(input.warpedBase, FILTER.THUMBNAIL_MAX_EDGE),
+        compressBitmapToJpeg(input.originalBitmap, FILTER.JPEG_QUALITY),
+        compressBitmapToJpeg(input.warpedBase, FILTER.JPEG_QUALITY),
+      ]);
+
+      // Re-read pages.length right before appending (not the snapshot from
+      // above) so the new page's `order` is correct even if another append
+      // happened while the compress/thumbnail work above was in flight.
+      const order = useScannerStore.getState().pages.length;
+      addPage({
+        id: input.pageId,
+        order,
+        recipe: input.recipe,
+        thumbnail,
+        originalBlob,
+        warpedBlob,
+        originalWidth: input.originalWidth,
+        originalHeight: input.originalHeight,
+        warpedWidth: input.warpedWidth,
+        warpedHeight: input.warpedHeight,
+      });
+
+      // The live capture bitmaps are no longer needed once compressed and
+      // handed to addPage — the new inactive page retains only the
+      // thumbnail + blobs (design section 2.2 step 4).
+      input.originalBitmap.close();
+      input.warpedBase.close();
+
+      // Returns to camera/tray with nothing materialized (design section 2.2 step 5).
+      setActiveWorking(null);
+
+      return { status: 'added' };
+    },
+    [],
+  );
+
+  const deactivateActivePage = useCallback(async (): Promise<void> => {
+    const state = useScannerStore.getState();
+    const { activePageId: currentActivePageId, activeWorking: currentActiveWorking, activeDirty: isDirty } = state;
+
+    if (currentActivePageId === null || currentActiveWorking === null) {
+      return; // nothing active — no-op
+    }
+
+    if (isDirty) {
+      const [thumbnail, warpedBlob] = await Promise.all([
+        makeThumbnail(currentActiveWorking.warpedBase, FILTER.THUMBNAIL_MAX_EDGE),
+        compressBitmapToJpeg(currentActiveWorking.warpedBase, FILTER.JPEG_QUALITY),
+      ]);
+      useScannerStore.getState().updatePageWarpBase(currentActivePageId, {
+        warpedBlob,
+        thumbnail,
+        warpedWidth: currentActiveWorking.warpedBase.width,
+        warpedHeight: currentActiveWorking.warpedBase.height,
+      });
+    }
+
+    const { setActiveWorking, setActivePageId, setActiveDirty } = useScannerStore.getState();
+    // Closes originalBitmap + warpedBase (store hygiene, design section 1.5).
+    setActiveWorking(null);
+    setActivePageId(null);
+    setActiveDirty(false);
+  }, []);
+
+  const activatePage = useCallback(
+    async (pageId: string): Promise<void> => {
+      const state = useScannerStore.getState();
+      if (state.activePageId === pageId && state.activeWorking?.pageId === pageId) {
+        return; // already active — no-op
+      }
+
+      // Deactivate-previous-first (design section 2.2 "Activate" step 1).
+      if (state.activePageId !== null) {
+        await deactivateActivePage();
+      }
+
+      const page = useScannerStore.getState().pages.find((candidate) => candidate.id === pageId);
+      if (!page) {
+        throw new Error(`useActivePage.activatePage: no page found with id "${pageId}".`);
+      }
+
+      const [originalBitmap, warpedBase] = await Promise.all([
+        decodeBlobToBitmap(page.originalBlob),
+        decodeBlobToBitmap(page.warpedBlob),
+      ]);
+
+      const { setActiveWorking, setActivePageId, setActiveDirty } = useScannerStore.getState();
+      // setActiveWorking closes any previous working bitmaps (design section
+      // 1.5) — a no-op here in practice since deactivateActivePage already
+      // cleared them above, but kept as the store's own safety net.
+      setActiveWorking({ pageId, originalBitmap, warpedBase });
+      setActivePageId(pageId);
+      setActiveDirty(false);
+    },
+    [deactivateActivePage],
+  );
+
+  const rewarpActivePage = useCallback((input: RewarpActivePageInput): void => {
+    const state = useScannerStore.getState();
+    const prev = state.activeWorking;
+    if (!prev || prev.pageId !== input.pageId) {
+      // Defensive: nothing active to rewarp against (design section 2.2 —
+      // re-warp only applies to the currently active page).
+      return;
+    }
+
+    // Closes the old warpedBase (design section 1.5); originalBitmap is the
+    // SAME object so setActiveWorking's close-before-overwrite skips it.
+    state.setActiveWorking({
+      pageId: prev.pageId,
+      originalBitmap: prev.originalBitmap,
+      warpedBase: input.freshWarpedBase,
+    });
+    state.setActiveDirty(true);
+    // Filter changes NEVER re-warp (D4) — this path only runs for
+    // corner/aspect edits, so the recipe write is always paired with a fresh
+    // warpedBase from the caller's own WARP call.
+    state.updateRecipe(input.pageId, input.recipe);
+  }, []);
+
+  return {
+    activePageId,
+    activeWorking,
+    activeDirty,
+    isAtCap,
+    canAddPage,
+    materializeCapture,
+    activatePage,
+    deactivateActivePage,
+    rewarpActivePage,
+  };
+}
