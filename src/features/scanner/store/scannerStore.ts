@@ -1,11 +1,10 @@
 import { create } from 'zustand';
 import type { Quad, QualityMetrics } from '@/shared/types/geometry';
-import type { CapturedFrame, EditRecipe } from '@/shared/types/scanner';
 import type { DocumentActions, DocumentSlice } from './documentSlice';
 import { createDocumentActions, initialDocumentSlice } from './documentSlice';
 
 /**
- * Scanner store — Zustand, 4 typed slices (design section 5.1).
+ * Scanner store — Zustand, slices pattern (design section 5.1).
  *
  * SCOPE NOTE (Group 1 / Slice A): this file defines state shape and initial
  * values ONLY. Business-logic actions (setCorners, beginCapture, setWarped,
@@ -20,32 +19,22 @@ import { createDocumentActions, initialDocumentSlice } from './documentSlice';
  *
  * SCOPE NOTE (Group 4 / Slice D): detection-owning actions are implemented
  * here (setCorners, setQuality, setStability, setCountdown,
- * toggleAutoCapture, setNoDetectionSince) plus the minimal capture-phase
- * actions the capture sequence needs to hand a frame off to the (not yet
- * built) corner editor (setOriginalFrame, setPhase). OpenCV actions remain
- * deferred to Group 2 (already implemented as part of Slice B).
- *
- * SCOPE NOTE (Group 5 / Slice E): the remaining capture-phase actions are
- * implemented here (setWarpedImage, setRecipe) so `CornerEditor` can store
- * the warp result and the non-destructive edit recipe (design section 5.2).
+ * toggleAutoCapture, setNoDetectionSince).
  *
  * SCOPE NOTE (Group 6 / Slice F): `setOpenCvStatus` is implemented here so
  * `useDocumentDetection` can surface the OpenCV load state machine (design
- * section 4.1) to the UI — this was previously tracked ONLY in a local ref
- * inside the hook (never written to the store), which meant no component
- * could render a degraded-mode banner when OpenCV failed to load (task
- * 6.6.1). `setCaptureCapabilities`/`setDevices([])` already existed from
- * Slice C for the permission-denied (6.1) and no-camera (6.2) cases.
+ * section 4.1) to the UI.
  *
- * SCOPE NOTE (Fase 2, Group 1b / PR2): `DocumentSlice` (multipage-filters
- * design section 1.2-1.5) is wired in ALONGSIDE `CaptureSlice` — additive,
- * no UI consumer yet. Its types/state/actions live in `documentSlice.ts`
- * (a zustand "slices pattern" module) and are spread into this single
- * `create()` call via `createDocumentActions(documentSet, documentGet)`
- * (a small local adapter around this store's own `set`/`get` — see the
- * `Omit<DocumentSlice, 'phase'>` comment above `ScannerStore` for why).
- * `CaptureSlice` is removed in Group 1c once `ScannerScreen`/`CornerEditor`
- * are rewired to the active-page model (ADR-010).
+ * SCOPE NOTE (Fase 2, Group 1c / PR3 — ADR-010): F1's legacy single-page
+ * capture slice (`originalFrame`/`warpedImage`/`recipe`/`phase` and its
+ * actions `setOriginalFrame`/`setWarpedImage`/`setRecipe`/its own reset
+ * action) is REMOVED. `DocumentSlice` (`documentSlice.ts`,
+ * design section 1.2-1.5) is now the SOLE owner of the multipage document
+ * model, INCLUDING `phase`/`setPhase` — the transitional `Omit<DocumentSlice,
+ * 'phase'>` adapter Group 1b used to coexist with the legacy slice's own
+ * `phase` field is gone. `ScannerScreen`/`CornerEditor` are rewired to the
+ * active-page model (see those files' own doc comments). `OpenCvSlice`/
+ * `CameraSlice`/`DetectionSlice` are untouched by this migration.
  */
 
 export type CameraPermission = 'idle' | 'prompt' | 'granted' | 'denied';
@@ -85,17 +74,6 @@ export interface DetectionSlice {
   readonly noDetectionSince: number | null;
 }
 
-export type CapturePhase = 'idle' | 'capturing' | 'editing-corners' | 'warping' | 'done';
-
-export interface CaptureSlice {
-  /** Original captured frame at full resolution. Immutable — never mutated in place. */
-  readonly originalFrame: CapturedFrame | null;
-  /** Latest warped result, derived from originalFrame + recipe. */
-  readonly warpedImage: ImageBitmap | null;
-  readonly recipe: EditRecipe | null;
-  readonly phase: CapturePhase;
-}
-
 export type OpenCvStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 export interface OpenCvState {
@@ -130,23 +108,6 @@ export interface DetectionActions {
   readonly resetDetection: () => void;
 }
 
-export interface CaptureActions {
-  /** Stores the immutable full-res captured frame and moves the phase to 'editing-corners'. */
-  readonly setOriginalFrame: (frame: CapturedFrame) => void;
-  readonly setPhase: (phase: CapturePhase) => void;
-  /**
-   * Stores the latest warp result. Closes the previously retained
-   * `warpedImage` bitmap (if any, and if it isn't the same object) BEFORE
-   * assigning the new one (design section 7 memory hygiene — same close-
-   * before-overwrite pattern as `setOriginalFrame`).
-   */
-  readonly setWarpedImage: (bitmap: ImageBitmap | null) => void;
-  /** Replaces the non-destructive edit recipe (task 5.2.3 / 5.4). JSON-serializable, no binaries. */
-  readonly setRecipe: (recipe: EditRecipe | null) => void;
-  /** Resets the capture slice. Does NOT close any retained ImageBitmap — callers own that (design section 7). */
-  readonly resetCaptureSlice: () => void;
-}
-
 export interface CameraActions {
   /** Replaces the active MediaStream (does NOT stop the previous one — callers own that). */
   readonly setStream: (stream: MediaStream | null) => void;
@@ -165,25 +126,14 @@ export interface CameraActions {
   readonly resetCamera: () => void;
 }
 
-// `Omit<DocumentSlice, 'phase'>` / `Omit<DocumentActions, 'setPhase'>`: the
-// combined store's `phase` key is still owned by `CaptureSlice.phase`
-// (`CapturePhase`) during this transitional PR (Group 1b — `DocumentSlice`
-// wired in ALONGSIDE `CaptureSlice`, not replacing it; ADR-010 removes
-// `CaptureSlice`, including its `phase`/`setPhase`, in Group 1c). `DocumentSlice`
-// itself still declares the full `phase: DocumentPhase` + `setPhase` shape
-// (design section 1.4) and both are exercised directly in
-// `documentSlice.test.ts` against an isolated store — they are only excluded
-// from this SPECIFIC combined-store type, not from the module.
 export type ScannerStore = CameraSlice &
   DetectionSlice &
-  CaptureSlice &
   OpenCvSlice &
-  Omit<DocumentSlice, 'phase'> &
+  DocumentSlice &
   CameraActions &
   DetectionActions &
-  CaptureActions &
   OpenCvActions &
-  Omit<DocumentActions, 'setPhase'>;
+  DocumentActions;
 
 const initialCameraSlice: CameraSlice = {
   stream: null,
@@ -208,13 +158,6 @@ const initialDetectionSlice: DetectionSlice = {
   noDetectionSince: null,
 };
 
-const initialCaptureSlice: CaptureSlice = {
-  originalFrame: null,
-  warpedImage: null,
-  recipe: null,
-  phase: 'idle',
-};
-
 const initialOpenCvState: OpenCvState = {
   status: 'idle',
   progress: 0,
@@ -227,28 +170,17 @@ const initialOpenCvSlice: OpenCvSlice = {
   opencv: initialOpenCvState,
 };
 
-export type ScannerStateShape = CameraSlice & DetectionSlice & CaptureSlice & OpenCvSlice & DocumentSlice;
+export type ScannerStateShape = CameraSlice & DetectionSlice & OpenCvSlice & DocumentSlice;
 
 /**
  * Re-export for reuse by future actions/tests without re-typing the initial
- * shape (Groups 2-5 will spread these into their own reset logic).
- *
- * Spread ORDER matters for the single `phase` key: `CaptureSlice.phase`
- * (`CapturePhase`) and `DocumentSlice.phase` (`DocumentPhase`) share the same
- * name during this transitional PR (Group 1b: `DocumentSlice` wired in
- * ALONGSIDE `CaptureSlice`, not replacing it yet — ADR-010 removes
- * `CaptureSlice`, including its `phase`/`setPhase`, in Group 1c). Spreading
- * `initialCaptureSlice` LAST keeps `CaptureSlice.phase` authoritative for the
- * combined store's value AND inferred type; `DocumentSlice`'s own `phase` is
- * still exercised directly in `documentSlice.test.ts` against an isolated
- * store built from `documentSlice.ts` alone.
+ * shape.
  */
 export const scannerStoreInitialState: ScannerStateShape = {
   ...initialDocumentSlice,
   ...initialCameraSlice,
   ...initialDetectionSlice,
   ...initialOpenCvSlice,
-  ...initialCaptureSlice,
 };
 
 export const useScannerStore = create<ScannerStore>((set, get) => ({
@@ -274,67 +206,10 @@ export const useScannerStore = create<ScannerStore>((set, get) => ({
   setNoDetectionSince: (noDetectionSince) => set({ noDetectionSince }),
   resetDetection: () => set({ ...initialDetectionSlice }),
 
-  setOriginalFrame: (originalFrame) =>
-    set((state) => {
-      // Slice D review fix H1 (design section 7 memory hygiene): closing a
-      // previously retained full-res ImageBitmap before overwriting it. If a
-      // second capture ever races the first (auto + manual), the earlier
-      // frame's bitmap would otherwise leak. `close()` on an already-consumed
-      // or fake bitmap is a no-op / guarded here.
-      const previous = state.originalFrame;
-      if (previous && previous.source !== originalFrame.source) {
-        previous.source.close();
-      }
-      return { originalFrame, phase: 'editing-corners' };
-    }),
-  setPhase: (phase) => set({ phase }),
-  setWarpedImage: (bitmap) =>
-    set((state) => {
-      // Slice E: same close-before-overwrite hygiene as setOriginalFrame
-      // (design section 7) — a stale warpedImage bitmap must never be
-      // silently dropped without releasing it first.
-      const previous = state.warpedImage;
-      if (previous && previous !== bitmap) {
-        previous.close();
-      }
-      return { warpedImage: bitmap };
-    }),
-  setRecipe: (recipe) => set({ recipe }),
-
   setOpenCvStatus: (patch) => set((state) => ({ opencv: { ...state.opencv, ...patch } })),
 
-  resetCaptureSlice: () =>
-    set((state) => {
-      // Design section 7: resetting the capture slice discards the page /
-      // starts a new capture cycle, which is exactly when the retained
-      // originalFrame + warpedImage bitmaps must be released (never left
-      // for the GC to eventually reclaim — a full-res ImageBitmap can be
-      // tens of MB).
-      state.originalFrame?.source.close();
-      if (state.warpedImage) {
-        state.warpedImage.close();
-      }
-      return { ...initialCaptureSlice };
-    }),
-
-  // `setPhase` is intentionally excluded from this spread for this
-  // transitional PR: `CaptureActions.setPhase` (above) stays authoritative
-  // for the combined store's `phase` key since `CaptureSlice` is still the
-  // acting owner of `phase` until Group 1c (ADR-010) removes it entirely.
-  // `DocumentActions.setPhase` is exercised directly in
-  // `documentSlice.test.ts` against an isolated store.
-  //
-  // `documentSet`/`documentGet` adapt this store's combined `set`/`get`
-  // (typed against `ScannerStore`, whose `phase` key is `CapturePhase`-only
-  // right now) to the narrower `DocumentSlice`-only shape `documentSlice.ts`
-  // expects. The cast is safe in practice: `setPhase` — the only action that
-  // could write a `DocumentPhase` value (e.g. `'grid'`/`'tray'`) `ScannerStore`
-  // doesn't yet accept — is stripped from the spread below before it ever
-  // reaches a consumer.
-  ...(({ setPhase: _documentSetPhase, ...documentActions }) => documentActions)(
-    createDocumentActions(
-      (partial) => set(partial as Partial<ScannerStore> | ((state: ScannerStore) => Partial<ScannerStore>)),
-      () => get(),
-    ),
+  ...createDocumentActions(
+    (partial) => set(partial as Partial<ScannerStore> | ((state: ScannerStore) => Partial<ScannerStore>)),
+    () => get(),
   ),
 }));

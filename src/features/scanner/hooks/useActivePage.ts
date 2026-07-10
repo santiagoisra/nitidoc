@@ -15,10 +15,11 @@
  * iOS in apply" — deferred manual smoke; the async orchestration itself is
  * covered here).
  *
- * NOTE on build order: this hook is landing BEFORE Group 1c
- * (`ScannerScreen`/`CornerEditor` rewrite). It has no consumer yet — it is
- * exercised directly by `tests/unit/useActivePage.test.ts` against the
- * `DocumentSlice` fields already wired into `scannerStore.ts` (Group 1b).
+ * Consumed by `ScannerScreen`/`CornerEditor` since Group 1c (PR3+PR4):
+ * `materializeCapture` on confirming a fresh capture, `activatePage`/
+ * `deactivateActivePage` on entering/leaving the corner editor for an
+ * already-materialized page (grid re-entry), `rewarpActivePage` when that
+ * re-entry's corner edit is confirmed.
  */
 
 import { useCallback } from 'react';

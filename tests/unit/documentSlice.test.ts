@@ -18,7 +18,7 @@ import type { Quad } from '@/shared/types/geometry';
  * (which excludes `phase`/`setPhase` for this transitional PR; see
  * `scannerStore.ts`'s `Omit<DocumentSlice, 'phase'>` comment). This keeps the
  * store's full contract (including `phase`/`setPhase`) testable now, ahead
- * of `CaptureSlice`'s removal in Group 1c.
+ * of F1's legacy single-page capture slice's removal in Group 1c.
  */
 type TestStore = DocumentSlice & DocumentActions;
 

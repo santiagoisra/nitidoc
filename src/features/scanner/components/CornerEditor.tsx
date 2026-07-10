@@ -1,11 +1,29 @@
 /**
  * Manual corner editor + warp trigger (Group 5 / Slice E; design section 2.2
- * second half; perspective spec CAP-6/CAP-7/CAP-8).
+ * second half; perspective spec CAP-6/CAP-7/CAP-8). Rewired to the
+ * active-page model in Group 1c (design section 5.4, ADR-010): this
+ * component is now a CONTROLLED component over its `originalBitmap`/
+ * `initialRecipe` props instead of reading/writing F1's legacy single-page
+ * capture state (`warpedImage`/`recipe`) from the store.
  *
- * Responsibilities (tasks 5.1-5.4):
- *  - Render 4 draggable handles over the captured full-res frame, seeded
- *    from the scaled detected corners when available, or distributed across
- *    the frame otherwise (5.1.1).
+ * Two callers, one component (design section 5.1/5.4):
+ *  - Fresh, not-yet-confirmed capture: `originalBitmap` is the live captured
+ *    frame, `initialRecipe` is `null` (a brand-new recipe is built on first
+ *    warp). Confirm hands `{ warpedBase, recipe }` to the caller, which calls
+ *    `useActivePage.materializeCapture` (design section 2.2 "Materialize on
+ *    capture") — this component never touches `DocumentSlice` directly for
+ *    this path.
+ *  - Re-entry into an already-materialized page (grid tap -> activatePage):
+ *    `originalBitmap` is `activeWorking.originalBitmap`, `initialRecipe` is
+ *    the page's existing recipe (so filter/rotation/flip survive a corner
+ *    re-warp — design section 2.2 "Re-warp (active)": `{...recipe, corners,
+ *    aspectRatio}`). Confirm hands the same shape to the caller, which calls
+ *    `useActivePage.rewarpActivePage` then `deactivateActivePage`.
+ *
+ * Responsibilities (tasks 5.1-5.4), unchanged from F1:
+ *  - Render 4 draggable handles over the full-res source, seeded from the
+ *    scaled detected corners when available, or distributed across the
+ *    frame otherwise (5.1.1).
  *  - Show a magnifier loupe centered on the handle while dragging (5.1.2).
  *  - Validate convexity with `isConvex` on every pointerup/touchend and
  *    disable "Confirm" + show an invalid state when the quad is not convex
@@ -14,15 +32,20 @@
  *    positions (5.1.4 / 5.2.1).
  *  - Handle both `WARP_RESULT` (ImageBitmap) and `WARP_RESULT_IMAGEDATA`
  *    responses depending on `offscreenSupported`, closing the previous
- *    warped bitmap before assigning a new one (5.2.2).
- *  - Build the initial `EditRecipe` on warp success (5.2.3).
+ *    warped bitmap before assigning a new one (5.2.2) — now done via LOCAL
+ *    state (`applyWarpedImage`) since the store no longer owns this bitmap
+ *    until Confirm hands it off.
+ *  - Build the initial `EditRecipe` on warp success (5.2.3), preserving the
+ *    caller's `initialRecipe` (filter/rotation/flip) across re-warps.
  *  - Offer an aspect-ratio override before confirming (5.3.1).
  *  - Offer non-destructive post-warp rotate/flip controls that only touch
  *    the recipe + a CSS transform, never re-invoking the worker (5.4).
  *
- * Does NOT touch `CapturedFrame.source` at any point (perspective spec
- * "Ediciones no destructivas sobre el original") — only reads pixels out of
- * it once per confirmed warp.
+ * Does NOT touch `originalBitmap` at any point (perspective spec "Ediciones
+ * no destructivas sobre el original") — only reads pixels out of it once per
+ * confirmed warp. `originalBitmap` ownership stays with the caller: this
+ * component never closes it (fresh-capture cancel closes it in
+ * `ScannerScreen`; re-entry closes it via `deactivateActivePage`).
  */
 
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
@@ -44,9 +67,8 @@ import {
   flipHorizontalRecipe,
 } from '@/features/scanner/lib/editRecipe';
 import { getSharedWorkerClient } from '@/features/scanner/lib/workerClient';
-import { useScannerStore } from '@/features/scanner/store/scannerStore';
 import type { AspectRatioName, Point, Quad } from '@/shared/types/geometry';
-import type { CapturedFrame } from '@/shared/types/scanner';
+import type { EditRecipe } from '@/shared/types/scanner';
 
 const ASPECT_RATIO_OPTIONS: readonly AspectRatioName[] = ['a4', 'letter', 'ticket', 'unknown'];
 
@@ -62,13 +84,45 @@ const MAGNIFIER_SIZE = 120;
 const MAGNIFIER_ZOOM = 2.5;
 const HANDLE_HIT_SIZE = 44; // touch target >= 44px
 
+export interface CornerEditorConfirmResult {
+  /** Fresh, UNFILTERED warp base. Ownership transfers to the caller (materializeCapture / rewarpActivePage own closing it). */
+  readonly warpedBase: ImageBitmap;
+  readonly recipe: EditRecipe;
+}
+
 export interface CornerEditorProps {
-  readonly frame: CapturedFrame;
+  /**
+   * Correlates this editing session: a fresh `crypto.randomUUID()` for an
+   * unconfirmed capture, or the existing page's id when re-editing an
+   * already-materialized page (design section 5.4). Only used by the
+   * caller (not read internally) — kept as a prop so callers can key the
+   * component by it (fix M3: remount on a new session).
+   */
+  readonly pageId: string;
+  /**
+   * Full-res immutable source: the live captured frame's bitmap for a fresh
+   * capture, or `activeWorking.originalBitmap` for a re-entered page (design
+   * section 5.4). Never mutated or closed by this component.
+   */
+  readonly originalBitmap: ImageBitmap;
+  readonly width: number;
+  readonly height: number;
   /** Scaled detected corners in full-res space, or null when there is no valid prior detection. */
   readonly initialCorners: Quad | null;
-  /** Called after the user confirms a successful warp and picks a final recipe. */
-  readonly onConfirm: () => void;
-  /** Called when the user backs out without confirming (resumes the detection loop). */
+  /**
+   * The page's existing recipe when re-editing an already-materialized page
+   * (preserves `filter`/`rotation`/`flipH`/`flipV` across a corners-only
+   * re-warp, design section 2.2). `null` for a fresh, not-yet-confirmed
+   * capture — a brand-new recipe is built from scratch on first warp.
+   */
+  readonly initialRecipe: EditRecipe | null;
+  /**
+   * Called after the user confirms a successful warp. Ownership of
+   * `warpedBase` transfers to the caller, which decides materialize-vs-rewarp
+   * semantics (this component is deliberately unaware of `DocumentSlice`).
+   */
+  readonly onConfirm: (result: CornerEditorConfirmResult) => void;
+  /** Called when the user backs out without confirming (discards this session's local edits). */
   readonly onCancel: () => void;
 }
 
@@ -84,19 +138,44 @@ function extractImageData(bitmap: ImageBitmap): ImageData {
   return ctx.getImageData(0, 0, bitmap.width, bitmap.height);
 }
 
-export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: CornerEditorProps): ReactNode {
-  const warpedImage = useScannerStore((s) => s.warpedImage);
-  const recipe = useScannerStore((s) => s.recipe);
-  const setWarpedImage = useScannerStore((s) => s.setWarpedImage);
-  const setRecipe = useScannerStore((s) => s.setRecipe);
+export function CornerEditor({
+  originalBitmap,
+  width,
+  height,
+  initialCorners,
+  initialRecipe,
+  onConfirm,
+  onCancel,
+}: CornerEditorProps): ReactNode {
+  // Local state replaces F1's legacy warpedImage/recipe store fields — this
+  // component is a controlled component over its props; the caller
+  // (ScannerScreen) decides what to do with the confirmed result.
+  const [warpedImage, setWarpedImageState] = useState<ImageBitmap | null>(null);
+  const [recipe, setRecipeState] = useState<EditRecipe | null>(initialRecipe);
+
+  /**
+   * Close-before-overwrite hygiene (design section 1.5/7), reimplemented
+   * LOCALLY since the store no longer owns this bitmap until Confirm hands
+   * it off. Mirrors F1's legacy `setWarpedImage` action.
+   */
+  const applyWarpedImage = useCallback((next: ImageBitmap | null) => {
+    setWarpedImageState((prev) => {
+      if (prev && prev !== next) {
+        prev.close();
+      }
+      return next;
+    });
+  }, []);
 
   const seedCorners = useMemo<Quad>(
-    () => initialCorners ?? frameCorners(frame.width, frame.height),
-    [initialCorners, frame.width, frame.height],
+    () => initialRecipe?.corners ?? initialCorners ?? frameCorners(width, height),
+    [initialRecipe, initialCorners, width, height],
   );
 
   const [corners, setCornersState] = useState<Quad>(seedCorners);
-  const [aspectOverride, setAspectOverride] = useState<AspectRatioName | null>(null);
+  const [aspectOverride, setAspectOverride] = useState<AspectRatioName | null>(
+    initialRecipe?.aspectRatio ?? null,
+  );
   const [isWarping, setIsWarping] = useState(false);
   const [warpError, setWarpError] = useState(false);
   const [draggingIndex, setDraggingIndex] = useState<0 | 1 | 2 | 3 | null>(null);
@@ -108,7 +187,7 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
   const movedRef = useRef(false);
   /** Backing canvas that shows the source document behind the handles/overlay. */
   const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  /** Guards the one-shot initial warp so it runs exactly once per mounted frame. */
+  /** Guards the one-shot initial warp so it runs exactly once per mounted session. */
   const initialWarpDoneRef = useRef(false);
 
   // Fix C1/C2: monotonic warp sequence + mounted flag. Every runWarp claims a
@@ -129,25 +208,25 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
 
   // Draw the source document into the backing canvas so the user can SEE the
   // page while adjusting the corner handles (the overlay/handles alone would
-  // float over an empty surface otherwise). `frame.source` is immutable and not
-  // closed by the memoized ImageData extraction, so it stays drawable here.
+  // float over an empty surface otherwise). `originalBitmap` is immutable and
+  // not closed by the memoized ImageData extraction, so it stays drawable here.
   useEffect(() => {
     const canvas = sourceCanvasRef.current;
     if (!canvas) return;
-    canvas.width = frame.width;
-    canvas.height = frame.height;
+    canvas.width = width;
+    canvas.height = height;
     const ctx = canvas.getContext('2d');
     if (ctx) {
-      ctx.drawImage(frame.source, 0, 0);
+      ctx.drawImage(originalBitmap, 0, 0);
     }
-  }, [frame.source, frame.width, frame.height]);
+  }, [originalBitmap, width, height]);
 
-  // Fix H2: `frame.source` is immutable, so extract the full-res ImageData
-  // ONCE per frame instead of allocating a full-res canvas (~48MB for a
+  // Fix H2: `originalBitmap` is immutable, so extract the full-res ImageData
+  // ONCE per session instead of allocating a full-res canvas (~48MB for a
   // 3000x4000 frame) on every warp — that repeated allocation can hit iOS's
   // canvas memory cap. The worker TRANSFERS the buffer it receives (leaving it
   // detached), so runWarp clones a fresh buffer per warp and keeps this
-  // memoized ImageData intact for subsequent warps of the same frame.
+  // memoized ImageData intact for subsequent warps of the same session.
   const sourceImageData = useMemo<ImageData | null>(
     () => {
       // Extraction can fail on exotic environments (missing 2d context). Do
@@ -156,15 +235,13 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
       // crashing the whole screen. runWarp treats a null extraction as a warp
       // failure.
       try {
-        return extractImageData(frame.source);
+        return extractImageData(originalBitmap);
       } catch {
         return null;
       }
     },
-    // frame.capturedAt uniquely identifies each captured frame's immutable
-    // source; frame.source is included so a same-timestamp remount still
-    // re-extracts from the correct bitmap.
-    [frame.source, frame.capturedAt],
+    // `originalBitmap` uniquely identifies each session's immutable source.
+    [originalBitmap],
   );
 
   const valid = isConvex(corners);
@@ -178,13 +255,13 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
       if (!container) return null;
       const rect = container.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return null;
-      const scaleX = frame.width / rect.width;
-      const scaleY = frame.height / rect.height;
-      const x = Math.min(Math.max((clientX - rect.left) * scaleX, 0), frame.width);
-      const y = Math.min(Math.max((clientY - rect.top) * scaleY, 0), frame.height);
+      const scaleX = width / rect.width;
+      const scaleY = height / rect.height;
+      const x = Math.min(Math.max((clientX - rect.left) * scaleX, 0), width);
+      const y = Math.min(Math.max((clientY - rect.top) * scaleY, 0), height);
       return { x, y };
     },
-    [frame.width, frame.height],
+    [width, height],
   );
 
   const runWarp = useCallback(
@@ -196,8 +273,8 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
       if (!isConvex(finalCorners)) return;
 
       // Fix C1/C2: claim a sequence number for this warp. Only the most recent
-      // warp is allowed to touch the store; older ones are discarded (and their
-      // bitmap closed) when they resolve.
+      // warp is allowed to touch local state; older ones are discarded (and
+      // their bitmap closed) when they resolve.
       const seq = (warpSeqRef.current += 1);
       const isLatest = (): boolean => mountedRef.current && seq === warpSeqRef.current;
 
@@ -219,7 +296,7 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
         // Fix H2: clone a fresh buffer per warp for the transfer. The worker
         // transfers (detaches) the buffer it receives, so transferring the
         // memoized `sourceImageData.data` directly would leave it detached and
-        // the NEXT warp of the same frame would fail. Cloning keeps the
+        // the NEXT warp of the same session would fail. Cloning keeps the
         // memoized ImageData reusable while still transferring zero-copy.
         const transferData = new Uint8ClampedArray(sourceImageData.data);
         const response = await workerClient.warp(
@@ -230,13 +307,12 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
 
         if (response.type === 'WARP_RESULT') {
           // Fix C1/C2: a stale/unmounted result must be dropped AND its bitmap
-          // closed here (setWarpedImage would never receive it, so nothing else
-          // would ever release it).
+          // closed here (nothing else would ever receive/release it).
           if (!isLatest()) {
             response.bitmap.close();
             return;
           }
-          setWarpedImage(response.bitmap);
+          applyWarpedImage(response.bitmap);
         } else {
           // WARP_RESULT_IMAGEDATA (no OffscreenCanvas, design section 8): paint
           // the plain pixel data into a bitmap the presentation layer can use
@@ -267,10 +343,20 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
             bitmap.close();
             return;
           }
-          setWarpedImage(bitmap);
+          applyWarpedImage(bitmap);
         }
 
-        setRecipe(createInitialRecipe(finalCorners, aspectForWarp));
+        // Design section 2.2 "Re-warp (active)": preserve the CALLER's
+        // existing recipe (filter/rotation/flip) across a corners-only
+        // re-warp by merging onto it; a fresh capture (no initialRecipe, no
+        // prior local recipe yet) builds a brand-new one instead.
+        setRecipeState((prev) => {
+          const base = prev ?? initialRecipe;
+          if (base) {
+            return { ...base, corners: finalCorners, aspectRatio: aspectForWarp };
+          }
+          return createInitialRecipe(finalCorners, aspectForWarp);
+        });
       } catch {
         // Only the latest warp may surface an error; a stale warp that rejected
         // after a newer one already succeeded must not flip the UI into error.
@@ -281,14 +367,14 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
         if (isLatest()) setIsWarping(false);
       }
     },
-    [aspectOverride, sourceImageData, setRecipe, setWarpedImage],
+    [aspectOverride, sourceImageData, initialRecipe, applyWarpedImage],
   );
 
   // Run one warp as soon as the editor opens so the user immediately sees the
   // corrected preview and can Confirm without first nudging a handle. `recipe`
   // (required to enable Confirm) and `warpedImage` are only produced by a warp,
   // so without this the editor would sit inert with Confirm disabled. Runs once
-  // per mounted frame (the component is keyed by `capturedAt`, so a new capture
+  // per mounted session (the component is keyed by `pageId`, so a new session
   // remounts and re-warps). Skipped for a non-convex seed — the user must fix
   // the quad first, exactly like the drag path.
   useEffect(() => {
@@ -367,9 +453,19 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
   );
 
   const handleConfirm = useCallback(() => {
-    if (!valid || !recipe) return;
-    onConfirm();
-  }, [onConfirm, recipe, valid]);
+    if (!valid || !recipe || !warpedImage) return;
+    onConfirm({ warpedBase: warpedImage, recipe });
+  }, [valid, recipe, warpedImage, onConfirm]);
+
+  const handleCancelClick = useCallback(() => {
+    // Nobody else knows about this LOCAL bitmap (unlike `originalBitmap`,
+    // which the caller owns) — release it here so cancelling never leaks a
+    // full-res warped bitmap (design section 7 hygiene).
+    if (warpedImage) {
+      warpedImage.close();
+    }
+    onCancel();
+  }, [warpedImage, onCancel]);
 
   const handleAspectChange = useCallback(
     (name: AspectRatioName) => {
@@ -382,18 +478,18 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
   );
 
   const handleRotate = useCallback(() => {
-    setRecipe(recipe ? rotateRecipe(recipe) : recipe);
-  }, [recipe, setRecipe]);
+    setRecipeState((prev) => (prev ? rotateRecipe(prev) : prev));
+  }, []);
 
   const handleFlipHorizontal = useCallback(() => {
-    setRecipe(recipe ? flipHorizontalRecipe(recipe) : recipe);
-  }, [recipe, setRecipe]);
+    setRecipeState((prev) => (prev ? flipHorizontalRecipe(prev) : prev));
+  }, []);
 
   const transform = recipe ? recipeToCssTransform(recipe) : 'none';
 
   const magnifierRect =
     draggingIndex !== null && dragPoint
-      ? magnifierSampleRect(dragPoint.x, dragPoint.y, MAGNIFIER_SIZE, MAGNIFIER_ZOOM, frame.width, frame.height)
+      ? magnifierSampleRect(dragPoint.x, dragPoint.y, MAGNIFIER_SIZE, MAGNIFIER_ZOOM, width, height)
       : null;
 
   return (
@@ -409,7 +505,7 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
           aria-hidden="true"
         />
         <svg
-          viewBox={`0 0 ${frame.width} ${frame.height}`}
+          viewBox={`0 0 ${width} ${height}`}
           preserveAspectRatio="xMidYMid slice"
           className="pointer-events-none absolute inset-0 h-full w-full"
           aria-hidden="true"
@@ -424,8 +520,8 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
         </svg>
 
         {corners.map((point, index) => {
-          const leftPct = (point.x / frame.width) * 100;
-          const topPct = (point.y / frame.height) * 100;
+          const leftPct = (point.x / width) * 100;
+          const topPct = (point.y / height) * 100;
           return (
             <button
               key={index}
@@ -452,12 +548,12 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
 
         {magnifierRect && (
           <Magnifier
-            source={frame.source}
+            source={originalBitmap}
             rect={magnifierRect}
             size={MAGNIFIER_SIZE}
             anchor={dragPoint as Point}
-            frameWidth={frame.width}
-            frameHeight={frame.height}
+            frameWidth={width}
+            frameHeight={height}
           />
         )}
       </div>
@@ -528,7 +624,7 @@ export function CornerEditor({ frame, initialCorners, onConfirm, onCancel }: Cor
       )}
 
       <div className="flex w-full items-center justify-between gap-3">
-        <Button type="button" variant="ghost" onClick={onCancel} data-testid="corner-editor-cancel">
+        <Button type="button" variant="ghost" onClick={handleCancelClick} data-testid="corner-editor-cancel">
           Back
         </Button>
         <Button
