@@ -14,8 +14,10 @@
  */
 
 import type {
+  ApplyFilterResponse,
   AspectRatioName,
   DetectResponse,
+  FilterVariant,
   ImageDataLike,
   Quad,
   WarpResponse,
@@ -55,6 +57,22 @@ export interface WorkerClient {
     corners: Quad,
     aspectRatio: AspectRatioName,
   ): Promise<WarpResponse | WarpResponseImageData>;
+  /**
+   * Renders 1-3 `FilterVariant`s over the same base `image` in one
+   * round-trip (design section 4.1/4.3). Deliberately does NOT participate
+   * in `isBusy()`/the DETECT drop-latest gate (design section 4.5): this
+   * method never sets `detectInFlight`, and multiple `applyFilter` calls may
+   * be in flight concurrently. The CALLER (a future filter-preview
+   * controller) owns the "latest-wins-per-target" discipline — tracking
+   * which in-flight render is still wanted and closing any stale result's
+   * bitmaps on arrival — mirroring the existing monotonic-sequence guard
+   * `CornerEditor.runWarp` already uses for WARP.
+   */
+  applyFilter(
+    image: ImageDataLike,
+    variants: readonly FilterVariant[],
+    outputBitmap: boolean,
+  ): Promise<ApplyFilterResponse>;
   /** True while a DETECT request is in flight (drop-latest backpressure, design section 2.1). */
   isBusy(): boolean;
   terminate(): void;
@@ -177,6 +195,17 @@ function createWorkerClientForWorker(worker: Worker): WorkerClient {
       const id = nextId++;
       return send<WarpResponse | WarpResponseImageData>(
         { id, type: 'WARP', image, corners, aspectRatio },
+        [image.data.buffer],
+      );
+    },
+
+    async applyFilter(image, variants, outputBitmap) {
+      const id = nextId++;
+      // No `detectInFlight` involvement (design section 4.5) — this RPC is
+      // correlated by the shared `id` map like every other request, but is
+      // otherwise independent of DETECT's backpressure.
+      return send<ApplyFilterResponse>(
+        { id, type: 'APPLY_FILTER', image, variants, outputBitmap },
         [image.data.buffer],
       );
     },
