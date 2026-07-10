@@ -68,6 +68,10 @@ export const es = {
   'capture.captureDocument': 'Capturar documento',
   'capture.pageRemoved': 'Página eliminada.',
   'capture.undo': 'Deshacer',
+  'capture.next': 'Siguiente',
+  'capture.retakeLast': 'Repetir última captura',
+  'capture.captureFailed': 'No se pudo capturar la página. Probá de nuevo.',
+  'capture.importAnother': 'Importar otra',
 
   'grid.pagesCaptured': { one: '{n} página capturada.', other: '{n} páginas capturadas.' },
   'grid.captureMore': 'Capturar más',

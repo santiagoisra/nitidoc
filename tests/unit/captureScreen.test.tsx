@@ -1,0 +1,301 @@
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { createElement, forwardRef } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+/**
+ * Fase 2.3 (capture-ux-redesign.md, Unit 3) unit tests for `CaptureScreen` —
+ * the full-bleed, persistent capture screen. Covers the design brief's own
+ * test list: "renders FAB/Next/count badge; Next gated on ≥1 capture;
+ * in-flight guard; no-camera variant; cap disables capture."
+ *
+ * `CaptureScreen` receives `openCamera`/`switchCamera`/`setTorch` as PROPS
+ * (the same `useCamera()` hook instance `ScannerScreen` owns) rather than
+ * calling `useCamera()` itself — see that component's doc comment — so this
+ * suite passes plain `vi.fn()` stubs instead of mocking `useCamera`.
+ */
+
+const materializeRawCaptureMock = vi.fn();
+let isAtCapValue = false;
+
+vi.mock('@/features/scanner/hooks/useActivePage', () => ({
+  useActivePage: () => ({
+    materializeRawCapture: materializeRawCaptureMock,
+    isAtCap: isAtCapValue,
+  }),
+}));
+
+const captureFullResFrameMock = vi.fn();
+const cropToVisibleRectMock = vi.fn();
+
+vi.mock('@/features/scanner/lib/captureFrame', () => ({
+  captureFullResFrame: (...args: unknown[]) => captureFullResFrameMock(...args),
+  cropToVisibleRect: (...args: unknown[]) => cropToVisibleRectMock(...args),
+}));
+
+const decodeImportedFileMock = vi.fn();
+
+vi.mock('@/features/scanner/lib/captureFallback', async () => {
+  const actual = await vi.importActual<typeof import('@/features/scanner/lib/captureFallback')>(
+    '@/features/scanner/lib/captureFallback',
+  );
+  return {
+    ...actual,
+    decodeImportedFile: (...args: unknown[]) => decodeImportedFileMock(...args),
+  };
+});
+
+// Mirrors the pattern used by the ScannerScreen test suite: a mocked
+// CameraView that just forwards a bare <video> ref, so happy-dom never has
+// to run the real srcObject-binding effect against a fake MediaStream.
+vi.mock('@/features/scanner/components/CameraView', () => ({
+  CameraView: forwardRef<HTMLVideoElement, { overlay?: unknown; fill?: boolean }>((_props, ref) =>
+    createElement('video', { ref, 'data-testid': 'camera-view-video' }),
+  ),
+}));
+
+import { CaptureScreen } from '@/features/scanner/components/CaptureScreen';
+import { ToastHost } from '@/shared/ui';
+import { useScannerStore, scannerStoreInitialState } from '@/features/scanner/store/scannerStore';
+import { FILTER } from '@/features/scanner/lib/filterConstants';
+import type { RawCapture } from '@/features/scanner/store/documentSlice';
+
+function fakeBitmap(width = 3000, height = 4000): ImageBitmap & { close: ReturnType<typeof vi.fn> } {
+  return { width, height, close: vi.fn() } as unknown as ImageBitmap & { close: ReturnType<typeof vi.fn> };
+}
+
+function fakeRaw(id: string, order: number): RawCapture {
+  return {
+    id,
+    order,
+    originalBlob: {} as Blob,
+    thumbnail: fakeBitmap(150, 200),
+    originalWidth: 1000,
+    originalHeight: 1400,
+  };
+}
+
+function createFakeStream(): MediaStream {
+  const track = { stop: vi.fn(), getSettings: () => ({}) } as unknown as MediaStreamTrack;
+  return {
+    getVideoTracks: () => [track],
+    getTracks: () => [track],
+  } as unknown as MediaStream;
+}
+
+function renderCaptureScreen(props: Partial<{
+  openCamera: () => Promise<void>;
+  switchCamera: () => Promise<void>;
+  setTorch: () => Promise<void>;
+}> = {}) {
+  return render(
+    <ToastHost>
+      <CaptureScreen
+        openCamera={props.openCamera ?? vi.fn(async () => {})}
+        switchCamera={props.switchCamera ?? vi.fn(async () => {})}
+        setTorch={props.setTorch ?? vi.fn(async () => {})}
+      />
+    </ToastHost>,
+  );
+}
+
+describe('CaptureScreen (Fase 2.3, capture-ux-redesign.md, Unit 3)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    isAtCapValue = false;
+    materializeRawCaptureMock.mockResolvedValue({ status: 'added' });
+    useScannerStore.setState({
+      ...scannerStoreInitialState,
+      permission: 'granted',
+      devices: [{ deviceId: 'a' } as MediaDeviceInfo],
+      stream: createFakeStream(),
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('renders the capture button; Next is hidden with zero captures', () => {
+    renderCaptureScreen();
+
+    expect(screen.getByTestId('capture-screen')).toBeTruthy();
+    expect(screen.getByTestId('capture-button')).toBeTruthy();
+    expect(screen.queryByTestId('capture-next')).toBeNull();
+    expect(screen.queryByTestId('capture-count-thumbnail')).toBeNull();
+  });
+
+  it('Next appears once rawCaptures.length > 0, and shows the count badge', () => {
+    useScannerStore.setState({ rawCaptures: [fakeRaw('r1', 0)] });
+    renderCaptureScreen();
+
+    expect(screen.getByTestId('capture-next')).toBeTruthy();
+    expect(screen.getByTestId('capture-count-badge').textContent).toBe('1');
+  });
+
+  it('Next sets phase to "processing"', () => {
+    useScannerStore.setState({ rawCaptures: [fakeRaw('r1', 0)] });
+    renderCaptureScreen();
+
+    fireEvent.click(screen.getByTestId('capture-next'));
+    expect(useScannerStore.getState().phase).toBe('processing');
+  });
+
+  it('capture flow: captureFullResFrame -> cropToVisibleRect -> materializeRawCapture, staying in "capturing"', async () => {
+    useScannerStore.setState({ phase: 'capturing' });
+    const rawBitmap = fakeBitmap(3000, 4000);
+    const croppedBitmap = fakeBitmap(3000, 3000);
+    captureFullResFrameMock.mockResolvedValue({ bitmap: rawBitmap, width: 3000, height: 4000 });
+    cropToVisibleRectMock.mockResolvedValue(croppedBitmap);
+
+    renderCaptureScreen();
+    fireEvent.click(screen.getByTestId('capture-button'));
+
+    await waitFor(() => {
+      expect(materializeRawCaptureMock).toHaveBeenCalledTimes(1);
+    });
+
+    expect(captureFullResFrameMock).toHaveBeenCalledTimes(1);
+    // The 2nd/3rd args are `video.videoWidth`/`video.videoHeight` (D-4's
+    // native-aspect reference) and the 4th is the displayed element's
+    // `getBoundingClientRect()` box — happy-dom's mocked `<video>` reports
+    // neither realistically, so this only asserts the crop was invoked with
+    // the captured bitmap and SOME box shape, not real layout numbers (real
+    // aspect-math coverage lives in captureFrame's own cropToVisibleRect unit
+    // tests).
+    expect(cropToVisibleRectMock).toHaveBeenCalledTimes(1);
+    expect(cropToVisibleRectMock.mock.calls[0]?.[0]).toBe(rawBitmap);
+    expect(cropToVisibleRectMock.mock.calls[0]?.[3]).toEqual(
+      expect.objectContaining({ width: expect.any(Number), height: expect.any(Number) }),
+    );
+    expect(materializeRawCaptureMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        originalBitmap: croppedBitmap,
+        originalWidth: croppedBitmap.width,
+        originalHeight: croppedBitmap.height,
+      }),
+    );
+    expect(useScannerStore.getState().phase).toBe('capturing');
+  });
+
+  it('in-flight guard: a second tap while a capture is still resolving does not call captureFullResFrame again', async () => {
+    let resolveCapture: ((value: { bitmap: ImageBitmap; width: number; height: number }) => void) | undefined;
+    captureFullResFrameMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCapture = resolve;
+        }),
+    );
+    cropToVisibleRectMock.mockImplementation((bitmap: ImageBitmap) => Promise.resolve(bitmap));
+
+    renderCaptureScreen();
+    const button = screen.getByTestId('capture-button');
+
+    fireEvent.click(button);
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      expect(captureFullResFrameMock).toHaveBeenCalledTimes(1);
+    });
+
+    // Resolve the in-flight capture and let materializeRawCapture settle.
+    await act(async () => {
+      resolveCapture?.({ bitmap: fakeBitmap(), width: 100, height: 100 });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(captureFullResFrameMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('cap disables the capture button', () => {
+    isAtCapValue = true;
+    renderCaptureScreen();
+
+    const button = screen.getByTestId('capture-button') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(screen.getByTestId('capture-cap-hint').textContent).toContain(String(FILTER.PAGE_CAP));
+  });
+
+  it('a capture failure shows a toast and stays in "capturing" (never strands the user)', async () => {
+    captureFullResFrameMock.mockRejectedValue(new Error('boom'));
+    renderCaptureScreen();
+
+    fireEvent.click(screen.getByTestId('capture-button'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('toast-host').textContent).toContain('Could not capture the page');
+    });
+    expect(useScannerStore.getState().rawCaptures).toHaveLength(0);
+  });
+
+  it('retake-last removes the last raw capture', () => {
+    useScannerStore.setState({ rawCaptures: [fakeRaw('r1', 0), fakeRaw('r2', 1)] });
+    renderCaptureScreen();
+
+    fireEvent.click(screen.getByTestId('capture-count-retake-last'));
+    expect(useScannerStore.getState().rawCaptures).toHaveLength(1);
+    expect(useScannerStore.getState().rawCaptures[0]?.id).toBe('r1');
+  });
+
+  describe('no-camera variant (phase-gating decouple)', () => {
+    it('permission denied: renders ImportFallback, never mounts a live CameraView', () => {
+      useScannerStore.setState({ permission: 'denied' });
+      renderCaptureScreen();
+
+      expect(screen.getByTestId('capture-screen-no-camera')).toBeTruthy();
+      expect(screen.queryByTestId('capture-screen')).toBeNull();
+      expect(screen.queryByTestId('camera-view-video')).toBeNull();
+      expect(screen.getByTestId('import-fallback')).toBeTruthy();
+      expect(screen.getByTestId('permission-denied-instructions')).toBeTruthy();
+    });
+
+    it('no devices: renders the no-camera ImportFallback copy', () => {
+      useScannerStore.setState({ devices: [] });
+      renderCaptureScreen();
+
+      expect(screen.getByTestId('capture-screen-no-camera')).toBeTruthy();
+      expect(screen.getByTestId('no-camera-instructions')).toBeTruthy();
+    });
+
+    it('a camera error: renders the no-camera variant with a visible error', () => {
+      useScannerStore.setState({ lastCameraError: 'NotReadableError' });
+      renderCaptureScreen();
+
+      expect(screen.getByTestId('capture-screen-no-camera')).toBeTruthy();
+      expect(screen.getByTestId('camera-error')).toBeTruthy();
+    });
+
+    it('"Import another" decodes the file and materializes a raw capture (no DETECT, no CornerEditor)', async () => {
+      useScannerStore.setState({ permission: 'denied' });
+      const decodedBitmap = fakeBitmap(1200, 900);
+      decodeImportedFileMock.mockResolvedValue({ bitmap: decodedBitmap, width: 1200, height: 900 });
+
+      renderCaptureScreen();
+      const input = screen.getByTestId('import-fallback-input') as HTMLInputElement;
+      const file = new File([new Uint8Array([1, 2, 3])], 'doc.png', { type: 'image/png' });
+
+      await act(async () => {
+        fireEvent.change(input, { target: { files: [file] } });
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(decodeImportedFileMock).toHaveBeenCalledTimes(1);
+      expect(materializeRawCaptureMock).toHaveBeenCalledWith(
+        expect.objectContaining({ originalBitmap: decodedBitmap, originalWidth: 1200, originalHeight: 900 }),
+      );
+      // Stays on the no-camera variant — the OLD DETECT/CornerEditor pipeline
+      // is gone; this is now purely the lightweight raw-capture pipeline.
+      expect(screen.queryByTestId('corner-editor')).toBeNull();
+    });
+
+    it('shows accumulated raw captures + "Siguiente" even without a camera', () => {
+      useScannerStore.setState({ permission: 'denied', rawCaptures: [fakeRaw('r1', 0)] });
+      renderCaptureScreen();
+
+      expect(screen.getByTestId('capture-raw-thumb-r1')).toBeTruthy();
+      expect(screen.getByTestId('capture-next')).toBeTruthy();
+    });
+  });
+});

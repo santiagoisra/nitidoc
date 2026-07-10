@@ -67,6 +67,10 @@ export const en = {
   'capture.captureDocument': 'Capture document',
   'capture.pageRemoved': 'Page removed.',
   'capture.undo': 'Undo',
+  'capture.next': 'Next',
+  'capture.retakeLast': 'Retake last capture',
+  'capture.captureFailed': 'Could not capture the page. Try again.',
+  'capture.importAnother': 'Import another',
 
   'grid.pagesCaptured': { one: '{n} page captured.', other: '{n} pages captured.' },
   'grid.captureMore': 'Capture more',
