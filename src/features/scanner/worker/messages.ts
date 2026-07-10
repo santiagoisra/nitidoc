@@ -19,6 +19,7 @@ import type {
   Quad,
   QualityMetrics,
 } from '@/shared/types/geometry';
+import type { FilterPreset } from '@/shared/types/scanner';
 
 export type { Point, Quad, QualityMetrics, AspectRatioName };
 
@@ -86,7 +87,49 @@ export interface WarpRequest {
   readonly aspectRatio: AspectRatioName;
 }
 
-export type WorkerRequest = InitRequest | DetectRequest | DetectRequestImageData | WarpRequest;
+/**
+ * One preset+slider combination to render over the SAME base `image`
+ * (design section 4.1). `ApplyFilterRequest.variants` carries 1 (single
+ * active/export render) or up to 3 (batched adaptive-preset previews,
+ * design section 4.3) of these.
+ */
+export interface FilterVariant {
+  readonly preset: FilterPreset;
+  readonly brightness: number;
+  readonly contrast: number;
+  readonly sharpness: number;
+}
+
+export interface ApplyFilterRequest {
+  readonly id: number;
+  readonly type: 'APPLY_FILTER';
+  /**
+   * Base = UNFILTERED warp (thumbnail-sized for previews, full-res for
+   * export). `image.data.buffer` is transferred (zero-copy; detaches on the
+   * caller — clone if reused, same contract as WARP).
+   */
+  readonly image: ImageDataLike;
+  /** Same base image reused across every variant (design section 4.3). */
+  readonly variants: readonly FilterVariant[];
+  /**
+   * `true` -> reply with `ImageBitmap`(s) (needs worker `OffscreenCanvas`);
+   * `false` -> reply with `ImageDataLike` (fallback, design section 8 parity,
+   * mirrors `WARP`'s `offscreenSupported` branch). NOTE: design.md section
+   * 4.1's doc-comment states this backwards (`false` -> bitmap, `true` ->
+   * ImageDataLike) — a copy/paste inversion contradicting the field's own
+   * name and every other bitmap-flag in this file (e.g. `offscreenSupported`
+   * in `opencv.worker.ts`). Implemented here with the natural, name-matching
+   * polarity; flagged to the orchestrator for design.md correction.
+   */
+  readonly outputBitmap: boolean;
+}
+
+export type WorkerRequest =
+  | InitRequest
+  | DetectRequest
+  | DetectRequestImageData
+  | WarpRequest
+  | ApplyFilterRequest;
 
 // ─────────────── Responses (worker -> main) ───────────────
 
@@ -137,6 +180,21 @@ export interface WarpResponseImageData {
   readonly outHeight: number;
 }
 
+/**
+ * One rendered variant in an `ApplyFilterResponse.results` list, in the
+ * same order/length as the request's `variants` (design section 4.1).
+ */
+export type FilteredResult =
+  | { readonly kind: 'bitmap'; readonly bitmap: ImageBitmap }
+  | { readonly kind: 'imagedata'; readonly image: ImageDataLike };
+
+export interface ApplyFilterResponse {
+  readonly id: number;
+  readonly type: 'APPLY_FILTER_RESULT';
+  /** Same order and length as `request.variants`. */
+  readonly results: readonly FilteredResult[];
+}
+
 export interface ErrorResponse {
   readonly id: number;
   readonly type: 'ERROR';
@@ -149,7 +207,8 @@ export type WorkerErrorCode =
   | 'NOT_INITIALIZED'
   | 'DETECT_FAILED'
   | 'WARP_FAILED'
-  | 'INVALID_INPUT';
+  | 'INVALID_INPUT'
+  | 'FILTER_FAILED';
 
 export type WorkerResponse =
   | ProgressEvent
@@ -157,4 +216,5 @@ export type WorkerResponse =
   | DetectResponse
   | WarpResponse
   | WarpResponseImageData
+  | ApplyFilterResponse
   | ErrorResponse;

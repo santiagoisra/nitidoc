@@ -26,12 +26,17 @@
 
 import { isConvex, orderCorners, outputSize } from '@/features/scanner/lib/geometry';
 import { DETECTION } from '@/features/scanner/lib/detectionConstants';
+import { FILTER } from '@/features/scanner/lib/filterConstants';
 import { loadOpenCv } from '@/features/scanner/lib/opencvLoader';
 import type { CvBindings, CvMat, CvMatVector } from './cvBindings';
 import type {
+  ApplyFilterRequest,
+  ApplyFilterResponse,
   DetectRequest,
   DetectRequestImageData,
   DetectResponse,
+  FilteredResult,
+  FilterVariant,
   ImageDataLike,
   InitRequest,
   Point,
@@ -57,6 +62,8 @@ let detectCanvas: OffscreenCanvas | null = null;
 let detectCtx: OffscreenCanvasRenderingContext2D | null = null;
 let warpCanvas: OffscreenCanvas | null = null;
 let warpCtx: OffscreenCanvasRenderingContext2D | null = null;
+let filterCanvas: OffscreenCanvas | null = null;
+let filterCtx: OffscreenCanvasRenderingContext2D | null = null;
 
 function getDetectContext(width: number, height: number): OffscreenCanvasRenderingContext2D {
   if (!detectCanvas) {
@@ -86,6 +93,21 @@ function getWarpContext(width: number, height: number): OffscreenCanvasRendering
     throw new Error('Failed to acquire 2D context on the internal warp OffscreenCanvas.');
   }
   return warpCtx;
+}
+
+function getFilterContext(width: number, height: number): OffscreenCanvasRenderingContext2D {
+  if (!filterCanvas) {
+    filterCanvas = new OffscreenCanvas(width, height);
+    filterCtx = filterCanvas.getContext('2d');
+  }
+  if (filterCanvas.width !== width || filterCanvas.height !== height) {
+    filterCanvas.width = width;
+    filterCanvas.height = height;
+  }
+  if (!filterCtx) {
+    throw new Error('Failed to acquire 2D context on the internal filter OffscreenCanvas.');
+  }
+  return filterCtx;
 }
 
 function postResponse(response: WorkerResponse, transfer: readonly Transferable[] = []): void {
@@ -413,6 +435,195 @@ async function handleWarp(request: WarpRequest, offscreenSupported: boolean): Pr
   }
 }
 
+/** 3x3 identity kernel — the "no sharpen" endpoint of the unsharp blend (design section 4.4). */
+const IDENTITY_KERNEL_3X3: readonly number[] = [0, 0, 0, 0, 1, 0, 0, 0, 0];
+/** 3x3 unsharp kernel — the "full sharpen" endpoint of the unsharp blend (design section 4.4). */
+const SHARPEN_KERNEL_3X3: readonly number[] = [0, -1, 0, -1, 5, -1, 0, -1, 0];
+
+const ADAPTIVE_PRESETS: ReadonlySet<FilterVariant['preset']> = new Set(['bw', 'bw-high-contrast', 'eco']);
+
+/**
+ * Renders one `FilterVariant` over the shared, per-request `srcMat`
+ * (RGBA)/`grayMat` (single-channel), owning and releasing every Mat it
+ * allocates EXCEPT the one it returns (design section 4.4 pipeline;
+ * F1 section 7 Mat hygiene). The caller owns (and must `.delete()`) the
+ * returned Mat.
+ *
+ * `srcMat`/`grayMat` are NEVER mutated in place: every branch below writes
+ * into a freshly-allocated Mat (`convertScaleAbs`/`adaptiveThreshold` with a
+ * distinct `dst`), so the shared base is safe to reuse across every variant
+ * in a batched request (design section 4.3).
+ */
+function applyVariant(cvBindings: CvBindings, srcMat: CvMat, grayMat: CvMat, variant: FilterVariant): CvMat {
+  let work: CvMat | null = null;
+  let stage1: CvMat | null = null;
+  let kernel: CvMat | null = null;
+  let sharpenKernel: CvMat | null = null;
+  let result: CvMat | null = null;
+
+  try {
+    const isAdaptive = ADAPTIVE_PRESETS.has(variant.preset);
+
+    if (isAdaptive) {
+      // Brightness/contrast pre-gain folded in via convertScaleAbs BEFORE
+      // adaptiveThreshold (design section 3.3/4.4) — writes into a fresh
+      // `work` Mat, never mutating the shared `grayMat`.
+      work = new cvBindings.Mat();
+      const alpha = 1 + variant.contrast / 100;
+      const beta = variant.brightness * FILTER.BETA_SCALE;
+      cvBindings.convertScaleAbs(grayMat, work, alpha, beta);
+
+      stage1 = new cvBindings.Mat();
+      switch (variant.preset) {
+        case 'bw':
+          cvBindings.adaptiveThreshold(
+            work,
+            stage1,
+            255,
+            cvBindings.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cvBindings.THRESH_BINARY,
+            FILTER.BW_BLOCK_SIZE,
+            FILTER.BW_C,
+          );
+          break;
+        case 'bw-high-contrast':
+          cvBindings.adaptiveThreshold(
+            work,
+            stage1,
+            255,
+            cvBindings.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cvBindings.THRESH_BINARY,
+            FILTER.BW_HC_BLOCK_SIZE,
+            FILTER.BW_HC_C,
+          );
+          // Denoise speckle (design section 4.4) — kernel is worker-owned, deleted in `finally`.
+          kernel = cvBindings.getStructuringElement(
+            cvBindings.MORPH_RECT,
+            new cvBindings.Size(FILTER.MORPH_KERNEL, FILTER.MORPH_KERNEL),
+          );
+          cvBindings.morphologyEx(stage1, stage1, cvBindings.MORPH_OPEN, kernel);
+          break;
+        case 'eco':
+          cvBindings.adaptiveThreshold(
+            work,
+            stage1,
+            255,
+            cvBindings.ADAPTIVE_THRESH_MEAN_C,
+            cvBindings.THRESH_BINARY,
+            FILTER.ECO_BLOCK_SIZE,
+            FILTER.ECO_C,
+          );
+          break;
+        default:
+          // Unreachable at runtime: `isAdaptive` (via `ADAPTIVE_PRESETS.has`)
+          // already narrows to these 3 presets before this switch runs. TS
+          // cannot express that narrowing across a `Set.has()` check, so this
+          // is a defensive throw rather than an exhaustive-`never` check.
+          throw new Error(`Unhandled adaptive preset: ${String(variant.preset)}`);
+      }
+    } else {
+      // original | enhanced | grayscale — the worker is only reached here
+      // when sharpness > 0 (routing: design section 3.1/`filterPipeline.needsWorker`).
+      // convertScaleAbs(src, dst, 1, 0) is used as a plain copy into a
+      // DEDICATED Mat so the subsequent in-place `filter2D` sharpen never
+      // mutates the shared `srcMat`/`grayMat`.
+      const source = variant.preset === 'grayscale' ? grayMat : srcMat;
+      stage1 = new cvBindings.Mat();
+      cvBindings.convertScaleAbs(source, stage1, 1, 0);
+    }
+
+    // Sharpness (any preset, design section 3.3/4.4): 3x3 unsharp kernel blended by alpha.
+    if (variant.sharpness > 0) {
+      const alpha = variant.sharpness / 100;
+      const kernelData = SHARPEN_KERNEL_3X3.map((sharpenValue, index) => {
+        const identityValue = IDENTITY_KERNEL_3X3[index] as number;
+        return (1 - alpha) * identityValue + alpha * sharpenValue;
+      });
+      sharpenKernel = cvBindings.matFromArray(3, 3, cvBindings.CV_32F, kernelData);
+      cvBindings.filter2D(stage1, stage1, -1, sharpenKernel);
+    }
+
+    // Single-channel results (bw/bw-hc/eco/grayscale) -> back to RGBA for ImageData.
+    const isSingleChannel = isAdaptive || variant.preset === 'grayscale';
+    if (isSingleChannel) {
+      result = new cvBindings.Mat();
+      cvBindings.cvtColor(stage1, result, cvBindings.COLOR_GRAY2RGBA);
+    } else {
+      result = stage1;
+      stage1 = null; // ownership transferred to `result` — skip deletion below.
+    }
+
+    return result;
+  } finally {
+    if (work && !work.isDeleted()) work.delete();
+    if (stage1 && !stage1.isDeleted()) stage1.delete();
+    if (kernel && !kernel.isDeleted()) kernel.delete();
+    if (sharpenKernel && !sharpenKernel.isDeleted()) sharpenKernel.delete();
+  }
+}
+
+/**
+ * `APPLY_FILTER` handler (design section 4.1-4.4). Decodes `srcMat`
+ * (RGBA)/`grayMat` ONCE from the base `image`, then renders every
+ * `request.variants` entry over the same pair — batches up to 3 adaptive
+ * previews in one round-trip (design section 4.3) without re-decoding.
+ * Every per-variant Mat is `.delete()`'d in `applyVariant`'s own `finally`;
+ * this handler owns and releases only the shared `srcMat`/`grayMat`.
+ */
+async function handleApplyFilter(request: ApplyFilterRequest): Promise<void> {
+  if (!cv) {
+    replyError(request.id, 'NOT_INITIALIZED', 'APPLY_FILTER received before INIT_DONE.');
+    return;
+  }
+
+  const cvBindings = cv;
+  let srcMat: CvMat | null = null;
+  let grayMat: CvMat | null = null;
+
+  try {
+    const imageData = imageDataLikeToImageData(request.image);
+    srcMat = cvBindings.matFromImageData(imageData);
+    grayMat = new cvBindings.Mat();
+    cvBindings.cvtColor(srcMat, grayMat, cvBindings.COLOR_RGBA2GRAY);
+
+    const results: FilteredResult[] = [];
+    const transfer: Transferable[] = [];
+
+    for (const variant of request.variants) {
+      let variantMat: CvMat | null = null;
+      try {
+        variantMat = applyVariant(cvBindings, srcMat, grayMat, variant);
+        const outWidth = variantMat.cols;
+        const outHeight = variantMat.rows;
+        const outImageData = new ImageData(toPlainClampedArray(variantMat.data), outWidth, outHeight);
+
+        if (request.outputBitmap) {
+          const ctx = getFilterContext(outWidth, outHeight);
+          ctx.putImageData(outImageData, 0, 0);
+          const bitmap = (filterCanvas as OffscreenCanvas).transferToImageBitmap();
+          results.push({ kind: 'bitmap', bitmap });
+          transfer.push(bitmap);
+        } else {
+          const clonedData = new Uint8ClampedArray(outImageData.data);
+          results.push({ kind: 'imagedata', image: { width: outWidth, height: outHeight, data: clonedData } });
+          transfer.push(clonedData.buffer);
+        }
+      } finally {
+        if (variantMat && !variantMat.isDeleted()) variantMat.delete();
+      }
+    }
+
+    const response: ApplyFilterResponse = { id: request.id, type: 'APPLY_FILTER_RESULT', results };
+    postResponse(response, transfer);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown APPLY_FILTER failure.';
+    replyError(request.id, 'FILTER_FAILED', message);
+  } finally {
+    if (srcMat && !srcMat.isDeleted()) srcMat.delete();
+    if (grayMat && !grayMat.isDeleted()) grayMat.delete();
+  }
+}
+
 /**
  * Whether this worker can rely on an internal `OffscreenCanvas` for the
  * WARP output path. When `false` (design section 8 fallback), the caller
@@ -437,6 +648,9 @@ self.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
       break;
     case 'WARP':
       void handleWarp(request, offscreenSupported);
+      break;
+    case 'APPLY_FILTER':
+      void handleApplyFilter(request);
       break;
     default: {
       const exhaustiveCheck: never = request;

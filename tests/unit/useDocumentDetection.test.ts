@@ -59,6 +59,7 @@ const fakeWorkerClient: WorkerClient = {
     return next;
   }),
   warp: vi.fn(),
+  applyFilter: vi.fn(),
   isBusy: vi.fn(() => isBusyValue),
   terminate: vi.fn(),
 };

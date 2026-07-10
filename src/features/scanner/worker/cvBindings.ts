@@ -81,10 +81,36 @@ export interface CvBindings {
   getPerspectiveTransform(src: CvMat, dst: CvMat): CvMat;
   warpPerspective(src: CvMat, dst: CvMat, transform: CvMat, dsize: CvSize): void;
 
+  /**
+   * Filter pipeline additions (Fase 2, design section 4.6): adaptive B&W
+   * presets, denoise morphology, unsharp convolution, brightness/contrast
+   * pre-gain, and the single-channel -> RGBA conversion back to `ImageData`.
+   */
+  adaptiveThreshold(
+    src: CvMat,
+    dst: CvMat,
+    maxValue: number,
+    adaptiveMethod: number,
+    thresholdType: number,
+    blockSize: number,
+    C: number,
+  ): void;
+  morphologyEx(src: CvMat, dst: CvMat, op: number, kernel: CvMat): void;
+  getStructuringElement(shape: number, ksize: CvSize): CvMat;
+  filter2D(src: CvMat, dst: CvMat, ddepth: number, kernel: CvMat): void;
+  convertScaleAbs(src: CvMat, dst: CvMat, alpha: number, beta: number): void;
+
   readonly CV_8UC1: number;
   readonly CV_32FC2: number;
+  readonly CV_32F: number;
   readonly CV_64F: number;
   readonly COLOR_RGBA2GRAY: number;
+  readonly COLOR_GRAY2RGBA: number;
   readonly RETR_LIST: number;
   readonly CHAIN_APPROX_SIMPLE: number;
+  readonly ADAPTIVE_THRESH_MEAN_C: number;
+  readonly ADAPTIVE_THRESH_GAUSSIAN_C: number;
+  readonly THRESH_BINARY: number;
+  readonly MORPH_RECT: number;
+  readonly MORPH_OPEN: number;
 }
