@@ -58,6 +58,7 @@ import { ImportFallback } from '@/features/scanner/components/ImportFallback';
 import { OpenCvDegradedBanner } from '@/features/scanner/components/OpenCvDegradedBanner';
 import { QualityHints } from '@/features/scanner/components/QualityHints';
 import { useActivePage } from '@/features/scanner/hooks/useActivePage';
+import { useExportPdf } from '@/features/scanner/hooks/useExportPdf';
 import { usePageDeletion } from '@/features/scanner/hooks/usePageDeletion';
 import { useCamera } from '@/features/scanner/hooks/useCamera';
 import { useDocumentDetection } from '@/features/scanner/hooks/useDocumentDetection';
@@ -140,6 +141,7 @@ export function ScannerScreen(): ReactNode {
   // Group 6 / PR9: deletion + 5s undo toast (design section 5.5). Replaces
   // Group 5/PR8's minimal direct `DocumentSlice.deletePage` wiring.
   const { deletePage } = usePageDeletion();
+  const { exporting, exportPdf } = useExportPdf();
   const opencvStatus = useScannerStore((s) => s.opencv.status);
   const opencvLastError = useScannerStore((s) => s.opencv.lastError);
 
@@ -598,6 +600,10 @@ export function ScannerScreen(): ReactNode {
     setPhase('done');
   }, [setPhase]);
 
+  const handleExportPdf = useCallback(() => {
+    exportPdf(pages);
+  }, [exportPdf, pages]);
+
   const handleScanAgain = useCallback(() => {
     resetDocument();
     setPhase('idle');
@@ -728,6 +734,15 @@ export function ScannerScreen(): ReactNode {
         <p className="text-sm text-text-muted">
           Scan complete — {pages.length} page{pages.length === 1 ? '' : 's'}.
         </p>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={handleExportPdf}
+          disabled={pages.length === 0 || exporting}
+          data-testid="done-export-pdf"
+        >
+          {exporting ? 'Exporting…' : 'Export PDF'}
+        </Button>
         <Button type="button" variant="primary" onClick={handleScanAgain} data-testid="scan-again">
           Scan another document
         </Button>
