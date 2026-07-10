@@ -12,6 +12,13 @@
  *
  * Replaces the inline `capture-tray-placeholder` `ScannerScreen` rendered
  * before this PR.
+ *
+ * Fase 2.2 punch-list item 4b: an "Export PDF" action lives directly on this
+ * live-capture screen too (not only on the `grid`/`done` phases), so the
+ * user can export in ONE tap without navigating tray -> grid first. Forwards
+ * the SAME `exporting`/`onExportPdf` (`useExportPdf()`) the caller already
+ * wires into `PageGrid`/`ScannerScreen`'s `done` phase — no separate export
+ * logic here.
  */
 
 import type { ReactNode } from 'react';
@@ -28,9 +35,12 @@ export interface CaptureTrayProps {
   /** True once `pages.length >= FILTER.PAGE_CAP` (design section 2.3 / D-MEM). */
   readonly isAtCap: boolean;
   readonly onDone: () => void;
+  /** True while a PDF export is in flight (`useExportPdf()`, Fase 2.2 item 4b) — disables the export trigger. */
+  readonly exporting: boolean;
+  readonly onExportPdf: () => void;
 }
 
-export function CaptureTray({ pages, isAtCap, onDone }: CaptureTrayProps): ReactNode {
+export function CaptureTray({ pages, isAtCap, onDone, exporting, onExportPdf }: CaptureTrayProps): ReactNode {
   const { t } = useTranslation();
   if (pages.length === 0) {
     // Nothing captured yet this session — the tray only makes sense once at
@@ -61,9 +71,20 @@ export function CaptureTray({ pages, isAtCap, onDone }: CaptureTrayProps): React
         <p className="text-sm text-text-muted">
           {t('capture.pagesCaptured', { n: pages.length })}
         </p>
-        <Button type="button" variant="secondary" onClick={onDone} data-testid="tray-done">
-          {t('capture.done')}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onExportPdf}
+            disabled={pages.length === 0 || exporting}
+            data-testid="tray-export-pdf"
+          >
+            {exporting ? t('scanner.exporting') : t('scanner.exportPdf')}
+          </Button>
+          <Button type="button" variant="secondary" onClick={onDone} data-testid="tray-done">
+            {t('capture.done')}
+          </Button>
+        </div>
       </div>
     </div>
   );

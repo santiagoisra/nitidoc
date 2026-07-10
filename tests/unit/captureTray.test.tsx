@@ -68,14 +68,18 @@ describe('CaptureTray (Group 5 / PR8, design section 5.2)', () => {
   it('renders nothing when no pages have been captured yet', () => {
     installCanvasShims();
     const onDone = vi.fn();
-    const { container } = render(<CaptureTray pages={[]} isAtCap={false} onDone={onDone} />);
+    const { container } = render(
+      <CaptureTray pages={[]} isAtCap={false} onDone={onDone} exporting={false} onExportPdf={vi.fn()} />,
+    );
     expect(container.innerHTML).toBe('');
   });
 
   it('shows the cap-30 hint when isAtCap is true (spec "Cap duro de 30 paginas alcanzado")', () => {
     installCanvasShims();
     const pages = [makePage('p1', 0)];
-    render(<CaptureTray pages={pages} isAtCap onDone={vi.fn()} />);
+    render(
+      <CaptureTray pages={pages} isAtCap onDone={vi.fn()} exporting={false} onExportPdf={vi.fn()} />,
+    );
 
     const hint = screen.getByTestId('capture-tray-cap-hint');
     expect(hint.textContent).toContain(String(FILTER.PAGE_CAP));
@@ -84,7 +88,9 @@ describe('CaptureTray (Group 5 / PR8, design section 5.2)', () => {
   it('does not show the cap hint when isAtCap is false', () => {
     installCanvasShims();
     const pages = [makePage('p1', 0)];
-    render(<CaptureTray pages={pages} isAtCap={false} onDone={vi.fn()} />);
+    render(
+      <CaptureTray pages={pages} isAtCap={false} onDone={vi.fn()} exporting={false} onExportPdf={vi.fn()} />,
+    );
 
     expect(screen.queryByTestId('capture-tray-cap-hint')).toBeNull();
   });
@@ -92,7 +98,9 @@ describe('CaptureTray (Group 5 / PR8, design section 5.2)', () => {
   it('renders one thumbnail per page via drawImage — never decodes a Blob (D6, thumbnail-only)', () => {
     installCanvasShims();
     const pages = [makePage('p1', 0), makePage('p2', 1), makePage('p3', 2)];
-    render(<CaptureTray pages={pages} isAtCap={false} onDone={vi.fn()} />);
+    render(
+      <CaptureTray pages={pages} isAtCap={false} onDone={vi.fn()} exporting={false} onExportPdf={vi.fn()} />,
+    );
 
     for (const page of pages) {
       expect(screen.getByTestId(`capture-tray-thumb-${page.id}`)).toBeTruthy();
@@ -109,7 +117,9 @@ describe('CaptureTray (Group 5 / PR8, design section 5.2)', () => {
     installCanvasShims();
     const onDone = vi.fn();
     const pages = [makePage('p1', 0), makePage('p2', 1)];
-    render(<CaptureTray pages={pages} isAtCap={false} onDone={onDone} />);
+    render(
+      <CaptureTray pages={pages} isAtCap={false} onDone={onDone} exporting={false} onExportPdf={vi.fn()} />,
+    );
 
     expect(screen.getByText('2 pages captured')).toBeTruthy();
     fireEvent.click(screen.getByTestId('tray-done'));
@@ -123,7 +133,9 @@ describe('CaptureTray (Group 5 / PR8, design section 5.2)', () => {
       makePage('p2', 1, { ...NEUTRAL_FILTER, preset: 'grayscale' }),
       makePage('p3', 2, { ...NEUTRAL_FILTER, preset: 'bw' }),
     ];
-    render(<CaptureTray pages={pages} isAtCap={false} onDone={vi.fn()} />);
+    render(
+      <CaptureTray pages={pages} isAtCap={false} onDone={vi.fn()} exporting={false} onExportPdf={vi.fn()} />,
+    );
 
     // 'original' (NEUTRAL_FILTER) draws with no CSS filter applied.
     expect(drawnFilters[0]).toBe('none');
@@ -137,5 +149,31 @@ describe('CaptureTray (Group 5 / PR8, design section 5.2)', () => {
     // Every draw resets `ctx.filter` back to 'none' afterward (no bleed onto
     // whatever draws next on a reused canvas context).
     expect(currentCtxFilter).toBe('none');
+  });
+
+  it('"Export PDF" calls onExportPdf (Fase 2.2 item 4b, one-tap export from the live tray)', () => {
+    installCanvasShims();
+    const onExportPdf = vi.fn();
+    const pages = [makePage('p1', 0)];
+    render(
+      <CaptureTray pages={pages} isAtCap={false} onDone={vi.fn()} exporting={false} onExportPdf={onExportPdf} />,
+    );
+
+    const button = screen.getByTestId('tray-export-pdf');
+    expect(button.textContent).toBe('Export PDF');
+    fireEvent.click(button);
+    expect(onExportPdf).toHaveBeenCalledTimes(1);
+  });
+
+  it('"Export PDF" is disabled and shows a busy label while exporting', () => {
+    installCanvasShims();
+    const pages = [makePage('p1', 0)];
+    render(
+      <CaptureTray pages={pages} isAtCap={false} onDone={vi.fn()} exporting onExportPdf={vi.fn()} />,
+    );
+
+    const button = screen.getByTestId('tray-export-pdf') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.textContent).toBe('Exporting…');
   });
 });

@@ -52,7 +52,7 @@ import { useTranslation } from '@/shared/i18n';
 import { CameraSelector } from '@/features/scanner/components/CameraSelector';
 import { CameraView } from '@/features/scanner/components/CameraView';
 import { CaptureButton } from '@/features/scanner/components/CaptureButton';
-import { CaptureTray } from '@/features/scanner/components/CaptureTray';
+import { CaptureTray, PageThumbnail } from '@/features/scanner/components/CaptureTray';
 import { CornerEditor, type CornerEditorConfirmResult } from '@/features/scanner/components/CornerEditor';
 import { DetectionOverlay } from '@/features/scanner/components/DetectionOverlay';
 import { ImportFallback } from '@/features/scanner/components/ImportFallback';
@@ -737,6 +737,23 @@ export function ScannerScreen(): ReactNode {
         <p className="text-sm text-text-muted">
           {t('scanner.scanComplete', { n: pages.length })}
         </p>
+        {pages.length > 0 && (
+          // Fase 2.2 item 4a: the last screen before export previously showed
+          // only a text count, so there was nothing to actually PREVIEW.
+          // Reuses the shared `PageThumbnail` (already applies each page's
+          // filter via `buildThumbnailCssFilter`) so the filtered pages are
+          // visibly confirmed here, exactly like the tray/grid strips.
+          <div className="flex w-full items-center gap-2 overflow-x-auto" data-testid="scan-done-pages">
+            {pages.map((page) => (
+              <PageThumbnail
+                key={page.id}
+                bitmap={page.thumbnail}
+                filter={page.recipe.filter}
+                testId={`scan-done-thumb-${page.id}`}
+              />
+            ))}
+          </div>
+        )}
         <Button
           type="button"
           variant="secondary"
@@ -835,7 +852,13 @@ export function ScannerScreen(): ReactNode {
         </div>
       </div>
 
-      <CaptureTray pages={pages} isAtCap={isAtCap} onDone={handleTrayDone} />
+      <CaptureTray
+        pages={pages}
+        isAtCap={isAtCap}
+        onDone={handleTrayDone}
+        exporting={exporting}
+        onExportPdf={handleExportPdf}
+      />
 
       <CaptureButton onCapture={handleManualCapture} countdown={countdown} disabled={!canAddPage} />
     </div>
