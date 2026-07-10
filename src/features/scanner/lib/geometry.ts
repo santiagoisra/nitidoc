@@ -322,6 +322,67 @@ export function outputSize(
 }
 
 /**
+ * Letterbox ("contain") mapping between a source frame (`sourceWidth` x
+ * `sourceHeight`) and the CSS box it is drawn into (`containerWidth` x
+ * `containerHeight`) via `object-fit: contain` / SVG `preserveAspectRatio="xMidYMid meet"`
+ * (Fase 2.2 punch-list item 2, root cause fix). The source is scaled down
+ * uniformly (never cropped) and centered, leaving letterbox bars on the
+ * shorter axis.
+ *
+ * Returns `{ scale: 1, offsetX: 0, offsetY: 0 }` for any non-positive input —
+ * a safe no-op mapping for the brief window before the container has been
+ * measured, rather than dividing by zero.
+ */
+export interface LetterboxMapping {
+  readonly scale: number;
+  readonly offsetX: number;
+  readonly offsetY: number;
+}
+
+export function computeLetterboxMapping(
+  sourceWidth: number,
+  sourceHeight: number,
+  containerWidth: number,
+  containerHeight: number,
+): LetterboxMapping {
+  if (sourceWidth <= 0 || sourceHeight <= 0 || containerWidth <= 0 || containerHeight <= 0) {
+    return { scale: 1, offsetX: 0, offsetY: 0 };
+  }
+  const scale = Math.min(containerWidth / sourceWidth, containerHeight / sourceHeight);
+  const offsetX = (containerWidth - sourceWidth * scale) / 2;
+  const offsetY = (containerHeight - sourceHeight * scale) / 2;
+  return { scale, offsetX, offsetY };
+}
+
+/** Maps a point in SOURCE (full-res frame) space to DISPLAY (letterboxed container) space. */
+export function sourceToDisplay(point: Point, mapping: LetterboxMapping): Point {
+  return {
+    x: mapping.offsetX + point.x * mapping.scale,
+    y: mapping.offsetY + point.y * mapping.scale,
+  };
+}
+
+/**
+ * Maps a point in DISPLAY (letterboxed container) space back to SOURCE (full-res
+ * frame) space, clamped to `[0, sourceWidth] x [0, sourceHeight]` — a pointer
+ * dragged into the letterbox bars still resolves to the nearest valid source
+ * pixel instead of an out-of-frame coordinate.
+ */
+export function displayToSource(
+  point: Point,
+  mapping: LetterboxMapping,
+  sourceWidth: number,
+  sourceHeight: number,
+): Point {
+  const x = mapping.scale > 0 ? (point.x - mapping.offsetX) / mapping.scale : 0;
+  const y = mapping.scale > 0 ? (point.y - mapping.offsetY) / mapping.scale : 0;
+  return {
+    x: Math.min(Math.max(x, 0), sourceWidth),
+    y: Math.min(Math.max(y, 0), sourceHeight),
+  };
+}
+
+/**
  * Layout (bounding-box) dimensions for a warped canvas that is rotated
  * NON-DESTRUCTIVELY via a CSS `transform: rotate()` (ADR-005; Slice E review
  * fix H3).

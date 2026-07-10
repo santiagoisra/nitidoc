@@ -69,6 +69,29 @@
  * confirmed warp. `originalBitmap` ownership stays with the caller: this
  * component never closes it (fresh-capture cancel closes it in
  * `ScannerScreen`; re-entry closes it via `deactivateActivePage`).
+ *
+ * Fase 2.2 punch-list item 2 (corner-handle coordinate mapping): the source
+ * `<canvas>` and the corner overlay `<svg>` both render the frame in
+ * LETTERBOX ("contain") mode — `object-contain` / `preserveAspectRatio="xMidYMid meet"`
+ * — so no document corner is ever cropped out of view when the frame's
+ * aspect ratio differs from the container's fixed `aspect-[3/4]` box (a
+ * `slice`/`object-cover` crop would disagree with a naive linear
+ * percentage-based handle position, landing handles on the sides instead of
+ * the true corners). The draggable handle `<button>`s and `toSourcePoint`
+ * both use the SAME `computeLetterboxMapping`/`sourceToDisplay`/
+ * `displayToSource` helpers (`geometry.ts`) against the container's
+ * LIVE measured box (`ResizeObserver`, see `setContainerRef` below) instead
+ * of a stretch-mapping percentage, so the handles and the pointer-to-source
+ * conversion always agree with what is actually drawn.
+ *
+ * Fase 2.2 punch-list item 3 (filter not visible in the big preview):
+ * `WarpedPreview` now consumes `recipe.filter` directly — CSS-routable
+ * presets draw instantly via `ctx.filter`; adaptive presets (`bw`/
+ * `bw-high-contrast`/`eco`, or any preset with `sharpness > 0`) render
+ * through a DEBOUNCED, latest-wins `workerClient.applyFilter` call on a
+ * downscaled preview-sized copy of the warp base, mirroring `FilterPanel`'s
+ * own debounce + monotonic-sequence guard. Filter changes still never
+ * re-invoke `runWarp` (D4 unchanged).
  */
 
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
@@ -82,6 +105,10 @@ import {
   inferAspectRatio,
   outputSize,
   layoutSizeForRotation,
+  computeLetterboxMapping,
+  sourceToDisplay,
+  displayToSource,
+  type LetterboxMapping,
 } from '@/features/scanner/lib/geometry';
 import {
   createInitialRecipe,
@@ -92,7 +119,11 @@ import {
   flipHorizontalRecipe,
   withFilter,
 } from '@/features/scanner/lib/editRecipe';
+import { FILTER } from '@/features/scanner/lib/filterConstants';
+import { buildCssFilter, needsWorker } from '@/features/scanner/lib/filterPipeline';
+import { makeThumbnail } from '@/features/scanner/lib/pageResources';
 import { getSharedWorkerClient } from '@/features/scanner/lib/workerClient';
+import type { FilteredResult, FilterVariant } from '@/features/scanner/worker/messages';
 import type { AspectRatioName, Point, Quad } from '@/shared/types/geometry';
 import type { EditRecipe, FilterParams } from '@/shared/types/scanner';
 
@@ -219,6 +250,48 @@ export function CornerEditor({
   const [dragPoint, setDragPoint] = useState<Point | null>(null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * Fase 2.2 item 2: the container's LIVE measured CSS box, used to compute
+   * the letterbox mapping the handles are positioned with. A `ResizeObserver`
+   * (attached via the `setContainerRef` callback ref below, not a mount-only
+   * `useEffect`) keeps this correct across viewport/orientation changes while
+   * the 'corners' step is mounted, and re-measures on every remount (the
+   * step's own container div unmounts/remounts across the 'corners' <->
+   * 'adjust' switch — same reasoning as `drawSourceCanvas` above).
+   */
+  const [containerSize, setContainerSize] = useState<{ readonly width: number; readonly height: number } | null>(
+    null,
+  );
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+
+  const setContainerRef = useCallback((node: HTMLDivElement | null) => {
+    containerRef.current = node;
+    resizeObserverRef.current?.disconnect();
+    resizeObserverRef.current = null;
+    if (!node) {
+      setContainerSize(null);
+      return;
+    }
+    const measure = (): void => {
+      const rect = node.getBoundingClientRect();
+      setContainerSize({ width: rect.width, height: rect.height });
+    };
+    measure();
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(measure);
+      observer.observe(node);
+      resizeObserverRef.current = observer;
+    }
+  }, []);
+
+  useEffect(() => () => resizeObserverRef.current?.disconnect(), []);
+
+  const letterboxMapping = useMemo<LetterboxMapping | null>(
+    () =>
+      containerSize ? computeLetterboxMapping(width, height, containerSize.width, containerSize.height) : null,
+    [containerSize, width, height],
+  );
+
   const activePointerIdRef = useRef<number | null>(null);
   /** Tracks whether the active drag actually moved, to skip a redundant warp on a bare tap (fix L2). */
   const movedRef = useRef(false);
@@ -291,18 +364,21 @@ export function CornerEditor({
   const inferred = useMemo(() => inferAspectRatio(corners), [corners]);
   const effectiveAspect = aspectOverride ?? inferred.name;
 
-  /** Converts a pointer event's client coordinates into the frame's source pixel space. */
+  /**
+   * Converts a pointer event's client coordinates into the frame's source
+   * pixel space, using the SAME letterbox mapping the handles are drawn
+   * with (Fase 2.2 item 2) — reads the container's LIVE rect on every call
+   * rather than the (possibly one-frame-stale) `containerSize` state, so a
+   * drag mid-resize never disagrees with what is currently on screen.
+   */
   const toSourcePoint = useCallback(
     (clientX: number, clientY: number): Point | null => {
       const container = containerRef.current;
       if (!container) return null;
       const rect = container.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return null;
-      const scaleX = width / rect.width;
-      const scaleY = height / rect.height;
-      const x = Math.min(Math.max((clientX - rect.left) * scaleX, 0), width);
-      const y = Math.min(Math.max((clientY - rect.top) * scaleY, 0), height);
-      return { x, y };
+      const mapping = computeLetterboxMapping(width, height, rect.width, rect.height);
+      return displayToSource({ x: clientX - rect.left, y: clientY - rect.top }, mapping, width, height);
     },
     [width, height],
   );
@@ -567,14 +643,14 @@ export function CornerEditor({
       {step === 'corners' && (
         <>
           <div
-            ref={containerRef}
+            ref={setContainerRef}
             className="relative aspect-[3/4] w-full max-w-md overflow-hidden rounded-2xl bg-surface"
             data-testid="corner-editor-canvas"
           >
-            <canvas ref={drawSourceCanvas} className="absolute inset-0 h-full w-full object-cover" aria-hidden="true" />
+            <canvas ref={drawSourceCanvas} className="absolute inset-0 h-full w-full object-contain" aria-hidden="true" />
             <svg
               viewBox={`0 0 ${width} ${height}`}
-              preserveAspectRatio="xMidYMid slice"
+              preserveAspectRatio="xMidYMid meet"
               className="pointer-events-none absolute inset-0 h-full w-full"
               aria-hidden="true"
             >
@@ -588,8 +664,14 @@ export function CornerEditor({
             </svg>
 
             {corners.map((point, index) => {
-              const leftPct = (point.x / width) * 100;
-              const topPct = (point.y / height) * 100;
+              // Fase 2.2 item 2: the handle's DISPLAY position uses the SAME
+              // letterbox mapping as the canvas/SVG (falls back to the
+              // identity mapping for the brief window before the container
+              // is measured), positioned in PX (not %) relative to this
+              // container — `sourceToDisplay` already accounts for the
+              // letterbox offset, which a percentage of container size alone
+              // cannot express.
+              const display = sourceToDisplay(point, letterboxMapping ?? { scale: 1, offsetX: 0, offsetY: 0 });
               return (
                 <button
                   key={index}
@@ -601,8 +683,8 @@ export function CornerEditor({
                   onPointerUp={handlePointerUp(index as 0 | 1 | 2 | 3)}
                   onPointerCancel={handlePointerUp(index as 0 | 1 | 2 | 3)}
                   style={{
-                    left: `${leftPct}%`,
-                    top: `${topPct}%`,
+                    left: `${display.x}px`,
+                    top: `${display.y}px`,
                     width: HANDLE_HIT_SIZE,
                     height: HANDLE_HIT_SIZE,
                     touchAction: 'none',
@@ -614,14 +696,12 @@ export function CornerEditor({
               );
             })}
 
-            {magnifierRect && (
+            {magnifierRect && dragPoint && (
               <Magnifier
                 source={originalBitmap}
                 rect={magnifierRect}
                 size={MAGNIFIER_SIZE}
-                anchor={dragPoint as Point}
-                frameWidth={width}
-                frameHeight={height}
+                anchor={sourceToDisplay(dragPoint, letterboxMapping ?? { scale: 1, offsetX: 0, offsetY: 0 })}
               />
             )}
           </div>
@@ -655,6 +735,7 @@ export function CornerEditor({
             <div className="w-full max-w-xs overflow-hidden rounded-xl bg-surface">
               <WarpedPreview
                 bitmap={warpedImage}
+                filter={recipe.filter}
                 transform={transform}
                 outSize={outputSize(recipe.corners, recipe.aspectRatio)}
                 rotation={recipe.rotation}
@@ -743,9 +824,12 @@ interface MagnifierProps {
   readonly source: ImageBitmap;
   readonly rect: { readonly sx: number; readonly sy: number; readonly sWidth: number; readonly sHeight: number };
   readonly size: number;
+  /**
+   * Anchor in DISPLAY (letterboxed container) px space — already converted
+   * via `sourceToDisplay` at the call site (Fase 2.2 item 2), since the
+   * container is no longer a naive stretch-mapping of the source frame.
+   */
   readonly anchor: Point;
-  readonly frameWidth: number;
-  readonly frameHeight: number;
 }
 
 /**
@@ -755,7 +839,7 @@ interface MagnifierProps {
  * pixel output is out of scope per the verification plan); the pure
  * coordinate math it depends on (`magnifierSampleRect`) is unit-tested.
  */
-function Magnifier({ source, rect, size, anchor, frameWidth, frameHeight }: MagnifierProps): ReactNode {
+function Magnifier({ source, rect, size, anchor }: MagnifierProps): ReactNode {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const draw = useCallback(
@@ -770,9 +854,6 @@ function Magnifier({ source, rect, size, anchor, frameWidth, frameHeight }: Magn
     [rect, size, source],
   );
 
-  const leftPct = (anchor.x / frameWidth) * 100;
-  const topPct = (anchor.y / frameHeight) * 100;
-
   return (
     <canvas
       ref={draw}
@@ -781,13 +862,15 @@ function Magnifier({ source, rect, size, anchor, frameWidth, frameHeight }: Magn
       data-testid="corner-editor-magnifier"
       className="pointer-events-none absolute -translate-x-1/2 -translate-y-[calc(100%+24px)] rounded-full border-2
         border-primary-light shadow-lg"
-      style={{ left: `${leftPct}%`, top: `${topPct}%` }}
+      style={{ left: `${anchor.x}px`, top: `${anchor.y}px` }}
     />
   );
 }
 
 interface WarpedPreviewProps {
   readonly bitmap: ImageBitmap;
+  /** Current recipe filter (Fase 2.2 item 3) — the preview must reflect this live. */
+  readonly filter: FilterParams;
   readonly transform: string;
   readonly outSize: { readonly outW: number; readonly outH: number };
   readonly rotation: 0 | 90 | 180 | 270;
@@ -804,18 +887,194 @@ interface WarpedPreviewProps {
  * rotated image fits at the correct aspect instead of overflowing or being
  * clipped. The canvas is centered and scaled to the box's shorter constraint
  * so, once rotated, its rotated footprint stays inside the reserved box.
+ *
+ * Fase 2.2 item 3: this preview now reflects `filter` LIVE, mirroring
+ * `FilterPanel`'s own two-stage routing (`filterPipeline.ts`):
+ *  - CSS-routable presets (`needsWorker(filter) === false`) draw instantly
+ *    via `ctx.filter = buildCssFilter(filter)` directly on the full-res
+ *    `bitmap` — no worker round-trip.
+ *  - Adaptive presets (`bw`/`bw-high-contrast`/`eco`, or any preset with
+ *    `sharpness > 0`) render through a DEBOUNCED (`FILTER.SLIDER_DEBOUNCE_MS`),
+ *    latest-wins `workerClient.applyFilter` call on a downscaled
+ *    (`FILTER.WARPED_PREVIEW_MAX_EDGE`) preview-sized copy of `bitmap` —
+ *    mirrors `FilterPanel`'s own debounce + monotonic-sequence guard
+ *    (design section 4.5) rather than re-deriving a new pattern. The
+ *    downscaled result is upscaled back onto the full-size canvas via
+ *    `drawImage`'s destination scaling — an intentional CSS-approximation-
+ *    grade tradeoff for a live preview, exactly like `buildThumbnailCssFilter`
+ *    is for tray/grid thumbnails; the pixel-accurate render happens at
+ *    export time (`exportPdf.ts`), not here. Filter changes NEVER trigger
+ *    `runWarp` (D4 unchanged) — this component only ever READS `bitmap`.
  */
-function WarpedPreview({ bitmap, transform, outSize, rotation }: WarpedPreviewProps): ReactNode {
-  const draw = useCallback(
-    (canvas: HTMLCanvasElement | null) => {
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(bitmap, 0, 0);
+function WarpedPreview({ bitmap, filter, transform, outSize, rotation }: WarpedPreviewProps): ReactNode {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Close-before-overwrite hygiene for the derived downscaled preview base
+  // (design section 1.5/7), mirroring `FilterPanel`'s own `thumbnailRef`
+  // pattern. Only populated lazily, the first time an adaptive preset is
+  // selected (see the effect below) — a CSS-only session never allocates one.
+  const previewBaseRef = useRef<ImageBitmap | null>(null);
+  const previewBaseSourceRef = useRef<ImageBitmap | null>(null);
+  const [previewBaseVersion, setPreviewBaseVersion] = useState(0);
+  const applyPreviewBase = useCallback((next: ImageBitmap | null) => {
+    const prev = previewBaseRef.current;
+    if (prev && prev !== next) {
+      prev.close();
+    }
+    previewBaseRef.current = next;
+    setPreviewBaseVersion((v) => v + 1);
+  }, []);
+
+  // The latest batched adaptive-preset render (design section 4.5's
+  // "latest-wins-per-target owned by the caller" — this component is that
+  // caller, exactly like `FilterPanel`).
+  const adaptiveResultRef = useRef<FilteredResult | null>(null);
+  const [adaptiveVersion, setAdaptiveVersion] = useState(0);
+  const applyAdaptiveResult = useCallback((next: FilteredResult | null) => {
+    const prev = adaptiveResultRef.current;
+    if (prev?.kind === 'bitmap' && !(next?.kind === 'bitmap' && next.bitmap === prev.bitmap)) {
+      prev.bitmap.close();
+    }
+    adaptiveResultRef.current = next;
+    setAdaptiveVersion((v) => v + 1);
+  }, []);
+
+  const mountedRef = useRef(true);
+  const baseSeqRef = useRef(0);
+  const previewSeqRef = useRef(0);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // Release whatever preview-base/adaptive bitmaps are alive on unmount.
+  useEffect(
+    () => () => {
+      previewBaseRef.current?.close();
+      previewBaseRef.current = null;
+      const result = adaptiveResultRef.current;
+      if (result?.kind === 'bitmap') {
+        result.bitmap.close();
+      }
+      adaptiveResultRef.current = null;
     },
-    [bitmap],
+    [],
   );
+
+  // Lazily (re)generate the downscaled preview base whenever the warp base
+  // bitmap changes AND the current filter actually needs the worker — a
+  // CSS-only session never pays this cost. Guarded so an unrelated slider
+  // tweak on an ALREADY-adaptive filter does not regenerate the base bitmap
+  // again for the same `bitmap` (only the debounced re-render below reruns).
+  useEffect(() => {
+    if (!needsWorker(filter)) return;
+    if (previewBaseSourceRef.current === bitmap && previewBaseRef.current) return;
+    const seq = (baseSeqRef.current += 1);
+    void makeThumbnail(bitmap, FILTER.WARPED_PREVIEW_MAX_EDGE)
+      .then((thumb) => {
+        if (!mountedRef.current || seq !== baseSeqRef.current) {
+          thumb.close();
+          return;
+        }
+        previewBaseSourceRef.current = bitmap;
+        applyPreviewBase(thumb);
+      })
+      .catch(() => {
+        // Non-fatal: `draw` below falls back to the unfiltered bitmap until a
+        // base becomes available.
+      });
+  }, [bitmap, filter, applyPreviewBase]);
+
+  // Debounced, latest-wins adaptive-preset render (mirrors FilterPanel's own
+  // `SLIDER_DEBOUNCE_MS` + monotonic-sequence guard, design section 4.5).
+  useEffect(() => {
+    if (!needsWorker(filter)) return;
+    const base = previewBaseRef.current;
+    if (!base) return;
+
+    const timer = setTimeout(() => {
+      const seq = (previewSeqRef.current += 1);
+      const image = extractImageData(base);
+      const variant: FilterVariant = {
+        preset: filter.preset,
+        brightness: filter.brightness,
+        contrast: filter.contrast,
+        sharpness: filter.sharpness,
+      };
+      const outputBitmap = typeof OffscreenCanvas !== 'undefined';
+
+      void getSharedWorkerClient()
+        .applyFilter(image, [variant], outputBitmap)
+        .then((response) => {
+          if (!mountedRef.current || seq !== previewSeqRef.current) {
+            // Superseded by a newer debounced request — never leak a stale
+            // result's bitmap (design section 4.5).
+            for (const result of response.results) {
+              if (result.kind === 'bitmap') {
+                result.bitmap.close();
+              }
+            }
+            return;
+          }
+          applyAdaptiveResult(response.results[0] ?? null);
+        })
+        .catch(() => {
+          // Preview failure leaves the last rendered frame in place —
+          // non-fatal for editing.
+        });
+    }, FILTER.SLIDER_DEBOUNCE_MS);
+
+    return () => clearTimeout(timer);
+    // `previewBaseVersion` re-arms this effect once a fresh base lands;
+    // `adaptiveVersion` is intentionally NOT a dependency (it is this
+    // effect's own output).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewBaseVersion, filter.preset, filter.brightness, filter.contrast, filter.sharpness, applyAdaptiveResult]);
+
+  // Draws whichever source is currently live: CSS-routable presets draw
+  // `bitmap` directly with `ctx.filter`; adaptive presets draw the latest
+  // batched result (or, while its debounce is still pending, fall back to
+  // the unfiltered `bitmap` rather than a blank canvas).
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (!needsWorker(filter)) {
+      ctx.filter = buildCssFilter(filter);
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      ctx.filter = 'none';
+      return;
+    }
+
+    const result = adaptiveResultRef.current;
+    if (!result) {
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      return;
+    }
+    if (result.kind === 'bitmap') {
+      ctx.drawImage(result.bitmap, 0, 0, canvas.width, canvas.height);
+      return;
+    }
+    // `ImageDataLike` result: paint it into a scratch canvas first (canvas 2D
+    // has no scaled variant of `putImageData`), then `drawImage` that scratch
+    // canvas scaled onto the real preview canvas.
+    const scratch = document.createElement('canvas');
+    scratch.width = result.image.width;
+    scratch.height = result.image.height;
+    const scratchCtx = scratch.getContext('2d');
+    if (scratchCtx) {
+      const pixelData = new Uint8ClampedArray(result.image.data);
+      scratchCtx.putImageData(new ImageData(pixelData, result.image.width, result.image.height), 0, 0);
+      ctx.drawImage(scratch, 0, 0, canvas.width, canvas.height);
+    }
+    scratch.width = 0;
+    scratch.height = 0;
+  }, [bitmap, filter, adaptiveVersion]);
 
   const layout = layoutSizeForRotation(outSize.outW, outSize.outH, rotation);
   const rotated = rotation === 90 || rotation === 270;
@@ -840,7 +1099,7 @@ function WarpedPreview({ bitmap, transform, outSize, rotation }: WarpedPreviewPr
       data-testid="warped-preview-box"
     >
       <canvas
-        ref={draw}
+        ref={canvasRef}
         width={outSize.outW}
         height={outSize.outH}
         data-testid="warped-preview-canvas"
