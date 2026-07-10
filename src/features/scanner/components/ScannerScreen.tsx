@@ -15,8 +15,10 @@
  *    DETECT. `CaptureScreen` owns its own permission/no-camera fallback
  *    internally (the "phase-gating decouple") — see that component's doc
  *    comment.
- *  - `processing` -> a TEMPORARY minimal placeholder (Unit 4 replaces this
- *    with the real deferred batch-processing screen).
+ *  - `processing` -> `ProcessingScreen` (Fase 2.3, Unit 4): sequential
+ *    per-raw-capture detect->warp->thumbnail batch, degraded-fallback-safe,
+ *    determinate progress + Cancel. Replaces Unit 3's temporary
+ *    `common.processing` text placeholder.
  *  - `editing-corners` -> `CornerEditor`, in one of two modes: a FRESH
  *    capture (not yet a page — local `draftCapture` state below) or a
  *    RE-ENTERED page from the grid (`activatePage` already populated
@@ -66,6 +68,7 @@ import { CaptureTray, PageThumbnail } from '@/features/scanner/components/Captur
 import { CornerEditor, type CornerEditorConfirmResult } from '@/features/scanner/components/CornerEditor';
 import { DetectionOverlay } from '@/features/scanner/components/DetectionOverlay';
 import { OpenCvDegradedBanner } from '@/features/scanner/components/OpenCvDegradedBanner';
+import { ProcessingScreen } from '@/features/scanner/components/ProcessingScreen';
 import { QualityHints } from '@/features/scanner/components/QualityHints';
 import { useActivePage } from '@/features/scanner/hooks/useActivePage';
 import { useExportPdf } from '@/features/scanner/hooks/useExportPdf';
@@ -179,6 +182,7 @@ export function ScannerScreen(): ReactNode {
   const {
     start: startDetection,
     stop: stopDetection,
+    workerClient,
     retryManualInit,
     ensureOpenCvInit,
   } = useDocumentDetection({
@@ -510,16 +514,18 @@ export function ScannerScreen(): ReactNode {
     return <CaptureScreen openCamera={openCamera} switchCamera={switchCamera} setTorch={setTorch} />;
   }
 
-  // Unit 4 (capture-ux-redesign.md) replaces this with the real deferred
-  // batch-processing screen (progress bar, cancel). TEMPORARY placeholder so
-  // the app stays buildable/functional now that "Siguiente" can reach this
-  // phase (Unit 3 scope only implements CaptureScreen, not the processing
-  // step itself).
+  // Fase 2.3 (capture-ux-redesign.md, Unit 4): the real deferred
+  // batch-processing screen — sequential per-page detect->warp->thumbnail
+  // over `rawCaptures`, degraded-fallback-safe, with a determinate
+  // progress bar and a Cancel that returns to `'capturing'`. Replaces
+  // Unit 3's temporary `common.processing` text placeholder.
   if (phase === 'processing') {
     return (
-      <div className="flex h-full w-full items-center justify-center" data-testid="processing-placeholder">
-        <p className="text-sm text-text-muted">{t('common.processing')}</p>
-      </div>
+      <ProcessingScreen
+        ensureOpenCvInit={ensureOpenCvInit}
+        workerClient={workerClient}
+        retryManualInit={retryManualInit}
+      />
     );
   }
 

@@ -73,6 +73,11 @@ export const es = {
   'capture.captureFailed': 'No se pudo capturar la página. Probá de nuevo.',
   'capture.importAnother': 'Importar otra',
 
+  'processing.title': 'Procesando tus páginas…',
+  'processing.progress': '{done} de {total}',
+  'processing.failedPages': 'No se pudo procesar ninguna página. Probá de nuevo.',
+  'processing.cancel': 'Cancelar',
+
   'grid.pagesCaptured': { one: '{n} página capturada.', other: '{n} páginas capturadas.' },
   'grid.captureMore': 'Capturar más',
   'grid.finish': 'Finalizar',
