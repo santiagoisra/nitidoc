@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildCssFilter, filterSignature, needsWorker } from '@/features/scanner/lib/filterPipeline';
+import {
+  buildCssFilter,
+  buildThumbnailCssFilter,
+  filterSignature,
+  needsWorker,
+} from '@/features/scanner/lib/filterPipeline';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
 import type { FilterParams, FilterPreset } from '@/shared/types/scanner';
 
@@ -71,6 +76,35 @@ describe('buildCssFilter — Stage 2 CSS mapping (design section 3.2)', () => {
       expect(buildCssFilter(filter(preset, { brightness: 30, contrast: 30 }))).toBe('none');
     },
   );
+});
+
+describe('buildThumbnailCssFilter — thumbnail-only CSS approximation (Fase 2.1 punch-list item 3)', () => {
+  it('delegates to buildCssFilter unchanged for the 3 CSS-routable presets', () => {
+    for (const preset of ['original', 'enhanced', 'grayscale'] as const) {
+      const params = filter(preset, { brightness: 15, contrast: -10 });
+      expect(buildThumbnailCssFilter(params)).toBe(buildCssFilter(params));
+    }
+  });
+
+  it.each(['bw', 'bw-high-contrast', 'eco'] as const)(
+    'adaptive preset %s -> a non-"none" grayscale CSS approximation (NOT the accurate worker render)',
+    (preset) => {
+      const result = buildThumbnailCssFilter(filter(preset));
+      expect(result).not.toBe('none');
+      expect(result).toContain('grayscale(1)');
+      // Must differ from buildCssFilter's own answer for adaptive presets
+      // ('none') — this helper exists PRECISELY because that's not visible
+      // enough for a small thumbnail.
+      expect(result).not.toBe(buildCssFilter(filter(preset)));
+    },
+  );
+
+  it('bw-high-contrast approximates a STRONGER contrast boost than plain bw', () => {
+    const bw = buildThumbnailCssFilter(filter('bw'));
+    const bwHc = buildThumbnailCssFilter(filter('bw-high-contrast'));
+    const extractContrast = (css: string): number => Number(/contrast\(([\d.]+)\)/.exec(css)?.[1]);
+    expect(extractContrast(bwHc)).toBeGreaterThan(extractContrast(bw));
+  });
 });
 
 describe('filterSignature — stable memoization key (design section 3.4)', () => {

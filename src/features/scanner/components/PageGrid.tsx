@@ -150,7 +150,11 @@ function SortableGridItem({ page, onActivate, onDelete }: SortableGridItemProps)
         className="block w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light"
         data-testid={`page-grid-activate-${page.id}`}
       >
-        <PageThumbnail bitmap={page.thumbnail} testId={`page-grid-thumb-${page.id}`} />
+        <PageThumbnail
+          bitmap={page.thumbnail}
+          filter={page.recipe.filter}
+          testId={`page-grid-thumb-${page.id}`}
+        />
       </button>
       <button
         type="button"

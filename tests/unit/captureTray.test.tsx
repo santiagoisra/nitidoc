@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CaptureTray } from '@/features/scanner/components/CaptureTray';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
 import type { DocumentPage } from '@/features/scanner/store/documentSlice';
+import { NEUTRAL_FILTER } from '@/shared/types/scanner';
 
 /**
  * Group 5 / PR8 unit tests for `CaptureTray` (design section 5.2, spec
@@ -17,11 +18,11 @@ function makeBitmap(width = 150, height = 200): ImageBitmap {
   return { width, height, close: vi.fn() } as unknown as ImageBitmap;
 }
 
-function makePage(id: string, order: number): DocumentPage {
+function makePage(id: string, order: number, filter = NEUTRAL_FILTER): DocumentPage {
   return {
     id,
     order,
-    recipe: {} as DocumentPage['recipe'],
+    recipe: { ...({} as DocumentPage['recipe']), filter },
     thumbnail: makeBitmap(),
     originalBlob: {} as Blob,
     warpedBlob: {} as Blob,
@@ -32,12 +33,25 @@ function makePage(id: string, order: number): DocumentPage {
   };
 }
 
-const drawImageSpy = vi.fn();
+/** Captures the `ctx.filter` value in effect AT drawImage-call time (it is reset to 'none' right after). */
+const drawnFilters: string[] = [];
+let currentCtxFilter = 'none';
+const drawImageSpy = vi.fn((..._args: unknown[]) => {
+  drawnFilters.push(currentCtxFilter);
+});
 
 function installCanvasShims(): void {
+  currentCtxFilter = 'none';
+  drawnFilters.length = 0;
   const fakeCtx = {
     drawImage: drawImageSpy,
     clearRect: vi.fn(),
+    get filter() {
+      return currentCtxFilter;
+    },
+    set filter(value: string) {
+      currentCtxFilter = value;
+    },
   };
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
     fakeCtx as unknown as CanvasRenderingContext2D,
@@ -91,7 +105,7 @@ describe('CaptureTray (Group 5 / PR8, design section 5.2)', () => {
     });
   });
 
-  it('"Listo" calls onDone and shows the page counter', () => {
+  it('"Done" calls onDone and shows the page counter', () => {
     installCanvasShims();
     const onDone = vi.fn();
     const pages = [makePage('p1', 0), makePage('p2', 1)];
@@ -100,5 +114,28 @@ describe('CaptureTray (Group 5 / PR8, design section 5.2)', () => {
     expect(screen.getByText('2 pages captured')).toBeTruthy();
     fireEvent.click(screen.getByTestId('tray-done'));
     expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies the page recipe.filter to the thumbnail draw (Fase 2.1 item 3, "filter must be visible")', () => {
+    installCanvasShims();
+    const pages = [
+      makePage('p1', 0, NEUTRAL_FILTER),
+      makePage('p2', 1, { ...NEUTRAL_FILTER, preset: 'grayscale' }),
+      makePage('p3', 2, { ...NEUTRAL_FILTER, preset: 'bw' }),
+    ];
+    render(<CaptureTray pages={pages} isAtCap={false} onDone={vi.fn()} />);
+
+    // 'original' (NEUTRAL_FILTER) draws with no CSS filter applied.
+    expect(drawnFilters[0]).toBe('none');
+    // 'grayscale' is CSS-routable (buildCssFilter) -> a real grayscale() filter string.
+    expect(drawnFilters[1]).toContain('grayscale(1)');
+    // 'bw' is an adaptive preset (buildCssFilter returns 'none') -> the thumbnail
+    // approximation still applies a visible grayscale/contrast CSS filter so the
+    // user can SEE that a B&W-style filter is applied, even though it is not
+    // pixel-accurate (see buildThumbnailCssFilter's doc comment).
+    expect(drawnFilters[2]).toContain('grayscale(1)');
+    // Every draw resets `ctx.filter` back to 'none' afterward (no bleed onto
+    // whatever draws next on a reused canvas context).
+    expect(currentCtxFilter).toBe('none');
   });
 });

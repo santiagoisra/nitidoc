@@ -56,6 +56,35 @@ export function buildCssFilter(filter: FilterParams): string {
 }
 
 /**
+ * CSS filter approximation for a THUMBNAIL-ONLY render (tray strip / grid
+ * tiles — Fase 2.1 punch-list item 3, "thumbnails must visibly reflect the
+ * applied filter"). `buildCssFilter` intentionally returns `'none'` for the
+ * 3 adaptive presets (`bw`/`bw-high-contrast`/`eco`) because their ACCURATE
+ * render needs the OpenCV worker (adaptiveThreshold + morphology) — not
+ * worth invoking for a ~150px cached thumbnail. This helper instead returns
+ * a cheap CSS approximation (grayscale + boosted contrast) so a small
+ * thumbnail still visibly communicates "a B&W-style filter is applied",
+ * even though it is NOT pixel-accurate. The active-page EDIT preview stays
+ * accurate — it renders via `FilterPanel`'s worker-routed preset tiles, not
+ * this helper.
+ */
+export function buildThumbnailCssFilter(filter: FilterParams): string {
+  const brightnessValue = 1 + filter.brightness / 100;
+  const contrastValue = 1 + filter.contrast / 100;
+
+  switch (filter.preset) {
+    case 'bw':
+      return `grayscale(1) contrast(${1.4 * contrastValue}) brightness(${brightnessValue})`;
+    case 'bw-high-contrast':
+      return `grayscale(1) contrast(${1.8 * contrastValue}) brightness(${brightnessValue})`;
+    case 'eco':
+      return `grayscale(1) contrast(${1.15 * contrastValue}) brightness(${1.05 * brightnessValue})`;
+    default:
+      return buildCssFilter(filter);
+  }
+}
+
+/**
  * Stable string key for the 4 `FilterParams` fields (design section 3.4),
  * used to memoize/evict derived filtered previews (e.g. a grid tile's
  * transient filtered-thumbnail cache).

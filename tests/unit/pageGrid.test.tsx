@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DocumentPage } from '@/features/scanner/store/documentSlice';
+import { NEUTRAL_FILTER } from '@/shared/types/scanner';
 
 /**
  * Group 5 / PR8 unit tests for `PageGrid` (design section 5.3, spec
@@ -50,10 +51,26 @@ vi.mock('@dnd-kit/utilities', () => ({
   CSS: { Transform: { toString: () => '' } },
 }));
 
-const drawImageSpy = vi.fn();
+/** Captures the `ctx.filter` value in effect AT drawImage-call time (it is reset to 'none' right after). */
+const drawnFilters: string[] = [];
+let currentCtxFilter = 'none';
+const drawImageSpy = vi.fn((..._args: unknown[]) => {
+  drawnFilters.push(currentCtxFilter);
+});
 
 function installCanvasShims(): void {
-  const fakeCtx = { drawImage: drawImageSpy, clearRect: vi.fn() };
+  currentCtxFilter = 'none';
+  drawnFilters.length = 0;
+  const fakeCtx = {
+    drawImage: drawImageSpy,
+    clearRect: vi.fn(),
+    get filter() {
+      return currentCtxFilter;
+    },
+    set filter(value: string) {
+      currentCtxFilter = value;
+    },
+  };
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
     fakeCtx as unknown as CanvasRenderingContext2D,
   );
@@ -65,11 +82,11 @@ function makeBitmap(width = 150, height = 200): ImageBitmap {
   return { width, height, close: vi.fn() } as unknown as ImageBitmap;
 }
 
-function makePage(id: string, order: number): DocumentPage {
+function makePage(id: string, order: number, filter = NEUTRAL_FILTER): DocumentPage {
   return {
     id,
     order,
-    recipe: {} as DocumentPage['recipe'],
+    recipe: { ...({} as DocumentPage['recipe']), filter },
     thumbnail: makeBitmap(),
     originalBlob: {} as Blob,
     warpedBlob: {} as Blob,
@@ -218,5 +235,27 @@ describe('PageGrid (Group 5 / PR8, design section 5.3)', () => {
     fireEvent.click(screen.getByTestId('grid-finish'));
     expect(onCaptureMore).toHaveBeenCalledTimes(1);
     expect(onFinish).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies each page recipe.filter to its grid tile thumbnail (Fase 2.1 item 3, shared PageThumbnail)', () => {
+    installCanvasShims();
+    const pages = [makePage('p1', 0, { ...NEUTRAL_FILTER, preset: 'grayscale' })];
+
+    render(
+      <PageGrid
+        pages={pages}
+        onActivatePage={vi.fn()}
+        onDeletePage={vi.fn()}
+        onReorder={vi.fn()}
+        onCaptureMore={vi.fn()}
+        onFinish={vi.fn()}
+      />,
+    );
+
+    // PageGrid reuses CaptureTray's `PageThumbnail`, which draws with the
+    // page's filter applied as a `ctx.filter` CSS string — 'grayscale' is
+    // CSS-routable, so a real `grayscale()` filter must be visible at
+    // drawImage-call time (it is reset to 'none' immediately afterward).
+    expect(drawnFilters[0]).toContain('grayscale(1)');
   });
 });
