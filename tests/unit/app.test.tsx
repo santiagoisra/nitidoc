@@ -34,7 +34,10 @@ describe('App shell (Fase 2.3, capture-ux-redesign.md, Unit 5, D-3 "No-scroll sc
     const main = screen.getByTestId('app-main');
     expect(main.className).toContain('overflow-y-auto');
     expect(main.className).toContain('items-center');
-    expect(main.className).toContain('justify-center');
+    // Review fix (grid-clip regression): `safe center` keeps this same
+    // centering for short content but falls back to start-alignment once
+    // content overflows, so a tall grid's first row stays reachable.
+    expect(main.className).toContain('justify-[safe_center]');
   });
 
   it.each(['capturing', 'processing'] as const)(

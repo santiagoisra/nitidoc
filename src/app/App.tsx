@@ -34,6 +34,20 @@ import { useScannerStore } from '@/features/scanner/store/scannerStore';
  * means the PAGE itself (`<html>`/`<body>`/this root `div`) never scrolls —
  * `<main>` scrolls internally instead, so a header, if any, always stays
  * pinned above the content instead of scrolling out of view.
+ *
+ * Review fix (grid-clip regression): the non-immersive `<main>` used plain
+ * `justify-center` on the scroll axis. When content is SHORTER than the
+ * viewport that centers it as intended, but once a phase's content (e.g. a
+ * tall `PageGrid`) grows TALLER than the viewport, `justify-center` centers
+ * the flex item first and only THEN lets it overflow EQUALLY on both sides —
+ * the overflow above the top is never reachable via `overflow-y-auto` (there
+ * is nothing to scroll UP to; the natural top edge sits above the scroll
+ * container's origin). `justify-[safe_center]` (`justify-content: safe
+ * center`) keeps the short-content centering behavior but falls back to
+ * start-alignment once the content overflows, so a 30-page grid's first row
+ * is always reachable by scrolling from the top. (Project pins Tailwind
+ * v3.4.17 — the `justify-center-safe` utility only exists in v4 — so this
+ * uses the arbitrary-value form, supported by v3's JIT engine.)
  */
 export function App(): ReactNode {
   const phase = useScannerStore((state) => state.phase);
@@ -63,7 +77,7 @@ export function App(): ReactNode {
             className={
               immersive
                 ? 'flex flex-1 flex-col overflow-hidden'
-                : 'flex flex-1 flex-col items-center justify-center gap-6 overflow-y-auto px-4 py-8'
+                : 'flex flex-1 flex-col items-center justify-[safe_center] gap-6 overflow-y-auto px-4 py-8'
             }
             data-testid="app-main"
           >
