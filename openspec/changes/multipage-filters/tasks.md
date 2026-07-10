@@ -182,8 +182,8 @@ memory. Rollback: revert PR9 branch -- this is the final slice, tracker stays un
 
 ## Cross-cutting verification (run once at the end of PR9, before archive)
 
-- [ ] V.1 Full acceptance-criteria pass against the proposal's AC1-AC9 checklist.
-- [ ] V.2 `tsc --noEmit` strict, zero `any`, across the whole change.
-- [ ] V.3 `vitest run` full suite green; `rg CaptureSlice src/ tests/` returns no matches.
-- [ ] V.4 `pnpm build`; confirm initial bundle stays < 200KB gzip with `@dnd-kit` lazy-loaded.
-- [ ] V.5 Manual empirical calibration (design section 8): `adaptiveThreshold`/morphology params on real docs, full-res `filter2D` sharpen cost, JPEG q0.85 re-warp perceived quality, page cap / debounce feel.
+- [x] V.1 Full acceptance-criteria pass against the proposal's AC1-AC9 checklist. (sdd-verify: 7 MET, AC1/AC7 partial — mechanism met, e2e/empirical deferred.)
+- [x] V.2 `tsc --noEmit` strict, zero `any`, across the whole change. (0 errors; 0 `any` in scanner/ui.)
+- [x] V.3 `vitest run` full suite green; `rg CaptureSlice src/ tests/` returns no matches. (29 files / 233 tests green; grep empty.)
+- [x] V.4 build (npm, not pnpm); confirm initial bundle stays < 200KB gzip with `@dnd-kit` lazy-loaded. (initial 66.45 kB gzip; @dnd-kit isolated in PageGrid lazy chunk.)
+- [ ] V.5 Manual empirical calibration (design section 8) — DEFERRED to the user's manual browser test: `adaptiveThreshold`/morphology params on real docs, full-res `filter2D` sharpen cost, JPEG q0.85 re-warp perceived quality, page cap / debounce feel.
