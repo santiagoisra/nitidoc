@@ -113,32 +113,38 @@ export function useActivePage(): UseActivePageResult {
         return { status: 'blocked-cap' };
       }
 
-      // Thumbnail + compress both derive from the UNWARPED original — no
-      // warp has happened yet at capture time (design section "Memory").
-      const [thumbnail, originalBlob] = await Promise.all([
-        makeThumbnail(input.originalBitmap, FILTER.THUMBNAIL_MAX_EDGE),
-        compressBitmapToJpeg(input.originalBitmap, FILTER.JPEG_QUALITY),
-      ]);
+      try {
+        // Thumbnail + compress both derive from the UNWARPED original — no
+        // warp has happened yet at capture time (design section "Memory").
+        const [thumbnail, originalBlob] = await Promise.all([
+          makeThumbnail(input.originalBitmap, FILTER.THUMBNAIL_MAX_EDGE),
+          compressBitmapToJpeg(input.originalBitmap, FILTER.JPEG_QUALITY),
+        ]);
 
-      // Re-read rawCaptures.length right before appending (not the snapshot
-      // from above) so the new raw's `order` is correct even if another
-      // append happened while the compress/thumbnail work above was in
-      // flight.
-      const order = useScannerStore.getState().rawCaptures.length;
-      addRawCapture({
-        id: input.id,
-        order,
-        originalBlob,
-        thumbnail,
-        originalWidth: input.originalWidth,
-        originalHeight: input.originalHeight,
-      });
+        // Re-read rawCaptures.length right before appending (not the snapshot
+        // from above) so the new raw's `order` is correct even if another
+        // append happened while the compress/thumbnail work above was in
+        // flight.
+        const order = useScannerStore.getState().rawCaptures.length;
+        addRawCapture({
+          id: input.id,
+          order,
+          originalBlob,
+          thumbnail,
+          originalWidth: input.originalWidth,
+          originalHeight: input.originalHeight,
+        });
 
-      // The live capture bitmap is no longer needed once compressed and
-      // handed to addRawCapture.
-      input.originalBitmap.close();
-
-      return { status: 'added' };
+        return { status: 'added' };
+      } finally {
+        // Review fix (F1 hygiene): `input.originalBitmap`'s ownership
+        // contract says this call ALWAYS releases it — but the close() call
+        // used to sit AFTER the `Promise.all` above, unreachable whenever
+        // `makeThumbnail`/`compressBitmapToJpeg` rejected, leaking the live
+        // full-res capture bitmap on every failed materialize. `finally` runs
+        // on both the success return above and any rejection propagating out.
+        input.originalBitmap.close();
+      }
     },
     [],
   );
