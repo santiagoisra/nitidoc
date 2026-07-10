@@ -75,6 +75,7 @@ import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlipHorizontal, RotateCw } from 'lucide-react';
 import { Button } from '@/shared/ui';
+import { useTranslation } from '@/shared/i18n';
 import { FilterPanel } from '@/features/scanner/components/FilterPanel';
 import {
   isConvex,
@@ -96,13 +97,6 @@ import type { AspectRatioName, Point, Quad } from '@/shared/types/geometry';
 import type { EditRecipe, FilterParams } from '@/shared/types/scanner';
 
 const ASPECT_RATIO_OPTIONS: readonly AspectRatioName[] = ['a4', 'letter', 'ticket', 'unknown'];
-
-const ASPECT_RATIO_LABELS: Record<AspectRatioName, string> = {
-  a4: 'A4',
-  letter: 'Letter',
-  ticket: 'Ticket',
-  unknown: 'Original',
-};
 
 /** Magnifier canvas size (CSS px) and zoom factor (task 5.1.2, "lupa 2-3x"). */
 const MAGNIFIER_SIZE = 120;
@@ -181,6 +175,13 @@ export function CornerEditor({
   onCancel,
   onApplyToAll,
 }: CornerEditorProps): ReactNode {
+  const { t } = useTranslation();
+  const ASPECT_RATIO_LABELS: Record<AspectRatioName, string> = {
+    a4: t('editor.aspectA4'),
+    letter: t('editor.aspectLetter'),
+    ticket: t('editor.aspectTicket'),
+    unknown: t('editor.aspectOriginal'),
+  };
   // Local state replaces F1's legacy warpedImage/recipe store fields — this
   // component is a controlled component over its props; the caller
   // (ScannerScreen) decides what to do with the confirmed result.
@@ -593,7 +594,7 @@ export function CornerEditor({
                 <button
                   key={index}
                   type="button"
-                  aria-label={`Corner handle ${index + 1}`}
+                  aria-label={t('editor.cornerHandle', { n: index + 1 })}
                   data-testid={`corner-handle-${index}`}
                   onPointerDown={handlePointerDown(index as 0 | 1 | 2 | 3)}
                   onPointerMove={handlePointerMove(index as 0 | 1 | 2 | 3)}
@@ -627,7 +628,7 @@ export function CornerEditor({
 
           {!valid && (
             <p role="alert" className="text-sm text-danger" data-testid="corner-editor-invalid">
-              Corners must form a convex shape. Adjust a handle to continue.
+              {t('editor.convexWarning')}
             </p>
           )}
         </>
@@ -665,7 +666,7 @@ export function CornerEditor({
                 variant="secondary"
                 onClick={handleRotate}
                 data-testid="rotate-button"
-                aria-label="Rotate 90 degrees"
+                aria-label={t('editor.rotate')}
               >
                 <RotateCw size={18} strokeWidth={1.5} aria-hidden="true" />
               </Button>
@@ -674,7 +675,7 @@ export function CornerEditor({
                 variant="secondary"
                 onClick={handleFlipHorizontal}
                 data-testid="flip-horizontal-button"
-                aria-label="Flip horizontal"
+                aria-label={t('editor.flipHorizontal')}
               >
                 <FlipHorizontal size={18} strokeWidth={1.5} aria-hidden="true" />
               </Button>
@@ -692,12 +693,12 @@ export function CornerEditor({
 
       {isWarping && (
         <p className="text-sm text-text-muted" data-testid="warp-loading" role="status" aria-live="polite">
-          Processing…
+          {t('common.processing')}
         </p>
       )}
       {warpError && (
         <p role="alert" className="text-sm text-danger" data-testid="warp-error">
-          Could not process the image. Adjust a corner to retry.
+          {t('editor.processError')}
         </p>
       )}
 
@@ -705,7 +706,7 @@ export function CornerEditor({
         {step === 'corners' ? (
           <>
             <Button type="button" variant="ghost" onClick={handleCancelClick} data-testid="corner-editor-cancel">
-              Back
+              {t('editor.back')}
             </Button>
             <Button
               type="button"
@@ -714,13 +715,13 @@ export function CornerEditor({
               disabled={!valid || !recipe}
               data-testid="corner-editor-next"
             >
-              Next
+              {t('editor.next')}
             </Button>
           </>
         ) : (
           <>
             <Button type="button" variant="ghost" onClick={handleBackToCorners} data-testid="corner-editor-back">
-              Back
+              {t('editor.back')}
             </Button>
             <Button
               type="button"
@@ -729,7 +730,7 @@ export function CornerEditor({
               disabled={!valid || !recipe}
               data-testid="corner-editor-confirm"
             >
-              Confirm
+              {t('editor.confirm')}
             </Button>
           </>
         )}

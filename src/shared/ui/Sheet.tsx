@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useEffect } from 'react';
 import { X } from 'lucide-react';
+import { useTranslation } from '@/shared/i18n';
 
 export interface SheetProps {
   readonly open: boolean;
@@ -15,6 +16,7 @@ export interface SheetProps {
  * (e.g. permission instructions) are wired in Groups 4-6.
  */
 export function Sheet({ open, onClose, title, children }: SheetProps): ReactNode {
+  const { t } = useTranslation();
   useEffect(() => {
     if (!open) {
       return;
@@ -55,7 +57,7 @@ export function Sheet({ open, onClose, title, children }: SheetProps): ReactNode
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t('common.close')}
             className="min-h-[44px] min-w-[44px] rounded-md p-2 text-text-muted hover:bg-bg/40 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light"
           >
             <X size={20} strokeWidth={1.5} aria-hidden="true" />

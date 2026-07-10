@@ -16,6 +16,8 @@
  */
 
 import type { ReactNode } from 'react';
+import { useTranslation } from '@/shared/i18n';
+import type { TranslationKey } from '@/shared/i18n';
 import type { QualityMetrics } from '@/shared/types/geometry';
 
 export interface QualityHintsProps {
@@ -38,13 +40,14 @@ function resolveHint(quality: QualityMetrics | null, tooFar: boolean): HintKind 
   return null;
 }
 
-const HINT_COPY: Record<Exclude<HintKind, null>, string> = {
-  'too-far': 'Move closer',
-  'too-dark': 'Too dark',
-  blurry: 'Hold steady',
+const HINT_KEY: Record<Exclude<HintKind, null>, TranslationKey> = {
+  'too-far': 'quality.moveCloser',
+  'too-dark': 'quality.tooDark',
+  blurry: 'quality.holdSteady',
 };
 
 export function QualityHints({ quality, tooFar }: QualityHintsProps): ReactNode {
+  const { t } = useTranslation();
   const hint = resolveHint(quality, tooFar);
 
   return (
@@ -54,7 +57,7 @@ export function QualityHints({ quality, tooFar }: QualityHintsProps): ReactNode 
       data-testid="quality-hints"
       className="min-h-[1.5rem] text-center text-sm font-medium text-text-muted"
     >
-      {hint ? HINT_COPY[hint] : null}
+      {hint ? t(HINT_KEY[hint]) : null}
     </div>
   );
 }

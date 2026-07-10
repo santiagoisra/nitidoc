@@ -9,6 +9,7 @@
 
 import type { ReactNode } from 'react';
 import { Camera } from 'lucide-react';
+import { useTranslation } from '@/shared/i18n';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
 
 export interface CameraSelectorProps {
@@ -16,6 +17,7 @@ export interface CameraSelectorProps {
 }
 
 export function CameraSelector({ onSelect }: CameraSelectorProps): ReactNode {
+  const { t } = useTranslation();
   const devices = useScannerStore((s) => s.devices);
   const activeDeviceId = useScannerStore((s) => s.activeDeviceId);
 
@@ -26,7 +28,7 @@ export function CameraSelector({ onSelect }: CameraSelectorProps): ReactNode {
   return (
     <label className="flex items-center gap-2 rounded-lg bg-surface/80 px-3 py-2 text-sm text-text">
       <Camera size={18} strokeWidth={1.5} className="text-text-muted" aria-hidden="true" />
-      <span className="sr-only">Select camera</span>
+      <span className="sr-only">{t('camera.selectCamera')}</span>
       <select
         value={activeDeviceId ?? ''}
         onChange={(event) => onSelect(event.target.value)}
@@ -34,7 +36,7 @@ export function CameraSelector({ onSelect }: CameraSelectorProps): ReactNode {
       >
         {devices.map((device, index) => (
           <option key={device.deviceId} value={device.deviceId} className="bg-surface text-text">
-            {device.label || `Camera ${index + 1}`}
+            {device.label || t('camera.cameraN', { n: index + 1 })}
           </option>
         ))}
       </select>

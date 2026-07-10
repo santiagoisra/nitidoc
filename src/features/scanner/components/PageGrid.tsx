@@ -25,6 +25,7 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from 
 import { SortableContext, rectSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Button } from '@/shared/ui';
+import { useTranslation } from '@/shared/i18n';
 import { PageThumbnail } from '@/features/scanner/components/CaptureTray';
 import { useExportPdf } from '@/features/scanner/hooks/useExportPdf';
 import type { DocumentPage } from '@/features/scanner/store/documentSlice';
@@ -71,6 +72,7 @@ export function PageGrid({
   onCaptureMore,
   onFinish,
 }: PageGridProps): ReactNode {
+  const { t } = useTranslation();
   const sensors = useSensors(useSensor(PointerSensor));
   const { exporting, exportPdf } = useExportPdf();
 
@@ -94,7 +96,7 @@ export function PageGrid({
   return (
     <div className="flex w-full max-w-md flex-col items-center gap-4" data-testid="page-grid">
       <p className="text-sm text-text-muted">
-        {pages.length} page{pages.length === 1 ? '' : 's'} captured.
+        {t('grid.pagesCaptured', { n: pages.length })}
       </p>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -114,7 +116,7 @@ export function PageGrid({
 
       <div className="flex w-full items-center justify-between gap-3">
         <Button type="button" variant="secondary" onClick={onCaptureMore} data-testid="grid-capture-more">
-          Capture more
+          {t('grid.captureMore')}
         </Button>
         <Button
           type="button"
@@ -123,10 +125,10 @@ export function PageGrid({
           disabled={pages.length === 0 || exporting}
           data-testid="grid-export-pdf"
         >
-          {exporting ? 'Exporting…' : 'Export PDF'}
+          {exporting ? t('scanner.exporting') : t('scanner.exportPdf')}
         </Button>
         <Button type="button" variant="primary" onClick={onFinish} data-testid="grid-finish">
-          Finish
+          {t('grid.finish')}
         </Button>
       </div>
     </div>
@@ -143,6 +145,7 @@ interface SortableGridItemProps {
 }
 
 function SortableGridItem({ page, onActivate, onDelete }: SortableGridItemProps): ReactNode {
+  const { t } = useTranslation();
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: page.id });
 
   const style = {
@@ -177,7 +180,7 @@ function SortableGridItem({ page, onActivate, onDelete }: SortableGridItemProps)
           event.stopPropagation();
           onDelete();
         }}
-        aria-label="Delete page"
+        aria-label={t('grid.deletePage')}
         className="absolute right-1 top-1 rounded-full bg-bg/80 p-1 text-danger"
         data-testid={`page-grid-delete-${page.id}`}
       >

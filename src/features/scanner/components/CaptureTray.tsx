@@ -17,6 +17,7 @@
 import type { ReactNode } from 'react';
 import { useEffect, useRef } from 'react';
 import { Button } from '@/shared/ui';
+import { useTranslation } from '@/shared/i18n';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
 import { buildThumbnailCssFilter } from '@/features/scanner/lib/filterPipeline';
 import type { DocumentPage } from '@/features/scanner/store/documentSlice';
@@ -30,6 +31,7 @@ export interface CaptureTrayProps {
 }
 
 export function CaptureTray({ pages, isAtCap, onDone }: CaptureTrayProps): ReactNode {
+  const { t } = useTranslation();
   if (pages.length === 0) {
     // Nothing captured yet this session — the tray only makes sense once at
     // least one page exists (design section 5.1).
@@ -51,16 +53,16 @@ export function CaptureTray({ pages, isAtCap, onDone }: CaptureTrayProps): React
 
       {isAtCap && (
         <p className="text-sm text-text-muted" data-testid="capture-tray-cap-hint">
-          Document limit reached ({FILTER.PAGE_CAP} pages).
+          {t('common.documentLimitReached', { cap: FILTER.PAGE_CAP })}
         </p>
       )}
 
       <div className="flex w-full items-center justify-between gap-3">
         <p className="text-sm text-text-muted">
-          {pages.length} page{pages.length === 1 ? '' : 's'} captured
+          {t('capture.pagesCaptured', { n: pages.length })}
         </p>
         <Button type="button" variant="secondary" onClick={onDone} data-testid="tray-done">
-          Done
+          {t('capture.done')}
         </Button>
       </div>
     </div>
