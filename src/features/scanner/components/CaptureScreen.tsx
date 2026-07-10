@@ -129,6 +129,18 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
   }, [setTorch, torchOn]);
 
   const handleNext = useCallback(() => {
+    // Review fix: belt-and-suspenders against the `capture-next` Button's own
+    // `disabled={isCapturing}` gate below — `inFlightRef` is set/cleared
+    // SYNCHRONOUSLY inside `handleCapture` (unlike the `isCapturing` state
+    // update, which only takes effect on the next render), so checking it
+    // here also covers the narrow sub-frame between a tap starting a capture
+    // and that render committing. Without this, "Siguiente" tapped in that
+    // window silently transitioned to `'processing'` while the capture was
+    // still in flight, losing whatever `materializeRawCapture` was about to
+    // add (or racing `useBatchProcess.run()`'s own snapshot of `rawCaptures`).
+    if (inFlightRef.current) {
+      return;
+    }
     setPhase('processing');
   }, [setPhase]);
 
@@ -319,7 +331,13 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
         </div>
         <div className="flex justify-end">
           {rawCaptures.length > 0 && (
-            <Button type="button" variant="primary" onClick={handleNext} data-testid="capture-next">
+            <Button
+              type="button"
+              variant="primary"
+              onClick={handleNext}
+              disabled={isCapturing}
+              data-testid="capture-next"
+            >
               {t('capture.next')}
             </Button>
           )}

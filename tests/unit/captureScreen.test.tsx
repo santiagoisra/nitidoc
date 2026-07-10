@@ -208,6 +208,40 @@ describe('CaptureScreen (Fase 2.3, capture-ux-redesign.md, Unit 3)', () => {
     expect(captureFullResFrameMock).toHaveBeenCalledTimes(1);
   });
 
+  it('review fix: Next is disabled while a capture is in flight, and a tap in that window does not transition to "processing"', async () => {
+    let resolveCapture: ((value: { bitmap: ImageBitmap; width: number; height: number }) => void) | undefined;
+    captureFullResFrameMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCapture = resolve;
+        }),
+    );
+    cropToVisibleRectMock.mockImplementation((bitmap: ImageBitmap) => Promise.resolve(bitmap));
+    useScannerStore.setState({ rawCaptures: [fakeRaw('r1', 0)] });
+
+    renderCaptureScreen();
+    fireEvent.click(screen.getByTestId('capture-button'));
+
+    await waitFor(() => {
+      expect((screen.getByTestId('capture-next') as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    // Belt-and-suspenders: even a synthetic click while disabled must not
+    // flip the phase (handleNext's own inFlightRef early-return).
+    fireEvent.click(screen.getByTestId('capture-next'));
+    expect(useScannerStore.getState().phase).not.toBe('processing');
+
+    await act(async () => {
+      resolveCapture?.({ bitmap: fakeBitmap(), width: 100, height: 100 });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect((screen.getByTestId('capture-next') as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByTestId('capture-next'));
+    expect(useScannerStore.getState().phase).toBe('processing');
+  });
+
   it('cap disables the capture button', () => {
     isAtCapValue = true;
     renderCaptureScreen();
