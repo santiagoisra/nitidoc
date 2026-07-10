@@ -154,14 +154,14 @@ Start: no tray/grid UI; `@dnd-kit` not a dependency. Finish: `CaptureTray` rende
 `PageGrid` (lazy-loaded) supports drag-reorder; initial bundle stays under the 200KB gzip budget. Rollback:
 revert PR8 branch; `ScannerScreen`'s `grid` phase falls back to its PR3 placeholder.
 
-- [ ] 5.1 `package.json`: add `@dnd-kit/core`, `@dnd-kit/sortable`, `@dnd-kit/utilities`.
-- [ ] 5.2 New `src/features/scanner/components/CaptureTray.tsx`: horizontal thumbnail strip, page counter, "Listo" button, blocks capture at the 30 cap with an inline hint (spec scenario "Cap duro de 30 paginas alcanzado"). Never renders full-res.
-- [ ] 5.3 New `src/features/scanner/components/PageGrid.tsx` behind `React.lazy(() => import('./PageGrid'))`; tap-to-activate wires into `useActivePage` (Group 2); trash icon wires into Group 6's delete flow.
-- [ ] 5.4 `onDragEnd` calls `reorderPages(newOrderedIds)` with the FULL id order (spec scenario "Reorder por drag-and-drop" -- no partial patch).
-- [ ] 5.5 Wire `ScannerScreen`'s `grid` phase to lazy-load `PageGrid`; confirm `React.lazy` boundary keeps `@dnd-kit` out of the initial chunk.
-- [ ] 5.6 New `tests/unit/captureTray.test.tsx`: cap-30 hint, thumbnail-only render (no full-res decode).
-- [ ] 5.7 New `tests/unit/pageGrid.test.tsx`: `onDragEnd` produces dense 0..n-1 order, tap activates a page.
-- [ ] 5.8 Verify: `vitest run captureTray pageGrid`; `pnpm build` + bundle-size check confirms initial chunk < 200KB gzip (design section 8 empirical item).
+- [x] 5.1 `package.json`: add `@dnd-kit/core`, `@dnd-kit/sortable`, `@dnd-kit/utilities`.
+- [x] 5.2 New `src/features/scanner/components/CaptureTray.tsx`: horizontal thumbnail strip, page counter, "Listo" button, blocks capture at the 30 cap with an inline hint (spec scenario "Cap duro de 30 paginas alcanzado"). Never renders full-res.
+- [x] 5.3 New `src/features/scanner/components/PageGrid.tsx` behind `React.lazy(() => import('./PageGrid'))`; tap-to-activate wires into `useActivePage` (Group 2); trash icon wires into Group 6's delete flow. Note: `PageGrid`'s `onDeletePage` is a plain callback prop (not a direct `useActivePage` import) -- `ScannerScreen` wires it to `DocumentSlice.deletePage` for now (minimal, functional grid); Group 6/PR9 replaces that call site with `usePageDeletion` (5s undo toast) without touching `PageGrid`'s own prop contract.
+- [x] 5.4 `onDragEnd` calls `reorderPages(newOrderedIds)` with the FULL id order (spec scenario "Reorder por drag-and-drop" -- no partial patch). Implemented as a pure, independently-tested `reorderIds(ids, activeId, overId)` helper (exported from `PageGrid.tsx`) that `onDragEnd` calls before forwarding the full array to the `onReorder` prop.
+- [x] 5.5 Wire `ScannerScreen`'s `grid` phase to lazy-load `PageGrid`; confirm `React.lazy` boundary keeps `@dnd-kit` out of the initial chunk. Verified via build output: `dist/assets/PageGrid-*.js` is a separate 46.17 kB (15.64 kB gzip) chunk; the initial `index-*.js` (205.89 kB / 65.44 kB gzip) contains no dnd-kit markers (`closestCenter` absent).
+- [x] 5.6 New `tests/unit/captureTray.test.tsx`: cap-30 hint, thumbnail-only render (no full-res decode) -- 5 tests.
+- [x] 5.7 New `tests/unit/pageGrid.test.tsx`: `onDragEnd` produces dense 0..n-1 order, tap activates a page -- 8 tests (mocks `@dnd-kit/core`/`sortable`/`utilities` to capture and directly invoke the real `onDragEnd` handler with a simulated `DragEndEvent`, per the hard constraint against driving real pointer DnD in happy-dom).
+- [x] 5.8 Verify: `npx vitest run captureTray pageGrid` (2 files / 13 tests green); `npm run build` succeeds, initial `index-*.js` gzip 65.44 kB (< 200KB budget), `@dnd-kit` confirmed in the separate lazy `PageGrid-*.js` chunk (design section 8 empirical item, now closed).
 
 ## Group 6 -- Delete + undo (PR9)
 
