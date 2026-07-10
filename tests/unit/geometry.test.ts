@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  computeLetterboxMapping,
+  displayToSource,
   inferAspectRatio,
   isConvex,
   layoutSizeForRotation,
   orderCorners,
   outputSize,
   reduceToQuad,
+  sourceToDisplay,
 } from '@/features/scanner/lib/geometry';
 import type { Point, Quad } from '@/shared/types/geometry';
 
@@ -556,5 +559,59 @@ describe('layoutSizeForRotation (Slice E review fix H3 — rotation-aware previe
     expect(layoutSizeForRotation(base.w, base.h, 90)).toEqual(
       layoutSizeForRotation(base.w, base.h, 270),
     );
+  });
+});
+
+describe('computeLetterboxMapping / sourceToDisplay / displayToSource (Fase 2.2 punch-list item 2)', () => {
+  it('a landscape 4000x3000 frame in a portrait 300x400 box letterboxes on the Y axis', () => {
+    // scale = min(300/4000, 400/3000) = min(0.075, 0.1333..) = 0.075
+    // rendered image: 4000*0.075=300 wide, 3000*0.075=225 tall
+    // offsetX = (300-300)/2 = 0; offsetY = (400-225)/2 = 87.5
+    const mapping = computeLetterboxMapping(4000, 3000, 300, 400);
+    expect(mapping.scale).toBeCloseTo(0.075, 6);
+    expect(mapping.offsetX).toBeCloseTo(0, 6);
+    expect(mapping.offsetY).toBeCloseTo(87.5, 6);
+  });
+
+  it('source corners land on the LETTERBOXED image edges, not the raw container edges', () => {
+    const mapping = computeLetterboxMapping(4000, 3000, 300, 400);
+    const topLeft = sourceToDisplay({ x: 0, y: 0 }, mapping);
+    const bottomRight = sourceToDisplay({ x: 4000, y: 3000 }, mapping);
+
+    // Top-left of the image sits BELOW the container's own top edge (y=0) —
+    // the letterbox bar occupies y in [0, 87.5).
+    expect(topLeft).toEqual({ x: 0, y: 87.5 });
+    expect(topLeft.y).toBeGreaterThan(0);
+    // Bottom-right of the image sits ABOVE the container's own bottom edge
+    // (y=400) — the letterbox bar occupies y in (312.5, 400].
+    expect(bottomRight).toEqual({ x: 300, y: 312.5 });
+    expect(bottomRight.y).toBeLessThan(400);
+  });
+
+  it('displayToSource is the inverse of sourceToDisplay (round-trips within a tolerance)', () => {
+    const mapping = computeLetterboxMapping(4000, 3000, 300, 400);
+    const original: Point = { x: 1234, y: 987 };
+    const display = sourceToDisplay(original, mapping);
+    const roundTripped = displayToSource(display, mapping, 4000, 3000);
+    expectPointClose(roundTripped, original, 0.01);
+  });
+
+  it('clamps a display point inside the letterbox bar to the nearest valid source edge', () => {
+    const mapping = computeLetterboxMapping(4000, 3000, 300, 400);
+    // y=10 sits inside the TOP letterbox bar (bar spans y in [0, 87.5)).
+    const source = displayToSource({ x: 150, y: 10 }, mapping, 4000, 3000);
+    expect(source.y).toBe(0);
+  });
+
+  it('a square source in a square box has zero offset and unit-ish scale (no letterboxing)', () => {
+    const mapping = computeLetterboxMapping(1000, 1000, 300, 300);
+    expect(mapping.offsetX).toBe(0);
+    expect(mapping.offsetY).toBe(0);
+    expect(mapping.scale).toBeCloseTo(0.3, 6);
+  });
+
+  it('falls back to a safe no-op mapping for a non-positive container (not yet measured)', () => {
+    const mapping = computeLetterboxMapping(4000, 3000, 0, 0);
+    expect(mapping).toEqual({ scale: 1, offsetX: 0, offsetY: 0 });
   });
 });

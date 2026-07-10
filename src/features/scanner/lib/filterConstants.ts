@@ -12,6 +12,14 @@ export const FILTER = {
   JPEG_QUALITY: 0.85,
   /** Longest-edge px for the cached per-page thumbnail (design section 2.3). STARTING VALUE. */
   THUMBNAIL_MAX_EDGE: 150,
+  /**
+   * Longest-edge px for the downscaled copy `WarpedPreview` renders adaptive
+   * presets on (Fase 2.2 punch-list item 3) — larger than `THUMBNAIL_MAX_EDGE`
+   * since this is the PRIMARY editing preview, not a small tray/grid tile,
+   * but still far below full-res to keep the debounced worker round-trip
+   * cheap. STARTING VALUE.
+   */
+  WARPED_PREVIEW_MAX_EDGE: 500,
   /** Hard cap on document length (design section 2.3 / D-MEM). STARTING VALUE. */
   PAGE_CAP: 30,
   /** `saturate()` multiplier for the `enhanced` preset (design section 3.2). STARTING VALUE. */
