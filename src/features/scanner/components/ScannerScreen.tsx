@@ -9,16 +9,16 @@
  * Rewritten to the phase-driven, active-page/multipage model in Group 1c
  * (design section 5.1, ADR-010): `DocumentSlice.phase` is now the SOLE phase
  * owner (F1's legacy single-page capture state is gone). This screen renders:
- *  - `idle`/`capturing`/`tray` -> the live camera view + a continuous-capture
- *    tray PLACEHOLDER (page counter + "Listo"). The real `CaptureTray`/
- *    `PageGrid` land in Group 5/PR8 — see the inline `// PLACEHOLDER` markers
- *    below.
+ *  - `idle`/`capturing`/`tray` -> the live camera view + `CaptureTray`
+ *    (design section 5.2, Group 5/PR8: thumbnail strip + page counter +
+ *    "Listo").
  *  - `editing-corners` -> `CornerEditor`, in one of two modes: a FRESH
  *    capture (not yet a page — local `draftCapture` state below) or a
  *    RE-ENTERED page from the grid (`activatePage` already populated
  *    `activeWorking`/`activePageId`).
- *  - `grid` -> a page-grid PLACEHOLDER (list + reorder-less tap-to-edit +
- *    "Capture more"/"Finish").
+ *  - `grid` -> `PageGrid` (design section 5.3, Group 5/PR8), lazy-loaded so
+ *    `@dnd-kit` stays out of the initial bundle: drag-reorder, tap-to-edit,
+ *    delete, "Capture more"/"Finish".
  *  - `done` -> a finish summary.
  *
  * Capture sequence (design section 2.2): pause the detection loop, capture
@@ -45,12 +45,13 @@
  */
 
 import type { ReactNode } from 'react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { Flashlight, FlashlightOff } from 'lucide-react';
 import { Button } from '@/shared/ui';
 import { CameraSelector } from '@/features/scanner/components/CameraSelector';
 import { CameraView } from '@/features/scanner/components/CameraView';
 import { CaptureButton } from '@/features/scanner/components/CaptureButton';
+import { CaptureTray } from '@/features/scanner/components/CaptureTray';
 import { CornerEditor, type CornerEditorConfirmResult } from '@/features/scanner/components/CornerEditor';
 import { DetectionOverlay } from '@/features/scanner/components/DetectionOverlay';
 import { ImportFallback } from '@/features/scanner/components/ImportFallback';
@@ -68,6 +69,14 @@ import { isConvex, orderCorners } from '@/features/scanner/lib/geometry';
 import { bitmapToImageData } from '@/features/scanner/lib/mainThreadImageData';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
 import type { Quad } from '@/shared/types/geometry';
+
+/**
+ * Group 5 / PR8: lazy-loaded feature boundary for the reorderable page grid
+ * (design section 5.3, section 8 empirical item). `@dnd-kit` is only pulled
+ * into a chunk once `phase === 'grid'` actually renders `<PageGrid>` —
+ * keeping it OUT of the initial bundle (F1's <200KB gzip budget).
+ */
+const PageGrid = lazy(() => import('@/features/scanner/components/PageGrid'));
 
 /**
  * Fallback detection-frame height used only before the camera has reported its
@@ -126,6 +135,11 @@ export function ScannerScreen(): ReactNode {
   const pages = useScannerStore((s) => s.pages);
   const resetDocument = useScannerStore((s) => s.resetDocument);
   const applyFilterToAll = useScannerStore((s) => s.applyFilterToAll);
+  const reorderPages = useScannerStore((s) => s.reorderPages);
+  // Group 5 / PR8: minimal wiring so the grid is functional. Group 6 / PR9
+  // replaces this call site with `usePageDeletion` (5s undo toast) — see
+  // design section 5.5.
+  const deletePage = useScannerStore((s) => s.deletePage);
   const opencvStatus = useScannerStore((s) => s.opencv.status);
   const opencvLastError = useScannerStore((s) => s.opencv.lastError);
 
@@ -689,38 +703,22 @@ export function ScannerScreen(): ReactNode {
     }
   }
 
-  // PLACEHOLDER (Group 5 / PR8 owns the real `PageGrid` with @dnd-kit
-  // drag-and-drop, design section 5.3): a minimal list so the app is
-  // runnable end-to-end with reorder-less tap-to-edit + navigation.
+  // Group 5 / PR8: real reorderable `PageGrid` (design section 5.3),
+  // lazy-loaded so `@dnd-kit` stays out of the initial bundle. Replaces the
+  // inline `page-grid-placeholder` a prior PR shipped for end-to-end
+  // runnability.
   if (phase === 'grid') {
     return (
-      <div className="flex w-full max-w-md flex-col items-center gap-4" data-testid="page-grid-placeholder">
-        <p className="text-sm text-text-muted">
-          {pages.length} page{pages.length === 1 ? '' : 's'} captured.
-        </p>
-        <ul className="flex w-full flex-col gap-2" data-testid="page-grid-list">
-          {pages.map((page) => (
-            <li key={page.id}>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => handleActivatePageTap(page.id)}
-                data-testid={`page-grid-item-${page.id}`}
-              >
-                Page {page.order + 1}
-              </Button>
-            </li>
-          ))}
-        </ul>
-        <div className="flex w-full items-center justify-between gap-3">
-          <Button type="button" variant="secondary" onClick={handleGridCaptureMore} data-testid="grid-capture-more">
-            Capture more
-          </Button>
-          <Button type="button" variant="primary" onClick={handleGridFinish} data-testid="grid-finish">
-            Finish
-          </Button>
-        </div>
-      </div>
+      <Suspense fallback={<p data-testid="page-grid-loading">Loading…</p>}>
+        <PageGrid
+          pages={pages}
+          onActivatePage={handleActivatePageTap}
+          onDeletePage={deletePage}
+          onReorder={reorderPages}
+          onCaptureMore={handleGridCaptureMore}
+          onFinish={handleGridFinish}
+        />
+      </Suspense>
     );
   }
 
@@ -784,12 +782,6 @@ export function ScannerScreen(): ReactNode {
         </div>
       )}
 
-      {isAtCap && (
-        <div className="flex flex-col items-center gap-2 text-center" data-testid="page-cap-hint">
-          <p className="text-sm text-text-muted">Document limit reached ({FILTER.PAGE_CAP} pages).</p>
-        </div>
-      )}
-
       <div className="flex w-full items-center justify-between gap-3">
         <CameraSelector onSelect={(deviceId) => void switchCamera(deviceId)} />
         <div className="flex items-center gap-2">
@@ -823,19 +815,7 @@ export function ScannerScreen(): ReactNode {
         </div>
       </div>
 
-      {/* PLACEHOLDER (Group 5 / PR8 owns the real `CaptureTray`, design
-          section 5.2): a page counter + "Listo" once at least one page has
-          been captured this session. Never renders full-res (only a count). */}
-      {pages.length > 0 && (
-        <div className="flex w-full items-center justify-between gap-3" data-testid="capture-tray-placeholder">
-          <p className="text-sm text-text-muted">
-            {pages.length} page{pages.length === 1 ? '' : 's'} captured
-          </p>
-          <Button type="button" variant="secondary" onClick={handleTrayDone} data-testid="tray-done">
-            Listo
-          </Button>
-        </div>
-      )}
+      <CaptureTray pages={pages} isAtCap={isAtCap} onDone={handleTrayDone} />
 
       <CaptureButton onCapture={handleManualCapture} countdown={countdown} disabled={!canAddPage} />
     </div>
