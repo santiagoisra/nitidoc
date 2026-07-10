@@ -81,6 +81,8 @@ export const en = {
   'grid.captureMore': 'Capture more',
   'grid.finish': 'Finish',
   'grid.deletePage': 'Delete page',
+  'grid.needsReview': 'Review',
+  'grid.emptyCta': 'Capture',
 
   'import.instructionsFirefox':
     'Open the padlock icon in the address bar, set Camera to "Allow", then reload the page.',

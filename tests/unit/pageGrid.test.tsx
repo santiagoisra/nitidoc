@@ -271,4 +271,54 @@ describe('PageGrid (Group 5 / PR8, design section 5.3)', () => {
     // drawImage-call time (it is reset to 'none' immediately afterward).
     expect(drawnFilters[0]).toContain('grayscale(1)');
   });
+
+  it('empty state (Fase 2.3, Unit 5): 0 pages renders a "Capturar" CTA instead of a dead grid', () => {
+    const onCaptureMore = vi.fn();
+    const onFinish = vi.fn();
+
+    render(
+      <ToastHost>
+        <PageGrid
+          pages={[]}
+          onActivatePage={vi.fn()}
+          onDeletePage={vi.fn()}
+          onReorder={vi.fn()}
+          onCaptureMore={onCaptureMore}
+          onFinish={onFinish}
+        />
+      </ToastHost>,
+    );
+
+    expect(screen.getByTestId('page-grid-empty')).toBeTruthy();
+    expect(screen.queryByTestId('page-grid-list')).toBeNull();
+    expect(screen.queryByTestId('grid-finish')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('grid-empty-cta'));
+    expect(onCaptureMore).toHaveBeenCalledTimes(1);
+    expect(onFinish).not.toHaveBeenCalled();
+  });
+
+  it('shows a needsReview badge only on tiles whose page has needsReview set (Fase 2.3, Unit 5)', () => {
+    installCanvasShims();
+    const pages = [
+      { ...makePage('p1', 0), needsReview: true },
+      makePage('p2', 1),
+    ];
+
+    render(
+      <ToastHost>
+        <PageGrid
+          pages={pages}
+          onActivatePage={vi.fn()}
+          onDeletePage={vi.fn()}
+          onReorder={vi.fn()}
+          onCaptureMore={vi.fn()}
+          onFinish={vi.fn()}
+        />
+      </ToastHost>,
+    );
+
+    expect(screen.getByTestId('page-grid-review-badge-p1')).toBeTruthy();
+    expect(screen.queryByTestId('page-grid-review-badge-p2')).toBeNull();
+  });
 });
