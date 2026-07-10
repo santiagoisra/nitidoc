@@ -38,8 +38,8 @@ describe('scannerStore <- DocumentSlice wiring (Group 1c)', () => {
   });
 
   it('setPhase writes DocumentPhase values through the combined store (no legacy phase adapter left)', () => {
-    useScannerStore.getState().setPhase('tray');
-    expect(useScannerStore.getState().phase).toBe('tray');
+    useScannerStore.getState().setPhase('processing');
+    expect(useScannerStore.getState().phase).toBe('processing');
     useScannerStore.getState().setPhase('grid');
     expect(useScannerStore.getState().phase).toBe('grid');
   });

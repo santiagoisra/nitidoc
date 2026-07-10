@@ -7,6 +7,7 @@ import {
   type DocumentActions,
   type DocumentPage,
   type DocumentSlice,
+  type RawCapture,
 } from '@/features/scanner/store/documentSlice';
 import { createInitialRecipe } from '@/features/scanner/lib/editRecipe';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
@@ -70,6 +71,20 @@ function fakeActiveResources(pageId: string): ActivePageResources {
   };
 }
 
+let rawCounter = 0;
+
+function fakeRaw(overrides: Partial<RawCapture> = {}): RawCapture {
+  rawCounter += 1;
+  return {
+    id: overrides.id ?? `raw-${rawCounter}`,
+    order: overrides.order ?? 0,
+    originalBlob: overrides.originalBlob ?? fakeBlob(),
+    thumbnail: overrides.thumbnail ?? fakeBitmap(),
+    originalWidth: overrides.originalWidth ?? 1000,
+    originalHeight: overrides.originalHeight ?? 1400,
+  };
+}
+
 describe('documentSlice.addPage — 30-page cap (design section 2.3 / D-MEM)', () => {
   it('appends pages under the cap', () => {
     const useStore = createTestStore();
@@ -90,6 +105,109 @@ describe('documentSlice.addPage — 30-page cap (design section 2.3 / D-MEM)', (
 
     expect(useStore.getState().pages).toHaveLength(FILTER.PAGE_CAP);
     expect(useStore.getState().pages).not.toContain(overflow);
+  });
+});
+
+describe('documentSlice.addRawCapture — COMBINED cap (Fase 2.3, capture-ux-redesign.md)', () => {
+  it('appends raw captures under the combined cap', () => {
+    const useStore = createTestStore();
+    const raw = fakeRaw({ order: 0 });
+    useStore.getState().addRawCapture(raw);
+    expect(useStore.getState().rawCaptures).toEqual([raw]);
+  });
+
+  it('no-ops when pages.length + rawCaptures.length is already at the combined cap', () => {
+    const useStore = createTestStore();
+    // 20 pages + 10 raw captures = FILTER.PAGE_CAP (30).
+    for (let i = 0; i < 20; i += 1) {
+      useStore.getState().addPage(fakePage({ order: i }));
+    }
+    for (let i = 0; i < 10; i += 1) {
+      useStore.getState().addRawCapture(fakeRaw({ order: i }));
+    }
+    expect(useStore.getState().pages).toHaveLength(20);
+    expect(useStore.getState().rawCaptures).toHaveLength(10);
+
+    const overflow = fakeRaw({ order: 10 });
+    useStore.getState().addRawCapture(overflow);
+
+    expect(useStore.getState().rawCaptures).toHaveLength(10);
+    expect(useStore.getState().rawCaptures).not.toContain(overflow);
+  });
+});
+
+describe('documentSlice raw capture hygiene — clearRawCaptures / removeLastRawCapture / removeRawCapture', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('clearRawCaptures closes every remaining thumbnail and empties rawCaptures', () => {
+    const useStore = createTestStore();
+    const rawA = fakeRaw({ id: 'a', order: 0 });
+    const rawB = fakeRaw({ id: 'b', order: 1 });
+    useStore.getState().addRawCapture(rawA);
+    useStore.getState().addRawCapture(rawB);
+
+    useStore.getState().clearRawCaptures();
+
+    expect(rawA.thumbnail.close).toHaveBeenCalledTimes(1);
+    expect(rawB.thumbnail.close).toHaveBeenCalledTimes(1);
+    expect(useStore.getState().rawCaptures).toEqual([]);
+  });
+
+  it('clearRawCaptures on an already-empty list does not throw', () => {
+    const useStore = createTestStore();
+    expect(() => useStore.getState().clearRawCaptures()).not.toThrow();
+    expect(useStore.getState().rawCaptures).toEqual([]);
+  });
+
+  it('removeLastRawCapture closes only the LAST thumbnail and pops it (retake-last)', () => {
+    const useStore = createTestStore();
+    const rawA = fakeRaw({ id: 'a', order: 0 });
+    const rawB = fakeRaw({ id: 'b', order: 1 });
+    useStore.getState().addRawCapture(rawA);
+    useStore.getState().addRawCapture(rawB);
+
+    useStore.getState().removeLastRawCapture();
+
+    expect(rawB.thumbnail.close).toHaveBeenCalledTimes(1);
+    expect(rawA.thumbnail.close).not.toHaveBeenCalled();
+    expect(useStore.getState().rawCaptures.map((r) => r.id)).toEqual(['a']);
+  });
+
+  it('removeLastRawCapture on an already-empty list is a no-op (does not throw)', () => {
+    const useStore = createTestStore();
+    expect(() => useStore.getState().removeLastRawCapture()).not.toThrow();
+    expect(useStore.getState().rawCaptures).toEqual([]);
+  });
+
+  it('removeRawCapture(id) closes and removes a specific raw capture, re-indexing the rest densely', () => {
+    const useStore = createTestStore();
+    const rawA = fakeRaw({ id: 'a', order: 0 });
+    const rawB = fakeRaw({ id: 'b', order: 1 });
+    const rawC = fakeRaw({ id: 'c', order: 2 });
+    useStore.getState().addRawCapture(rawA);
+    useStore.getState().addRawCapture(rawB);
+    useStore.getState().addRawCapture(rawC);
+
+    useStore.getState().removeRawCapture('b');
+
+    expect(rawB.thumbnail.close).toHaveBeenCalledTimes(1);
+    expect(rawA.thumbnail.close).not.toHaveBeenCalled();
+    expect(rawC.thumbnail.close).not.toHaveBeenCalled();
+    const remaining = useStore.getState().rawCaptures;
+    expect(remaining.map((r) => r.id)).toEqual(['a', 'c']);
+    expect(remaining.map((r) => r.order)).toEqual([0, 1]);
+  });
+
+  it('removeRawCapture with an unknown id is a no-op', () => {
+    const useStore = createTestStore();
+    const raw = fakeRaw({ id: 'a', order: 0 });
+    useStore.getState().addRawCapture(raw);
+
+    expect(() => useStore.getState().removeRawCapture('missing')).not.toThrow();
+    expect(raw.thumbnail.close).not.toHaveBeenCalled();
+    expect(useStore.getState().rawCaptures).toEqual([raw]);
   });
 });
 
@@ -315,8 +433,8 @@ describe('documentSlice.updateRecipe / updatePageWarpBase / applyFilterToAll', (
 describe('documentSlice.setPhase / setSelectedPageIds', () => {
   it('setPhase writes the DocumentPhase value directly', () => {
     const useStore = createTestStore();
-    useStore.getState().setPhase('tray');
-    expect(useStore.getState().phase).toBe('tray');
+    useStore.getState().setPhase('processing');
+    expect(useStore.getState().phase).toBe('processing');
     useStore.getState().setPhase('grid');
     expect(useStore.getState().phase).toBe('grid');
   });
@@ -333,7 +451,7 @@ describe('documentSlice.resetDocument — full teardown (design section 1.5)', (
     vi.restoreAllMocks();
   });
 
-  it('closes activeWorking, every page thumbnail, and pendingDeletion thumbnail, then resets to initial', () => {
+  it('closes activeWorking, every page thumbnail, every raw capture thumbnail, and pendingDeletion thumbnail, then resets to initial', () => {
     const useStore = createTestStore();
     const pageA = fakePage({ id: 'a', order: 0 });
     const pageB = fakePage({ id: 'b', order: 1 });
@@ -341,6 +459,11 @@ describe('documentSlice.resetDocument — full teardown (design section 1.5)', (
     useStore.getState().addPage(pageA);
     useStore.getState().addPage(pageB);
     useStore.getState().addPage(pageC);
+
+    const rawA = fakeRaw({ id: 'raw-a', order: 0 });
+    const rawB = fakeRaw({ id: 'raw-b', order: 1 });
+    useStore.getState().addRawCapture(rawA);
+    useStore.getState().addRawCapture(rawB);
 
     const active = fakeActiveResources('b');
     useStore.getState().setActiveWorking(active);
@@ -356,6 +479,8 @@ describe('documentSlice.resetDocument — full teardown (design section 1.5)', (
     expect(pageA.thumbnail.close).toHaveBeenCalledTimes(1);
     expect(pageB.thumbnail.close).toHaveBeenCalledTimes(1);
     expect(pageC.thumbnail.close).toHaveBeenCalledTimes(1);
+    expect(rawA.thumbnail.close).toHaveBeenCalledTimes(1);
+    expect(rawB.thumbnail.close).toHaveBeenCalledTimes(1);
     expect(useStore.getState()).toMatchObject(initialDocumentSlice);
   });
 
@@ -374,6 +499,7 @@ describe('documentSlice initial state', () => {
   it('starts empty/idle', () => {
     const useStore = createTestStore();
     expect(useStore.getState().pages).toEqual([]);
+    expect(useStore.getState().rawCaptures).toEqual([]);
     expect(useStore.getState().activePageId).toBeNull();
     expect(useStore.getState().activeWorking).toBeNull();
     expect(useStore.getState().activeDirty).toBe(false);

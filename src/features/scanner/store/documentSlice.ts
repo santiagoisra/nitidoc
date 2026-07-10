@@ -46,6 +46,38 @@ export interface DocumentPage {
   readonly originalHeight: number;
   readonly warpedWidth: number;
   readonly warpedHeight: number;
+
+  /**
+   * Deferred-processing redesign (Fase 2.3, D-2/capture-ux-redesign.md).
+   * `true` when the per-page detect->warp step (Unit 4) had to fall back to
+   * `frameCorners` — either detection returned no quad or the detected quad
+   * was non-convex. Optional/back-compatible: pages created by the F1/Fase 2
+   * interactive corner-editor flow never set this. Surfaced as a grid badge
+   * so the user knows to double-check that page's corners.
+   */
+  readonly needsReview?: boolean;
+}
+
+/**
+ * A manually-captured, not-yet-processed shot (Fase 2.3, capture-ux-redesign.md
+ * "Data model — RawCapture (light) vs DocumentPage (terminal)"). Accumulates
+ * during the persistent `capturing` phase; converted 1:1 into a `DocumentPage`
+ * (detect->warp->thumbnail) during the `processing` phase (Unit 4). Deliberately
+ * lighter than `DocumentPage`: no `recipe`/`warpedBlob` yet, since no warp has
+ * run — the thumbnail is derived from the UNWARPED original so the capture
+ * count tile can render instantly without waiting on detection.
+ */
+export interface RawCapture {
+  /** `crypto.randomUUID()`; flows straight into the resulting `DocumentPage.id` at conversion (Unit 4). */
+  readonly id: string;
+  /** Dense 0..n-1 within `rawCaptures`, re-indexed on any removal (mirrors `DocumentPage.order`). */
+  readonly order: number;
+  /** JPEG q `FILTER.JPEG_QUALITY` of the (cropped) full-res original. Reused BY REFERENCE into the page's `originalBlob` at conversion — no re-compress (design section "Data model"). */
+  readonly originalBlob: Blob;
+  /** ~150px longest edge, from the UNWARPED original (design section "Data model") — only used for the capture-count tile, never for detect/warp. */
+  readonly thumbnail: ImageBitmap;
+  readonly originalWidth: number;
+  readonly originalHeight: number;
 }
 
 /**
@@ -62,17 +94,34 @@ export interface ActivePageResources {
   readonly warpedBase: ImageBitmap;
 }
 
+/**
+ * Fase 2.3 (capture-ux-redesign.md "Phase model"): `'warping'` is renamed to
+ * `'processing'` (a transient BATCH step over `rawCaptures`, not a single
+ * page) and `'tray'` is dropped — `'capturing'` now covers the persistent
+ * full-bleed camera screen that used to be split across `'capturing'`
+ * (transient, mid-frame-grab) and `'tray'` (resting, camera open). Unit 3
+ * rewrites the capture flow to match; until then, `ScannerScreen`'s existing
+ * F1/Fase-2 phase-driven rendering keeps working unchanged by mapping every
+ * former `'tray'` transition onto `'idle'` (see that file's own comments) —
+ * both already rendered the exact same camera+tray view.
+ */
 export type DocumentPhase =
   | 'idle'
   | 'capturing'
+  | 'processing'
   | 'editing-corners'
-  | 'warping'
-  | 'tray' // continuous capture: strip of thumbnails, camera still open
   | 'grid' // reorder / delete / per-page filter
   | 'done';
 
 export interface DocumentSlice {
   readonly pages: readonly DocumentPage[];
+  /**
+   * Deferred-processing redesign (Fase 2.3): manual captures accumulate here
+   * during `'capturing'` and are converted 1:1 into `pages` during
+   * `'processing'` (Unit 4). Empty outside that flow (e.g. the current F1/Fase
+   * 2 interactive corner-editor flow never populates it — Unit 3 wires it).
+   */
+  readonly rawCaptures: readonly RawCapture[];
   readonly activePageId: string | null;
   /** The single live working set for `activePageId`, or null when no page is materialized. */
   readonly activeWorking: ActivePageResources | null;
@@ -88,6 +137,23 @@ export interface DocumentActions {
   // ── page lifecycle ──────────────────────────────────────────────
   /** Appends an already-compressed page (blobs + thumbnail produced by the capture controller). Enforces the 30 cap (defensive no-op above it). */
   readonly addPage: (page: DocumentPage) => void;
+
+  // ── raw captures (Fase 2.3, capture-ux-redesign.md) ────────────────
+  /**
+   * Appends an already-compressed raw capture (blob + thumbnail produced by
+   * `useActivePage.materializeRawCapture`). Defensive no-op at the COMBINED
+   * cap `pages.length + rawCaptures.length >= FILTER.PAGE_CAP` — mirrors
+   * `addPage`'s own guard, but counts both collections since a raw capture
+   * is a future page.
+   */
+  readonly addRawCapture: (raw: RawCapture) => void;
+  /** Closes every remaining raw capture's `thumbnail`, then empties `rawCaptures`. Used by the processing loop's defensive cleanup and by full teardown. */
+  readonly clearRawCaptures: () => void;
+  /** Retake-last: closes the LAST raw capture's `thumbnail` and pops it (no-op when empty). */
+  readonly removeLastRawCapture: () => void;
+  /** Closes the given raw capture's `thumbnail` and removes it by id (no-op when not found), re-indexing the rest densely. Used by the processing loop as it converts each raw into a page. */
+  readonly removeRawCapture: (id: string) => void;
+
   readonly setActivePageId: (id: string | null) => void;
   /** Swaps the live working set. Closes the PREVIOUS working set's bitmaps before overwrite (hygiene, mirrors setWarpedImage). */
   readonly setActiveWorking: (res: ActivePageResources | null) => void;
@@ -131,6 +197,7 @@ export interface DocumentActions {
 
 export const initialDocumentSlice: DocumentSlice = {
   pages: [],
+  rawCaptures: [],
   activePageId: null,
   activeWorking: null,
   activeDirty: false,
@@ -140,12 +207,13 @@ export const initialDocumentSlice: DocumentSlice = {
 };
 
 /**
- * Re-indexes an array of pages to a dense `order` of 0..n-1, preserving the
- * given array's order. Used everywhere pages are inserted/removed so no
- * mutation ever leaves gaps or duplicate `order` values.
+ * Re-indexes an array of order-bearing items (pages OR raw captures) to a
+ * dense `order` of 0..n-1, preserving the given array's order. Used
+ * everywhere pages/raw captures are inserted/removed so no mutation ever
+ * leaves gaps or duplicate `order` values.
  */
-function reindex(pages: readonly DocumentPage[]): DocumentPage[] {
-  return pages.map((page, index) => (page.order === index ? page : { ...page, order: index }));
+function reindex<T extends { readonly order: number }>(items: readonly T[]): T[] {
+  return items.map((item, index) => (item.order === index ? item : { ...item, order: index }));
 }
 
 /**
@@ -176,6 +244,43 @@ export function createDocumentActions(
           return {};
         }
         return { pages: [...state.pages, page] };
+      }),
+
+    addRawCapture: (raw) =>
+      set((state) => {
+        if (state.pages.length + state.rawCaptures.length >= FILTER.PAGE_CAP) {
+          // Defensive no-op (mirrors `addPage`'s own guard): the capture
+          // controller (Unit 3) is expected to block BEFORE capturing via
+          // the combined `pages.length + rawCaptures.length` cap. Ownership
+          // of the caller's live bitmap is NOT this action's concern — the
+          // async orchestrator (`useActivePage.materializeRawCapture`) owns
+          // closing it on a blocked cap, same split of responsibility as
+          // `materializeCapture`/`addPage`.
+          return {};
+        }
+        return { rawCaptures: [...state.rawCaptures, raw] };
+      }),
+
+    clearRawCaptures: () =>
+      set((state) => {
+        state.rawCaptures.forEach((raw) => raw.thumbnail.close());
+        return { rawCaptures: [] };
+      }),
+
+    removeLastRawCapture: () =>
+      set((state) => {
+        if (state.rawCaptures.length === 0) return {};
+        const last = state.rawCaptures[state.rawCaptures.length - 1] as RawCapture;
+        last.thumbnail.close();
+        return { rawCaptures: state.rawCaptures.slice(0, -1) };
+      }),
+
+    removeRawCapture: (id) =>
+      set((state) => {
+        const target = state.rawCaptures.find((raw) => raw.id === id);
+        if (!target) return {};
+        target.thumbnail.close();
+        return { rawCaptures: reindex(state.rawCaptures.filter((raw) => raw.id !== id)) };
       }),
 
     setActivePageId: (id) => set({ activePageId: id }),
@@ -285,15 +390,17 @@ export function createDocumentActions(
 
     resetDocument: () =>
       set((state) => {
-        // Full teardown (design section 1.5): close activeWorking, every
-        // page's thumbnail, and pendingDeletion's thumbnail before resetting
-        // — never leave a live full-res bitmap for the GC to eventually
+        // Full teardown (design section 1.5, extended Fase 2.3 for
+        // `rawCaptures`): close activeWorking, every page's thumbnail, every
+        // raw capture's thumbnail, and pendingDeletion's thumbnail before
+        // resetting — never leave a live bitmap for the GC to eventually
         // reclaim.
         if (state.activeWorking) {
           state.activeWorking.originalBitmap.close();
           state.activeWorking.warpedBase.close();
         }
         state.pages.forEach((page) => page.thumbnail.close());
+        state.rawCaptures.forEach((raw) => raw.thumbnail.close());
         if (state.pendingDeletion) {
           state.pendingDeletion.thumbnail.close();
         }

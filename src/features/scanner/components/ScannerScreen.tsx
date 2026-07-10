@@ -9,9 +9,11 @@
  * Rewritten to the phase-driven, active-page/multipage model in Group 1c
  * (design section 5.1, ADR-010): `DocumentSlice.phase` is now the SOLE phase
  * owner (F1's legacy single-page capture state is gone). This screen renders:
- *  - `idle`/`capturing`/`tray` -> the live camera view + `CaptureTray`
+ *  - `idle`/`capturing` (no draft yet) -> the live camera view + `CaptureTray`
  *    (design section 5.2, Group 5/PR8: thumbnail strip + page counter +
- *    "Listo").
+ *    "Listo"). Fase 2.3 (capture-ux-redesign.md) drops the dedicated
+ *    `'tray'` phase — `'idle'` renders this same fallthrough view; Unit 3
+ *    replaces this whole flow with a full-bleed `CaptureScreen`.
  *  - `editing-corners` -> `CornerEditor`, in one of two modes: a FRESH
  *    capture (not yet a page — local `draftCapture` state below) or a
  *    RE-ENTERED page from the grid (`activatePage` already populated
@@ -245,11 +247,11 @@ export function ScannerScreen(): ReactNode {
   // `phase` is 'editing-corners' or 'capturing' — the corner editor owns
   // resuming it (via handleEditorCancel/materialize/deactivate below) once
   // the user is done with this page, so DETECT never races the editor's own
-  // warp calls over the same worker. `tray`/`grid`/`done`/`idle` all resume
-  // it automatically whenever the camera <video> is mounted (continuous
-  // capture keeps the camera open — scanner spec "Confirmar una pagina no
-  // cierra la camara"); when it is not mounted (e.g. `grid`, which renders
-  // no `CameraView`), `videoRef.current` is null and this is a no-op.
+  // warp calls over the same worker. `idle`/`grid`/`done` all resume it
+  // automatically whenever the camera <video> is mounted (continuous capture
+  // keeps the camera open — scanner spec "Confirmar una pagina no cierra la
+  // camara"); when it is not mounted (e.g. `grid`, which renders no
+  // `CameraView`), `videoRef.current` is null and this is a no-op.
   useEffect(() => {
     const video = videoRef.current;
     if (!video || permission !== 'granted' || phase === 'editing-corners' || phase === 'capturing') {
@@ -344,10 +346,11 @@ export function ScannerScreen(): ReactNode {
     } catch {
       // Slice D review fix M4: if capture throws (e.g. ImageCapture failure),
       // never leave the scanner frozen in 'capturing'. Restore a usable phase
-      // and resume the live detection loop so the user can retry. `tray` keeps
-      // the camera+tray view (identical rendering to `idle` here); it is the
-      // more accurate phase once at least one page may already exist.
-      setPhase('tray');
+      // and resume the live detection loop so the user can retry. Fase 2.3
+      // (capture-ux-redesign.md) drops the dedicated `'tray'` phase — `'idle'`
+      // renders the identical camera+tray fallthrough view below, unchanged
+      // pending Unit 3's capture-screen rewrite.
+      setPhase('idle');
       if (videoRef.current) {
         startDetection(videoRef.current);
       }
@@ -520,7 +523,7 @@ export function ScannerScreen(): ReactNode {
       current?.source.close();
       return null;
     });
-    setPhase('tray');
+    setPhase('idle');
     editorInitialCornersRef.current = null;
     if (videoRef.current) {
       startDetection(videoRef.current);
@@ -541,7 +544,7 @@ export function ScannerScreen(): ReactNode {
       if (!draft) return;
       setDraftCapture(null);
       editorInitialCornersRef.current = null;
-      setPhase('tray');
+      setPhase('idle');
       void materializeCapture({
         pageId: draft.pageId,
         recipe: result.recipe,
@@ -596,7 +599,7 @@ export function ScannerScreen(): ReactNode {
   }, [setPhase]);
 
   const handleGridCaptureMore = useCallback(() => {
-    setPhase('tray');
+    setPhase('idle');
   }, [setPhase]);
 
   const handleGridFinish = useCallback(() => {
@@ -791,10 +794,9 @@ export function ScannerScreen(): ReactNode {
   // component itself).
   const openCvDegraded = opencvStatus === 'error';
 
-  // `idle`/`capturing` (transient, no draft yet)/`tray` all render the SAME
-  // continuous camera view (design section 5.1: "capturing/tray -> camera +
-  // tray"). The tray strip PLACEHOLDER (Group 5/PR8 owns the real
-  // `CaptureTray`) only makes sense once at least one page exists.
+  // `idle`/`capturing` (transient, no draft yet) both render the SAME
+  // continuous camera view (design section 5.1). The tray strip (Group
+  // 5/PR8's `CaptureTray`) only makes sense once at least one page exists.
   return (
     <div className="flex w-full max-w-md flex-col items-center gap-4">
       {openCvDegraded && <OpenCvDegradedBanner lastError={opencvLastError} onRetry={retryManualInit} />}

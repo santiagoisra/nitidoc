@@ -147,6 +147,112 @@ describe('useActivePage.materializeCapture (design section 2.2 "Materialize on c
   });
 });
 
+describe('useActivePage.materializeRawCapture (Fase 2.3, capture-ux-redesign.md "Memory")', () => {
+  it('compresses+thumbnails the UNWARPED original, appends via addRawCapture, and closes the live bitmap', async () => {
+    const { result } = renderHook(() => useActivePage());
+    const originalBitmap = fakeBitmap(2000, 3000);
+
+    let outcome: { status: string } | undefined;
+    await act(async () => {
+      outcome = await result.current.materializeRawCapture({
+        id: 'raw-1',
+        originalBitmap,
+        originalWidth: 2000,
+        originalHeight: 3000,
+      });
+    });
+
+    expect(outcome).toEqual({ status: 'added' });
+    expect(useScannerStore.getState().rawCaptures).toHaveLength(1);
+    expect(useScannerStore.getState().rawCaptures[0]?.id).toBe('raw-1');
+    expect(useScannerStore.getState().rawCaptures[0]?.order).toBe(0);
+    // Thumbnail + compress both derive from the ORIGINAL bitmap — no warpedBase exists yet.
+    expect(makeThumbnailMock).toHaveBeenCalledWith(originalBitmap, FILTER.THUMBNAIL_MAX_EDGE);
+    expect(compressBitmapToJpegMock).toHaveBeenCalledWith(originalBitmap, FILTER.JPEG_QUALITY);
+    expect(compressBitmapToJpegMock).toHaveBeenCalledTimes(1);
+    expect(originalBitmap.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('cap-reached (combined pages+rawCaptures) blocks: no raw added, live bitmap released, no compress/thumbnail work wasted', async () => {
+    // 25 pages + 5 raw captures = FILTER.PAGE_CAP (30).
+    for (let i = 0; i < 25; i += 1) {
+      useScannerStore.getState().addPage(fakePage({ order: i }));
+    }
+    for (let i = 0; i < 5; i += 1) {
+      useScannerStore.getState().addRawCapture({
+        id: `raw-${i}`,
+        order: i,
+        originalBlob: fakeBlob(),
+        thumbnail: fakeBitmap(150, 150),
+        originalWidth: 1000,
+        originalHeight: 1400,
+      });
+    }
+
+    const { result } = renderHook(() => useActivePage());
+    expect(result.current.isAtCap).toBe(true);
+    expect(result.current.canAddPage).toBe(false);
+
+    const originalBitmap = fakeBitmap();
+
+    let outcome: { status: string } | undefined;
+    await act(async () => {
+      outcome = await result.current.materializeRawCapture({
+        id: 'overflow',
+        originalBitmap,
+        originalWidth: 100,
+        originalHeight: 100,
+      });
+    });
+
+    expect(outcome).toEqual({ status: 'blocked-cap' });
+    expect(useScannerStore.getState().rawCaptures).toHaveLength(5);
+    expect(useScannerStore.getState().rawCaptures.some((r) => r.id === 'overflow')).toBe(false);
+    expect(originalBitmap.close).toHaveBeenCalledTimes(1);
+    expect(compressBitmapToJpegMock).not.toHaveBeenCalled();
+    expect(makeThumbnailMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('useActivePage.isAtCap / canAddPage — combined pages+rawCaptures count', () => {
+  it('is NOT at cap when pages+rawCaptures together are under FILTER.PAGE_CAP', () => {
+    for (let i = 0; i < 10; i += 1) {
+      useScannerStore.getState().addPage(fakePage({ order: i }));
+    }
+    for (let i = 0; i < 10; i += 1) {
+      useScannerStore.getState().addRawCapture({
+        id: `raw-${i}`,
+        order: i,
+        originalBlob: fakeBlob(),
+        thumbnail: fakeBitmap(150, 150),
+        originalWidth: 1000,
+        originalHeight: 1400,
+      });
+    }
+
+    const { result } = renderHook(() => useActivePage());
+    expect(result.current.isAtCap).toBe(false);
+    expect(result.current.canAddPage).toBe(true);
+  });
+
+  it('is at cap once pages.length + rawCaptures.length reaches FILTER.PAGE_CAP, even with zero pages', () => {
+    for (let i = 0; i < FILTER.PAGE_CAP; i += 1) {
+      useScannerStore.getState().addRawCapture({
+        id: `raw-${i}`,
+        order: i,
+        originalBlob: fakeBlob(),
+        thumbnail: fakeBitmap(150, 150),
+        originalWidth: 1000,
+        originalHeight: 1400,
+      });
+    }
+
+    const { result } = renderHook(() => useActivePage());
+    expect(result.current.isAtCap).toBe(true);
+    expect(result.current.canAddPage).toBe(false);
+  });
+});
+
 describe('useActivePage.activatePage (design section 2.2 "Activate")', () => {
   it('decodes both blobs, sets activeWorking/activePageId, clears activeDirty', async () => {
     const page = fakePage({ id: 'a' });

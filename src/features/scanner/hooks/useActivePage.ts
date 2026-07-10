@@ -29,6 +29,25 @@ import { compressBitmapToJpeg, decodeBlobToBitmap, makeThumbnail } from '@/featu
 import { FILTER } from '@/features/scanner/lib/filterConstants';
 import type { EditRecipe } from '@/shared/types/scanner';
 
+/**
+ * Input for `materializeRawCapture` (Fase 2.3, capture-ux-redesign.md "Memory"
+ * — deferred-processing capture flow, Unit 1/3). Lighter than
+ * `MaterializeCaptureInput`: only ONE bitmap (no warp yet at capture time).
+ */
+export interface MaterializeRawCaptureInput {
+  /** `crypto.randomUUID()`, assigned by the caller before calling this — flows into the resulting page's id at conversion (Unit 4). */
+  readonly id: string;
+  /** Live, from the capture sequence (already cropped to the visible object-cover rect, D-4). OWNERSHIP TRANSFERS to this call — closed once compressed+thumbnailed. */
+  readonly originalBitmap: ImageBitmap;
+  readonly originalWidth: number;
+  readonly originalHeight: number;
+}
+
+export interface MaterializeRawCaptureResult {
+  /** `'blocked-cap'` when the COMBINED `pages.length + rawCaptures.length` cap was already reached. The live bitmap is still released either way (never leaked). */
+  readonly status: 'added' | 'blocked-cap';
+}
+
 /** Input for `materializeCapture` (design section 2.2 "Materialize on capture"). */
 export interface MaterializeCaptureInput {
   /** `crypto.randomUUID()`, assigned by the caller (capture controller) before calling this. */
@@ -69,12 +88,23 @@ export interface UseActivePageResult {
   readonly activePageId: string | null;
   readonly activeWorking: ActivePageResources | null;
   readonly activeDirty: boolean;
-  /** True once `pages.length >= FILTER.PAGE_CAP` (design section 2.3 / D-MEM). */
+  /**
+   * True once the COMBINED `pages.length + rawCaptures.length` reaches
+   * `FILTER.PAGE_CAP` (design section 2.3 / D-MEM, extended Fase 2.3: a raw
+   * capture is a future page, so it counts toward the same hard cap).
+   */
   readonly isAtCap: boolean;
   /** Convenience negation of `isAtCap` for capture-button gating (task 2.3). */
   readonly canAddPage: boolean;
   /** Materialize-on-capture (design section 2.2). Compresses+thumbnails, `addPage`s, releases the live bitmaps. */
   readonly materializeCapture: (input: MaterializeCaptureInput) => Promise<MaterializeCaptureResult>;
+  /**
+   * Materialize a RAW capture (Fase 2.3, capture-ux-redesign.md "Memory"):
+   * compresses the UNWARPED original to a blob, thumbnails it, `addRawCapture`s,
+   * and closes the live bitmap. No warp/detect happens here — that is Unit 4's
+   * `processing`-phase batch step.
+   */
+  readonly materializeRawCapture: (input: MaterializeRawCaptureInput) => Promise<MaterializeRawCaptureResult>;
   /** Activate a page (design section 2.2). Deactivates the current active page first, then decodes+materializes. */
   readonly activatePage: (pageId: string) => Promise<void>;
   /** Deactivate the current active page (design section 2.2). Recompresses ONLY if `activeDirty`, then closes bitmaps. */
@@ -88,8 +118,9 @@ export function useActivePage(): UseActivePageResult {
   const activeWorking = useScannerStore((state) => state.activeWorking);
   const activeDirty = useScannerStore((state) => state.activeDirty);
   const pagesLength = useScannerStore((state) => state.pages.length);
+  const rawCapturesLength = useScannerStore((state) => state.rawCaptures.length);
 
-  const isAtCap = pagesLength >= FILTER.PAGE_CAP;
+  const isAtCap = pagesLength + rawCapturesLength >= FILTER.PAGE_CAP;
   const canAddPage = !isAtCap;
 
   const materializeCapture = useCallback(
@@ -138,6 +169,48 @@ export function useActivePage(): UseActivePageResult {
 
       // Returns to camera/tray with nothing materialized (design section 2.2 step 5).
       setActiveWorking(null);
+
+      return { status: 'added' };
+    },
+    [],
+  );
+
+  const materializeRawCapture = useCallback(
+    async (input: MaterializeRawCaptureInput): Promise<MaterializeRawCaptureResult> => {
+      const { pages, rawCaptures, addRawCapture } = useScannerStore.getState();
+
+      if (pages.length + rawCaptures.length >= FILTER.PAGE_CAP) {
+        // Defensive guard (mirrors `materializeCapture`'s own "Cap reached"
+        // handling): release the live bitmap rather than leaking it, even
+        // though nothing gets added.
+        input.originalBitmap.close();
+        return { status: 'blocked-cap' };
+      }
+
+      // Thumbnail + compress both derive from the UNWARPED original — no
+      // warp has happened yet at capture time (design section "Memory").
+      const [thumbnail, originalBlob] = await Promise.all([
+        makeThumbnail(input.originalBitmap, FILTER.THUMBNAIL_MAX_EDGE),
+        compressBitmapToJpeg(input.originalBitmap, FILTER.JPEG_QUALITY),
+      ]);
+
+      // Re-read rawCaptures.length right before appending (not the snapshot
+      // from above) so the new raw's `order` is correct even if another
+      // append happened while the compress/thumbnail work above was in
+      // flight (mirrors `materializeCapture`'s own re-read).
+      const order = useScannerStore.getState().rawCaptures.length;
+      addRawCapture({
+        id: input.id,
+        order,
+        originalBlob,
+        thumbnail,
+        originalWidth: input.originalWidth,
+        originalHeight: input.originalHeight,
+      });
+
+      // The live capture bitmap is no longer needed once compressed and
+      // handed to addRawCapture.
+      input.originalBitmap.close();
 
       return { status: 'added' };
     },
@@ -235,6 +308,7 @@ export function useActivePage(): UseActivePageResult {
     isAtCap,
     canAddPage,
     materializeCapture,
+    materializeRawCapture,
     activatePage,
     deactivateActivePage,
     rewarpActivePage,
