@@ -9,6 +9,12 @@
  * the caller. The overlay CONTENT itself (interpolated contour drawing)
  * lives in `DetectionOverlay` and is composed by `ScannerScreen`, not owned
  * by this component.
+ * Scope (Fase 2.3 / capture-ux-redesign.md, Unit 3): `fill` renders the
+ * immersive full-bleed capture screen's camera layer — the container becomes
+ * `absolute inset-0 h-full w-full`, dropping the fixed-aspect/max-width/
+ * rounded chrome, while the `<video>` itself stays `object-cover` either way.
+ * `videoRef`/the stream-binding effect/`openCamera` timing are unaffected —
+ * only the CONTAINER's layout classes change.
  */
 
 import type { ForwardedRef, ReactNode } from 'react';
@@ -18,10 +24,12 @@ import { useScannerStore } from '@/features/scanner/store/scannerStore';
 export interface CameraViewProps {
   /** Optional overlay content (contour, corner handles) rendered above the video. Group 4/5 supply this. */
   readonly overlay?: ReactNode;
+  /** Full-bleed immersive capture screen (Fase 2.3, Unit 3): fills the parent absolutely instead of the fixed-aspect card layout. */
+  readonly fill?: boolean;
 }
 
 function CameraViewImpl(
-  { overlay }: CameraViewProps,
+  { overlay, fill = false }: CameraViewProps,
   ref: ForwardedRef<HTMLVideoElement>,
 ): ReactNode {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -40,8 +48,12 @@ function CameraViewImpl(
     };
   }, [stream]);
 
+  const containerClassName = fill
+    ? 'absolute inset-0 h-full w-full overflow-hidden bg-surface'
+    : 'relative aspect-[3/4] w-full max-w-md overflow-hidden rounded-2xl bg-surface';
+
   return (
-    <div className="relative aspect-[3/4] w-full max-w-md overflow-hidden rounded-2xl bg-surface">
+    <div className={containerClassName}>
       <video
         ref={videoRef}
         autoPlay

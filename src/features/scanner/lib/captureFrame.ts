@@ -164,3 +164,78 @@ export async function captureFullResFrame(
 export function releaseCapturedFrame(frame: CapturedFrameResult | null): void {
   frame?.bitmap.close();
 }
+
+/** The displayed element's CSS box (e.g. `video.getBoundingClientRect()`). */
+export interface VisibleRectBox {
+  readonly width: number;
+  readonly height: number;
+}
+
+/**
+ * Aspect mismatch below this threshold is treated as "already matches" —
+ * avoids a no-op 1px crop from floating point noise.
+ */
+const ASPECT_EPSILON = 0.01;
+
+/**
+ * Fase 2.3 (capture-ux-redesign.md, D-4 "WYSIWYG"): the live camera preview
+ * renders full-bleed with `object-cover`, which means the browser silently
+ * crops whichever dimension of the native video stream overflows the
+ * displayed box. Without correcting for this, a captured full-res frame
+ * would include content the user never actually saw framed on screen (and
+ * detection in Unit 4 would run on that same unseen margin). This crops the
+ * captured `bitmap` down to exactly the portion `object-cover` was showing.
+ *
+ * `nativeWidth`/`nativeHeight` are the live `<video>` element's own
+ * negotiated resolution (`video.videoWidth`/`video.videoHeight`) — used only
+ * to derive the SOURCE aspect ratio, since `captureFullResFrame`'s own 16MP
+ * cap (`capCaptureDimensions`) may scale `bitmap` to different absolute
+ * pixel dimensions than the live video while preserving the same ratio.
+ * `box` is the displayed element's CSS box (what `object-cover` fits into).
+ *
+ * Takes ownership of `bitmap`: it is closed unless returned UNCHANGED
+ * (aspect ratio already matches the box, or the box/native dimensions are
+ * not yet usable — e.g. before layout, or a non-browser test environment —
+ * in which case guessing a crop would be worse than not cropping at all).
+ */
+export async function cropToVisibleRect(
+  bitmap: ImageBitmap,
+  nativeWidth: number,
+  nativeHeight: number,
+  box: VisibleRectBox,
+): Promise<ImageBitmap> {
+  if (box.width <= 0 || box.height <= 0 || nativeWidth <= 0 || nativeHeight <= 0) {
+    return bitmap;
+  }
+
+  const sourceAspect = nativeWidth / nativeHeight;
+  const boxAspect = box.width / box.height;
+
+  if (Math.abs(sourceAspect - boxAspect) < ASPECT_EPSILON) {
+    return bitmap;
+  }
+
+  // Crop FRACTIONS derived from comparing the native/box aspect ratios,
+  // applied to the bitmap's own (possibly 16MP-capped, but proportionally
+  // identical) pixel dimensions.
+  let cropWidthFraction = 1;
+  let cropHeightFraction = 1;
+  if (boxAspect > sourceAspect) {
+    // Box is relatively WIDER than the source -> object-cover crops height.
+    cropHeightFraction = sourceAspect / boxAspect;
+  } else {
+    // Box is relatively TALLER than the source -> object-cover crops width.
+    cropWidthFraction = boxAspect / sourceAspect;
+  }
+
+  const cropWidth = Math.max(1, Math.round(bitmap.width * cropWidthFraction));
+  const cropHeight = Math.max(1, Math.round(bitmap.height * cropHeightFraction));
+  const x = Math.round((bitmap.width - cropWidth) / 2);
+  const y = Math.round((bitmap.height - cropHeight) / 2);
+
+  try {
+    return await createImageBitmap(bitmap, x, y, cropWidth, cropHeight);
+  } finally {
+    bitmap.close();
+  }
+}
