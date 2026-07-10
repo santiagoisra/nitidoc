@@ -23,15 +23,18 @@ export const DETECTION = {
   DARK_THRESHOLD: 60,
   /**
    * Stability window in ms: corners must stay under
-   * STABILITY_VARIANCE_PX for this long to be considered stable.
+   * STABILITY_STDDEV_PX for this long to be considered stable.
    * STARTING VALUE — calibrate by feel.
    */
   STABILITY_MS: 800,
   /**
-   * Per-corner position variance (px) under which corners are considered
-   * stable. STARTING VALUE — calibrate by feel.
+   * Per-corner position standard deviation, IN PIXELS (on the
+   * `DOWNSCALE_WIDTH`-wide detection frame), under which corners are
+   * considered stable. STARTING VALUE — calibrate by feel. Chosen in the
+   * 6-10px range as a handheld-reasonable tolerance: sub-pixel stillness
+   * (the previous, mistakenly-squared threshold) never occurs handheld.
    */
-  STABILITY_VARIANCE_PX: 4,
+  STABILITY_STDDEV_PX: 8,
   /** Overlay corner interpolation smoothing factor (lerp alpha). */
   INTERP_ALPHA: 0.35,
   /** Time without a valid detection before showing the "capture anyway" hint. */
