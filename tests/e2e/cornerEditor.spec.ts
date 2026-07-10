@@ -13,11 +13,10 @@ import { expect, test } from '@playwright/test';
  * output is also NOT verified pixel-by-pixel here — that requires a real
  * document fixture (Slice F, task 7.2) or manual device QA. What this test
  * DOES verify: the manual capture button transitions the screen into the
- * corner editor, 4 draggable handles render, the aspect-ratio selector and
- * Confirm/Back controls render, and the wiring survives without an
- * unhandled page error.
+ * corner editor's 'corners' step, 4 draggable handles render, Back/Next
+ * controls render, and the wiring survives without an unhandled page error.
  */
-test('manual capture opens the corner editor with 4 handles and a confirm button', async ({ page }) => {
+test('manual capture opens the corner editor with 4 handles and a next button', async ({ page }) => {
   const pageErrors: Error[] = [];
   page.on('pageerror', (error) => pageErrors.push(error));
 
@@ -40,9 +39,11 @@ test('manual capture opens the corner editor with 4 handles and a confirm button
     await expect(page.getByTestId(`corner-handle-${i}`)).toBeVisible();
   }
 
-  await expect(page.getByTestId('aspect-ratio-selector')).toBeVisible();
+  // Step 'corners' (Fase 2.1 two-step editor): Back/Next only — the
+  // aspect-ratio selector and Confirm now live in step 'adjust', reached via
+  // "Next".
   await expect(page.getByTestId('corner-editor-cancel')).toBeVisible();
-  await expect(page.getByTestId('corner-editor-confirm')).toBeAttached();
+  await expect(page.getByTestId('corner-editor-next')).toBeAttached();
 
   expect(pageErrors, `Unhandled page errors: ${pageErrors.map((e) => e.message).join('; ')}`).toHaveLength(0);
 });

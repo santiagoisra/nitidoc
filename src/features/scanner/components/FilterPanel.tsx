@@ -1,5 +1,9 @@
 /**
- * Per-page filter panel (Group 4 / PR7; design section 3.4/5.4, ADR-008/009).
+ * Per-page filter panel (Group 4 / PR7; design section 3.4/5.4, ADR-008/009.
+ * Rendered INLINE inside `CornerEditor`'s 'adjust' step since the Fase 2.1
+ * punch-list restructure — item 2 moved this out of a `Sheet` modal into a
+ * prominent, always-visible panel next to the aspect/rotate/flip controls,
+ * instead of hidden behind a "Filters" button).
  * Fully CONTROLLED over its `filter` prop — mirrors `CornerEditor`'s own
  * controlled contract (design section 5.4): this component never touches
  * `DocumentSlice` directly. Preset/slider edits flow out via `onChange`,
@@ -31,7 +35,7 @@
 
 import type { ChangeEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, Sheet } from '@/shared/ui';
+import { Button } from '@/shared/ui';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
 import { buildCssFilter } from '@/features/scanner/lib/filterPipeline';
 import { makeThumbnail } from '@/features/scanner/lib/pageResources';
@@ -53,8 +57,6 @@ const PRESET_LABELS: Record<FilterPreset, string> = {
 };
 
 export interface FilterPanelProps {
-  readonly open: boolean;
-  readonly onClose: () => void;
   /** UNFILTERED warp base (design section 3, ADR-009) — a small thumbnail is derived from this for previews. */
   readonly baseBitmap: ImageBitmap;
   readonly filter: FilterParams;
@@ -84,7 +86,7 @@ function extractImageData(bitmap: ImageBitmap): ImageDataLike {
   return { width: imageData.width, height: imageData.height, data: imageData.data };
 }
 
-export function FilterPanel({ open, onClose, baseBitmap, filter, onChange, onApplyToAll }: FilterPanelProps): ReactNode {
+export function FilterPanel({ baseBitmap, filter, onChange, onApplyToAll }: FilterPanelProps): ReactNode {
   // Close-before-overwrite hygiene for the derived thumbnail (design section
   // 1.5/7), held in a ref (not state) so cleanup/replacement always sees the
   // CURRENT live bitmap rather than a stale render's closure.
@@ -283,107 +285,106 @@ export function FilterPanel({ open, onClose, baseBitmap, filter, onChange, onApp
   const thumbnail = thumbnailRef.current;
 
   return (
-    <Sheet open={open} onClose={onClose} title="Filters">
-      <div className="flex w-full flex-col gap-4" data-testid="filter-panel">
-        <div className="grid grid-cols-3 gap-2" data-testid="filter-preset-grid">
-          {ALL_PRESETS.map((preset) => {
-            const isAdaptive = ADAPTIVE_PRESETS.includes(preset);
-            const cssFilter = isAdaptive ? 'none' : buildCssFilter({ ...filter, preset });
-            const adaptiveResult = adaptiveResultsRef.current[preset];
-            return (
-              <PresetTile
-                key={preset}
-                preset={preset}
-                label={PRESET_LABELS[preset]}
-                active={filter.preset === preset}
-                thumbnail={thumbnail}
-                cssFilter={isAdaptive ? null : cssFilter}
-                adaptiveResult={isAdaptive ? adaptiveResult : undefined}
-                onSelect={() => handleSelectPreset(preset)}
-              />
-            );
-          })}
-        </div>
-
-        <label className="flex flex-col gap-1 text-sm text-text-muted" data-testid="filter-slider-brightness">
-          Brightness
-          <input
-            type="range"
-            min={-100}
-            max={100}
-            value={filter.brightness}
-            onChange={handleBrightnessChange}
-            aria-label="Brightness"
-            data-testid="brightness-input"
-          />
-        </label>
-
-        <label className="flex flex-col gap-1 text-sm text-text-muted" data-testid="filter-slider-contrast">
-          Contrast
-          <input
-            type="range"
-            min={-100}
-            max={100}
-            value={filter.contrast}
-            onChange={handleContrastChange}
-            aria-label="Contrast"
-            data-testid="contrast-input"
-          />
-        </label>
-
-        <label className="flex flex-col gap-1 text-sm text-text-muted" data-testid="filter-slider-sharpness">
-          Sharpness
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={filter.sharpness}
-            onChange={handleSharpnessChange}
-            aria-label="Sharpness"
-            data-testid="sharpness-input"
-          />
-        </label>
-
-        {onApplyToAll && (
-          <div className="flex flex-col gap-2 border-t border-text-muted/20 pt-4">
-            {!confirmingApplyAll ? (
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={handleApplyToAllClick}
-                data-testid="apply-to-all-button"
-              >
-                Apply to all pages
-              </Button>
-            ) : (
-              <div className="flex flex-col gap-2" data-testid="apply-to-all-confirm">
-                <p className="text-sm text-text-muted">
-                  Apply this filter to every page? Individual filters will be overwritten.
-                </p>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={handleApplyToAllCancel}
-                    data-testid="apply-to-all-cancel"
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="primary"
-                    onClick={handleApplyToAllConfirm}
-                    data-testid="apply-to-all-confirm-button"
-                  >
-                    Apply to all
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+    <div className="flex w-full flex-col gap-4" data-testid="filter-panel">
+      <h3 className="text-sm font-medium text-text">Filters</h3>
+      <div className="grid grid-cols-3 gap-2" data-testid="filter-preset-grid">
+        {ALL_PRESETS.map((preset) => {
+          const isAdaptive = ADAPTIVE_PRESETS.includes(preset);
+          const cssFilter = isAdaptive ? 'none' : buildCssFilter({ ...filter, preset });
+          const adaptiveResult = adaptiveResultsRef.current[preset];
+          return (
+            <PresetTile
+              key={preset}
+              preset={preset}
+              label={PRESET_LABELS[preset]}
+              active={filter.preset === preset}
+              thumbnail={thumbnail}
+              cssFilter={isAdaptive ? null : cssFilter}
+              adaptiveResult={isAdaptive ? adaptiveResult : undefined}
+              onSelect={() => handleSelectPreset(preset)}
+            />
+          );
+        })}
       </div>
-    </Sheet>
+
+      <label className="flex flex-col gap-1 text-sm text-text-muted" data-testid="filter-slider-brightness">
+        Brightness
+        <input
+          type="range"
+          min={-100}
+          max={100}
+          value={filter.brightness}
+          onChange={handleBrightnessChange}
+          aria-label="Brightness"
+          data-testid="brightness-input"
+        />
+      </label>
+
+      <label className="flex flex-col gap-1 text-sm text-text-muted" data-testid="filter-slider-contrast">
+        Contrast
+        <input
+          type="range"
+          min={-100}
+          max={100}
+          value={filter.contrast}
+          onChange={handleContrastChange}
+          aria-label="Contrast"
+          data-testid="contrast-input"
+        />
+      </label>
+
+      <label className="flex flex-col gap-1 text-sm text-text-muted" data-testid="filter-slider-sharpness">
+        Sharpness
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={filter.sharpness}
+          onChange={handleSharpnessChange}
+          aria-label="Sharpness"
+          data-testid="sharpness-input"
+        />
+      </label>
+
+      {onApplyToAll && (
+        <div className="flex flex-col gap-2 border-t border-text-muted/20 pt-4">
+          {!confirmingApplyAll ? (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handleApplyToAllClick}
+              data-testid="apply-to-all-button"
+            >
+              Apply to all pages
+            </Button>
+          ) : (
+            <div className="flex flex-col gap-2" data-testid="apply-to-all-confirm">
+              <p className="text-sm text-text-muted">
+                Apply this filter to every page? Individual filters will be overwritten.
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={handleApplyToAllCancel}
+                  data-testid="apply-to-all-cancel"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  onClick={handleApplyToAllConfirm}
+                  data-testid="apply-to-all-confirm-button"
+                >
+                  Apply to all
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

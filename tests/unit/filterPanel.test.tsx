@@ -97,8 +97,6 @@ function Harness({
   const [filter, setFilter] = useState<FilterParams>(initialFilter);
   return (
     <FilterPanel
-      open
-      onClose={() => {}}
       baseBitmap={baseBitmap}
       filter={filter}
       onChange={(next) => {

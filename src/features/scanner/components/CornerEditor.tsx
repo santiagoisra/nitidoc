@@ -26,8 +26,8 @@
  *    frame otherwise (5.1.1).
  *  - Show a magnifier loupe centered on the handle while dragging (5.1.2).
  *  - Validate convexity with `isConvex` on every pointerup/touchend and
- *    disable "Confirm" + show an invalid state when the quad is not convex
- *    (5.1.3).
+ *    disable "Next"/"Confirm" + show an invalid state when the quad is not
+ *    convex (5.1.3).
  *  - Trigger the warp ONLY on pointerup/touchend, never on intermediate drag
  *    positions (5.1.4 / 5.2.1).
  *  - Handle both `WARP_RESULT` (ImageBitmap) and `WARP_RESULT_IMAGEDATA`
@@ -41,6 +41,29 @@
  *  - Offer non-destructive post-warp rotate/flip controls that only touch
  *    the recipe + a CSS transform, never re-invoking the worker (5.4).
  *
+ * TWO-STEP internal flow (Fase 2.1 punch-list items 2/3): a local `step`
+ * state — `'corners' | 'adjust'` — splits what used to be one monolithic
+ * screen. This is INTENTIONALLY not a `DocumentPhase` — the store's phase
+ * model still only knows `'editing-corners'`; `step` is a presentation-only
+ * concern private to this component.
+ *  - `'corners'`: ONLY the corner-drag canvas + convex-shape warning.
+ *    Primary action is "Next", which validates the quad (`valid && recipe`,
+ *    i.e. a successful warp already landed) and advances to `'adjust'`.
+ *    Secondary is "Back", which CANCELS the whole editing session (calls
+ *    `onCancel`), exactly like the old single-step "Back" did.
+ *  - `'adjust'`: the warped preview + aspect/size selector + rotate/flip +
+ *    the `FilterPanel` rendered INLINE (no longer a `Sheet` modal — Fase 2.1
+ *    item 2, "filters more visible"). Primary action is "Confirm", which
+ *    commits the page via `onConfirm` exactly as before (recipe includes
+ *    whatever filter was selected here — Fase 2.1 item 3, "filter actually
+ *    applies"). Secondary is "Back", which returns to `'corners'` WITHOUT
+ *    discarding the in-progress recipe (aspect/rotation/flip/filter edits
+ *    made so far are preserved in local state).
+ * Aspect changes still re-warp via `runWarp` (unchanged `handleAspectChange`);
+ * filter changes NEVER re-warp (`handleFilterChange` only rewrites local
+ * recipe state) — both invariants are preserved verbatim across the step
+ * split, only their presentation moved.
+ *
  * Does NOT touch `originalBitmap` at any point (perspective spec "Ediciones
  * no destructivas sobre el original") — only reads pixels out of it once per
  * confirmed warp. `originalBitmap` ownership stays with the caller: this
@@ -50,7 +73,7 @@
 
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlipHorizontal, RotateCw, SlidersHorizontal } from 'lucide-react';
+import { FlipHorizontal, RotateCw } from 'lucide-react';
 import { Button } from '@/shared/ui';
 import { FilterPanel } from '@/features/scanner/components/FilterPanel';
 import {
@@ -189,7 +212,8 @@ export function CornerEditor({
   );
   const [isWarping, setIsWarping] = useState(false);
   const [warpError, setWarpError] = useState(false);
-  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+  /** Fase 2.1 item 2: internal two-step flow, presentation-only (see module doc comment). */
+  const [step, setStep] = useState<'corners' | 'adjust'>('corners');
   const [draggingIndex, setDraggingIndex] = useState<0 | 1 | 2 | 3 | null>(null);
   const [dragPoint, setDragPoint] = useState<Point | null>(null);
 
@@ -197,8 +221,6 @@ export function CornerEditor({
   const activePointerIdRef = useRef<number | null>(null);
   /** Tracks whether the active drag actually moved, to skip a redundant warp on a bare tap (fix L2). */
   const movedRef = useRef(false);
-  /** Backing canvas that shows the source document behind the handles/overlay. */
-  const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   /** Guards the one-shot initial warp so it runs exactly once per mounted session. */
   const initialWarpDoneRef = useRef(false);
 
@@ -222,16 +244,24 @@ export function CornerEditor({
   // page while adjusting the corner handles (the overlay/handles alone would
   // float over an empty surface otherwise). `originalBitmap` is immutable and
   // not closed by the memoized ImageData extraction, so it stays drawable here.
-  useEffect(() => {
-    const canvas = sourceCanvasRef.current;
-    if (!canvas) return;
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.drawImage(originalBitmap, 0, 0);
-    }
-  }, [originalBitmap, width, height]);
+  // A CALLBACK ref (not a `useEffect` keyed on the canvas) since the 'corners'
+  // step's canvas can unmount/remount across a 'corners' <-> 'adjust' step
+  // switch (Fase 2.1 item 2) — an effect keyed on `[originalBitmap, width,
+  // height]` would NOT re-fire on a bare remount with unchanged deps and the
+  // canvas would come back blank. A callback ref fires on every mount,
+  // mirroring the pattern `Magnifier`/`WarpedPreview` already use below.
+  const drawSourceCanvas = useCallback(
+    (canvas: HTMLCanvasElement | null) => {
+      if (!canvas) return;
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(originalBitmap, 0, 0);
+      }
+    },
+    [originalBitmap, width, height],
+  );
 
   // Fix H2: `originalBitmap` is immutable, so extract the full-res ImageData
   // ONCE per session instead of allocating a full-res canvas (~48MB for a
@@ -508,12 +538,20 @@ export function CornerEditor({
     setRecipeState((prev) => (prev ? withFilter(prev, filter) : prev));
   }, []);
 
-  const handleOpenFilterPanel = useCallback(() => {
-    setFilterPanelOpen(true);
-  }, []);
+  /**
+   * "Next" (step 'corners' -> 'adjust', Fase 2.1 item 2): the same gate the
+   * old single-step "Confirm" button used (`valid && recipe`) — a successful
+   * warp must already exist before the user can move on to aspect/filter
+   * adjustments, since the 'adjust' step's preview is built from it.
+   */
+  const handleNextClick = useCallback(() => {
+    if (!valid || !recipe) return;
+    setStep('adjust');
+  }, [valid, recipe]);
 
-  const handleCloseFilterPanel = useCallback(() => {
-    setFilterPanelOpen(false);
+  /** "Back" from step 'adjust' returns to 'corners' WITHOUT discarding the in-progress recipe (Fase 2.1 item 2). */
+  const handleBackToCorners = useCallback(() => {
+    setStep('corners');
   }, []);
 
   const transform = recipe ? recipeToCssTransform(recipe) : 'none';
@@ -525,142 +563,131 @@ export function CornerEditor({
 
   return (
     <div className="flex w-full max-w-md flex-col items-center gap-4" data-testid="corner-editor">
-      <div
-        ref={containerRef}
-        className="relative aspect-[3/4] w-full max-w-md overflow-hidden rounded-2xl bg-surface"
-        data-testid="corner-editor-canvas"
-      >
-        <canvas
-          ref={sourceCanvasRef}
-          className="absolute inset-0 h-full w-full object-cover"
-          aria-hidden="true"
-        />
-        <svg
-          viewBox={`0 0 ${width} ${height}`}
-          preserveAspectRatio="xMidYMid slice"
-          className="pointer-events-none absolute inset-0 h-full w-full"
-          aria-hidden="true"
-        >
-          <polygon
-            points={corners.map((p) => `${p.x},${p.y}`).join(' ')}
-            fill="rgba(94, 234, 212, 0.15)"
-            stroke={valid ? 'var(--color-primary-light)' : 'var(--color-danger)'}
-            strokeWidth={4}
-            strokeLinejoin="round"
-          />
-        </svg>
-
-        {corners.map((point, index) => {
-          const leftPct = (point.x / width) * 100;
-          const topPct = (point.y / height) * 100;
-          return (
-            <button
-              key={index}
-              type="button"
-              aria-label={`Corner handle ${index + 1}`}
-              data-testid={`corner-handle-${index}`}
-              onPointerDown={handlePointerDown(index as 0 | 1 | 2 | 3)}
-              onPointerMove={handlePointerMove(index as 0 | 1 | 2 | 3)}
-              onPointerUp={handlePointerUp(index as 0 | 1 | 2 | 3)}
-              onPointerCancel={handlePointerUp(index as 0 | 1 | 2 | 3)}
-              style={{
-                left: `${leftPct}%`,
-                top: `${topPct}%`,
-                width: HANDLE_HIT_SIZE,
-                height: HANDLE_HIT_SIZE,
-                touchAction: 'none',
-              }}
-              className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 bg-surface/80
-                shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light
-                ${valid ? 'border-primary-light' : 'border-danger'}`}
-            />
-          );
-        })}
-
-        {magnifierRect && (
-          <Magnifier
-            source={originalBitmap}
-            rect={magnifierRect}
-            size={MAGNIFIER_SIZE}
-            anchor={dragPoint as Point}
-            frameWidth={width}
-            frameHeight={height}
-          />
-        )}
-      </div>
-
-      {!valid && (
-        <p role="alert" className="text-sm text-danger" data-testid="corner-editor-invalid">
-          Corners must form a convex shape. Adjust a handle to continue.
-        </p>
-      )}
-
-      <div className="flex w-full items-center justify-center gap-2" data-testid="aspect-ratio-selector">
-        {ASPECT_RATIO_OPTIONS.map((name) => (
-          <Button
-            key={name}
-            type="button"
-            variant={effectiveAspect === name ? 'primary' : 'secondary'}
-            onClick={() => handleAspectChange(name)}
-            aria-pressed={effectiveAspect === name}
-            data-testid={`aspect-ratio-${name}`}
+      {step === 'corners' && (
+        <>
+          <div
+            ref={containerRef}
+            className="relative aspect-[3/4] w-full max-w-md overflow-hidden rounded-2xl bg-surface"
+            data-testid="corner-editor-canvas"
           >
-            {ASPECT_RATIO_LABELS[name]}
-          </Button>
-        ))}
-      </div>
+            <canvas ref={drawSourceCanvas} className="absolute inset-0 h-full w-full object-cover" aria-hidden="true" />
+            <svg
+              viewBox={`0 0 ${width} ${height}`}
+              preserveAspectRatio="xMidYMid slice"
+              className="pointer-events-none absolute inset-0 h-full w-full"
+              aria-hidden="true"
+            >
+              <polygon
+                points={corners.map((p) => `${p.x},${p.y}`).join(' ')}
+                fill="rgba(94, 234, 212, 0.15)"
+                stroke={valid ? 'var(--color-primary-light)' : 'var(--color-danger)'}
+                strokeWidth={4}
+                strokeLinejoin="round"
+              />
+            </svg>
 
-      {warpedImage && recipe && (
-        <div className="flex w-full flex-col items-center gap-3" data-testid="warp-preview">
-          <div className="w-full max-w-xs overflow-hidden rounded-xl bg-surface">
-            <WarpedPreview
-              bitmap={warpedImage}
-              transform={transform}
-              outSize={outputSize(recipe.corners, recipe.aspectRatio)}
-              rotation={recipe.rotation}
-            />
+            {corners.map((point, index) => {
+              const leftPct = (point.x / width) * 100;
+              const topPct = (point.y / height) * 100;
+              return (
+                <button
+                  key={index}
+                  type="button"
+                  aria-label={`Corner handle ${index + 1}`}
+                  data-testid={`corner-handle-${index}`}
+                  onPointerDown={handlePointerDown(index as 0 | 1 | 2 | 3)}
+                  onPointerMove={handlePointerMove(index as 0 | 1 | 2 | 3)}
+                  onPointerUp={handlePointerUp(index as 0 | 1 | 2 | 3)}
+                  onPointerCancel={handlePointerUp(index as 0 | 1 | 2 | 3)}
+                  style={{
+                    left: `${leftPct}%`,
+                    top: `${topPct}%`,
+                    width: HANDLE_HIT_SIZE,
+                    height: HANDLE_HIT_SIZE,
+                    touchAction: 'none',
+                  }}
+                  className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 bg-surface/80
+                    shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light
+                    ${valid ? 'border-primary-light' : 'border-danger'}`}
+                />
+              );
+            })}
+
+            {magnifierRect && (
+              <Magnifier
+                source={originalBitmap}
+                rect={magnifierRect}
+                size={MAGNIFIER_SIZE}
+                anchor={dragPoint as Point}
+                frameWidth={width}
+                frameHeight={height}
+              />
+            )}
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={handleRotate}
-              data-testid="rotate-button"
-              aria-label="Rotate 90 degrees"
-            >
-              <RotateCw size={18} strokeWidth={1.5} aria-hidden="true" />
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={handleFlipHorizontal}
-              data-testid="flip-horizontal-button"
-              aria-label="Flip horizontal"
-            >
-              <FlipHorizontal size={18} strokeWidth={1.5} aria-hidden="true" />
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={handleOpenFilterPanel}
-              data-testid="open-filter-panel-button"
-              aria-label="Filters"
-            >
-              <SlidersHorizontal size={18} strokeWidth={1.5} aria-hidden="true" />
-            </Button>
-          </div>
-        </div>
+
+          {!valid && (
+            <p role="alert" className="text-sm text-danger" data-testid="corner-editor-invalid">
+              Corners must form a convex shape. Adjust a handle to continue.
+            </p>
+          )}
+        </>
       )}
 
-      {warpedImage && recipe && (
-        <FilterPanel
-          open={filterPanelOpen}
-          onClose={handleCloseFilterPanel}
-          baseBitmap={warpedImage}
-          filter={recipe.filter}
-          onChange={handleFilterChange}
-          onApplyToAll={onApplyToAll}
-        />
+      {step === 'adjust' && warpedImage && recipe && (
+        <>
+          <div className="flex w-full items-center justify-center gap-2" data-testid="aspect-ratio-selector">
+            {ASPECT_RATIO_OPTIONS.map((name) => (
+              <Button
+                key={name}
+                type="button"
+                variant={effectiveAspect === name ? 'primary' : 'secondary'}
+                onClick={() => handleAspectChange(name)}
+                aria-pressed={effectiveAspect === name}
+                data-testid={`aspect-ratio-${name}`}
+              >
+                {ASPECT_RATIO_LABELS[name]}
+              </Button>
+            ))}
+          </div>
+
+          <div className="flex w-full flex-col items-center gap-3" data-testid="warp-preview">
+            <div className="w-full max-w-xs overflow-hidden rounded-xl bg-surface">
+              <WarpedPreview
+                bitmap={warpedImage}
+                transform={transform}
+                outSize={outputSize(recipe.corners, recipe.aspectRatio)}
+                rotation={recipe.rotation}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={handleRotate}
+                data-testid="rotate-button"
+                aria-label="Rotate 90 degrees"
+              >
+                <RotateCw size={18} strokeWidth={1.5} aria-hidden="true" />
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={handleFlipHorizontal}
+                data-testid="flip-horizontal-button"
+                aria-label="Flip horizontal"
+              >
+                <FlipHorizontal size={18} strokeWidth={1.5} aria-hidden="true" />
+              </Button>
+            </div>
+          </div>
+
+          <FilterPanel
+            baseBitmap={warpedImage}
+            filter={recipe.filter}
+            onChange={handleFilterChange}
+            onApplyToAll={onApplyToAll}
+          />
+        </>
       )}
 
       {isWarping && (
@@ -675,18 +702,37 @@ export function CornerEditor({
       )}
 
       <div className="flex w-full items-center justify-between gap-3">
-        <Button type="button" variant="ghost" onClick={handleCancelClick} data-testid="corner-editor-cancel">
-          Back
-        </Button>
-        <Button
-          type="button"
-          variant="primary"
-          onClick={handleConfirm}
-          disabled={!valid || !recipe}
-          data-testid="corner-editor-confirm"
-        >
-          Confirm
-        </Button>
+        {step === 'corners' ? (
+          <>
+            <Button type="button" variant="ghost" onClick={handleCancelClick} data-testid="corner-editor-cancel">
+              Back
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              onClick={handleNextClick}
+              disabled={!valid || !recipe}
+              data-testid="corner-editor-next"
+            >
+              Next
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button type="button" variant="ghost" onClick={handleBackToCorners} data-testid="corner-editor-back">
+              Back
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              onClick={handleConfirm}
+              disabled={!valid || !recipe}
+              data-testid="corner-editor-confirm"
+            >
+              Confirm
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );

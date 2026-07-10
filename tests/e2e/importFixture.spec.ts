@@ -121,9 +121,13 @@ test.describe('Phase 1 acceptance: import fallback -> detect -> edit -> warp (ta
         expect(pos.top).toMatch(/%$/);
       }
 
-      // `CornerEditor` only invokes `workerClient.warp` on a handle
-      // pointerup/aspect-ratio change (task 5.1.4 "recalculo solo al
-      // soltar") — there is deliberately NO automatic warp on mount.
+      // Fase 2.1 two-step editor: the aspect-ratio selector now lives in step
+      // 'adjust', reached via "Next" from step 'corners'. `.click()` auto-waits
+      // for the button to become enabled, which happens once the initial
+      // mount warp (task 5.2.x) resolves and sets `recipe`.
+      await page.getByTestId('corner-editor-next').click();
+      await expect(page.getByTestId('aspect-ratio-selector')).toBeVisible();
+
       // Clicking an aspect-ratio option triggers the SAME `runWarp` path a
       // real user's drag-release would, and puts the UI into the
       // `warp-loading` ("Processing…") state while the request is in flight.
