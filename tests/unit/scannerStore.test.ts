@@ -62,8 +62,8 @@ describe('scannerStore <- DocumentSlice wiring (Group 1c)', () => {
 
 /**
  * Group 6 / Slice F addition: setOpenCvStatus merges a partial patch onto the
- * existing OpenCvState (task 6.6.1) so callers (useDocumentDetection) don't
- * need to re-read+spread the whole state to update just `status` or just
+ * existing OpenCvState (task 6.6.1) so callers (`useOpenCvInit`) don't need
+ * to re-read+spread the whole state to update just `status` or just
  * `progress`.
  */
 describe('scannerStore.setOpenCvStatus (task 6.6.1)', () => {

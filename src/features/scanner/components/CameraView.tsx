@@ -1,14 +1,14 @@
 /**
  * `<video>` bound to the active MediaStream, plus a positioned container
- * for the live-detection overlay (proposal section 4.1 `CameraView.tsx`).
+ * for optional overlay content (proposal section 4.1 `CameraView.tsx`).
  *
  * Scope (Group 3 / Slice C): wires the stream into the video element.
  * Scope (Group 4 / Slice D): forwards the underlying `<video>` element via
- * `videoRef` so `useDocumentDetection`/the capture sequence can read frames
- * from it directly, and renders overlay content (contour/hints) supplied by
- * the caller. The overlay CONTENT itself (interpolated contour drawing)
- * lives in `DetectionOverlay` and is composed by `ScannerScreen`, not owned
- * by this component.
+ * `videoRef` so the capture sequence can read frames from it directly, and
+ * renders overlay content supplied by the caller. Fase 2.3 (capture-ux-
+ * redesign.md, Unit 6): the live-detection loop and its `DetectionOverlay`
+ * contour drawing were removed — capture is manual-only now, so `overlay`
+ * currently has no live consumer, but stays as a general-purpose slot.
  * Scope (Fase 2.3 / capture-ux-redesign.md, Unit 3): `fill` renders the
  * immersive full-bleed capture screen's camera layer — the container becomes
  * `absolute inset-0 h-full w-full`, dropping the fixed-aspect/max-width/

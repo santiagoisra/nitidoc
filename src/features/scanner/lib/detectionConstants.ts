@@ -1,63 +1,29 @@
 /**
- * Calibratable constants for the detection/quality/warp pipeline
- * (design section 6.4).
+ * Calibratable constants for the one-shot detection/warp pipeline (design
+ * section 6.4), consumed by the deferred batch-processing step
+ * (`useBatchProcess.ts`) and the DETECT/WARP worker handlers.
  *
  * IMPORTANT: several of these are explicitly STARTING VALUES that design
  * marks as pending empirical calibration on real devices (design section
- * 11, risks R1 and the stability threshold). They must never be asserted
- * as exact expected values in tests — only the surrounding contract
- * (ordering, classification, convexity) is guaranteed behavior.
+ * 11, risk R1). They must never be asserted as exact expected values in
+ * tests — only the surrounding contract (ordering, classification,
+ * convexity) is guaranteed behavior.
+ *
+ * Fase 2.3 (capture-ux-redesign.md, Unit 6): the live-detection loop's
+ * per-frame signal-processing constants (`STABILITY_MS`, `STABILITY_STDDEV_PX`,
+ * `INTERP_ALPHA`, `BLUR_PERSIST_FRAMES`, `NO_DETECTION_MS`, `BLUR_THRESHOLD`,
+ * `DARK_THRESHOLD`) were removed along with `useDocumentDetection.ts` —
+ * capture is manual-only now, so there is no overlay-jitter smoothing,
+ * stability buffer, auto-capture countdown, or "no detection" hint left to
+ * calibrate. `BLUR_THRESHOLD`/`DARK_THRESHOLD` specifically fed
+ * `opencv.worker.ts`'s `computeQuality`, which is unreachable in practice
+ * post-Unit-6 (nothing calls DETECT/DETECT_IMAGEDATA with `withQuality: true`
+ * anymore) — that function now sources its own two threshold constants
+ * locally instead of importing them from here (see that file's own comment).
  */
 export const DETECTION = {
-  /** Detection frame width used for the live loop. */
+  /** Detection frame width used for the one-shot per-page DETECT (downscaled copy of the full-res original). */
   DOWNSCALE_WIDTH: 640,
-  /**
-   * Laplacian variance threshold at 640px width, below which a frame is
-   * considered blurry. STARTING VALUE — calibrate on real devices (R1).
-   *
-   * FIX (Fase 2.2 punch-list item 1): the original value (100) was
-   * calibrated as if the Laplacian ran on a full-resolution frame. Detection
-   * always runs on the `DOWNSCALE_WIDTH`-wide (640px) frame
-   * (`useDocumentDetection`'s `createImageBitmap(video, { resizeWidth: 640
-   * })`), where high-frequency detail — and therefore Laplacian variance —
-   * is systematically much lower even for a genuinely sharp document. At
-   * 100, `isBlurry` was true almost every frame regardless of actual focus,
-   * which is what made the (then-mislabeled "hold steady") blur hint appear
-   * permanently stuck. Lowered to 20 so only frames that are actually blurry
-   * at 640px trip it.
-   */
-  BLUR_THRESHOLD: 20,
-  /**
-   * Consecutive blurry DETECT results required before the blur hint is
-   * shown to the user. STARTING VALUE — a single noisy/motion-blurred frame
-   * (e.g. mid-pan) should not flash the hint; a sustained run of blurry
-   * frames should. Kept intentionally small — this is a cheap debounce, not
-   * a full temporal filter.
-   */
-  BLUR_PERSIST_FRAMES: 3,
-  /**
-   * Mean gray intensity threshold, below which a frame is considered too
-   * dark. STARTING VALUE — calibrate on real devices (R1).
-   */
-  DARK_THRESHOLD: 60,
-  /**
-   * Stability window in ms: corners must stay under
-   * STABILITY_STDDEV_PX for this long to be considered stable.
-   * STARTING VALUE — calibrate by feel.
-   */
-  STABILITY_MS: 800,
-  /**
-   * Per-corner position standard deviation, IN PIXELS (on the
-   * `DOWNSCALE_WIDTH`-wide detection frame), under which corners are
-   * considered stable. STARTING VALUE — calibrate by feel. Chosen in the
-   * 6-10px range as a handheld-reasonable tolerance: sub-pixel stillness
-   * (the previous, mistakenly-squared threshold) never occurs handheld.
-   */
-  STABILITY_STDDEV_PX: 8,
-  /** Overlay corner interpolation smoothing factor (lerp alpha). */
-  INTERP_ALPHA: 0.35,
-  /** Time without a valid detection before showing the "capture anyway" hint. */
-  NO_DETECTION_MS: 5000,
   /** Aspect ratio matching tolerance for inferAspectRatio. STARTING VALUE. */
   ASPECT_TOLERANCE: 0.06,
   /** iOS capture cap: 16 megapixels exactly. */

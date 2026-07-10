@@ -37,9 +37,9 @@
  * `ensureOpenCvInit`/`workerClient` are INJECTED rather than obtained via a
  * fresh `useOpenCvInit()` call here, because that hook's own consumer
  * contract requires exactly one live call site per session (see
- * `useOpenCvInit.ts`'s doc comment) — `useDocumentDetection` inside
- * `ScannerScreen` is already that one call site for the whole screen's
- * lifetime, so this hook reuses its `ensureOpenCvInit`/`workerClient`
+ * `useOpenCvInit.ts`'s doc comment) — `ScannerScreen` is already that one
+ * call site for the whole screen's lifetime, so this hook reuses its
+ * `ensureOpenCvInit`/`workerClient` (forwarded through `ProcessingScreen`)
  * instead of racing a second one.
  */
 

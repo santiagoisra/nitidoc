@@ -21,6 +21,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * while dropping the now-inapplicable DETECT-transfer regression, and
  * additionally asserts the new pipeline never touches DETECT/`CornerEditor`
  * at all.
+ *
+ * Fase 2.3 Unit 6: `ensureOpenCvInit`/`workerClient` now come straight from
+ * `useOpenCvInit` (mocked below) — `ScannerScreen` no longer goes through the
+ * now-deleted `useDocumentDetection`.
  */
 
 const detectMock = vi.fn();
@@ -49,7 +53,6 @@ const materializeRawCaptureMock = vi.fn(
 vi.mock('@/features/scanner/hooks/useActivePage', () => ({
   useActivePage: () => ({
     materializeRawCapture: materializeRawCaptureMock,
-    materializeCapture: vi.fn(),
     isAtCap: false,
     canAddPage: true,
     activeWorking: null,
@@ -69,10 +72,8 @@ vi.mock('@/features/scanner/hooks/useCamera', () => ({
   }),
 }));
 
-vi.mock('@/features/scanner/hooks/useDocumentDetection', () => ({
-  useDocumentDetection: () => ({
-    start: vi.fn(),
-    stop: vi.fn(),
+vi.mock('@/features/scanner/hooks/useOpenCvInit', () => ({
+  useOpenCvInit: () => ({
     workerClient: {
       init: vi.fn(async () => {}),
       detect: detectMock,

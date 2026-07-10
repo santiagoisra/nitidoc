@@ -315,7 +315,7 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
           <CaptureCountThumbnail count={displayCount} lastThumbnail={lastThumbnail} onRetakeLast={handleRetakeLast} />
         </div>
         <div className="flex justify-center">
-          <CaptureButton onCapture={() => void handleCapture()} countdown={0} disabled={isCapturing || isAtCap} />
+          <CaptureButton onCapture={() => void handleCapture()} disabled={isCapturing || isAtCap} />
         </div>
         <div className="flex justify-end">
           {rawCaptures.length > 0 && (

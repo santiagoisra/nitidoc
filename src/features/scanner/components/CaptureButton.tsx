@@ -1,16 +1,12 @@
 /**
- * FAB (72px) that triggers a manual capture at any time, regardless of
- * auto-capture state (task 4.4.1; proposal section 4.1 `CaptureButton.tsx`;
- * proposal section 5 CAP-3).
+ * FAB (72px) that triggers a manual capture (proposal section 4.1
+ * `CaptureButton.tsx`; proposal section 5 CAP-3).
  *
- * The animated ring communicates the auto-capture countdown (0-3) when one
- * is in progress; it is purely decorative (`aria-hidden`) — the actual
- * countdown state is announced via `QualityHints`' aria-live region, not
- * here, to avoid double-announcing the same state from two elements.
- *
- * `prefers-reduced-motion` is respected via Tailwind's `motion-reduce:`
- * variant: the ring stops spinning/pulsing and instead just renders as a
- * static ring reflecting the current countdown step.
+ * Fase 2.3 (capture-ux-redesign.md, Unit 6): the animated countdown ring
+ * that used to reflect the live-detection loop's auto-capture countdown
+ * (0-3) is REMOVED along with the rest of that path — every capture is
+ * manual now (`CaptureScreen`'s tap-to-capture flow), so there is no
+ * countdown state left to display.
  */
 
 import type { ReactNode } from 'react';
@@ -19,14 +15,11 @@ import { useTranslation } from '@/shared/i18n';
 
 export interface CaptureButtonProps {
   readonly onCapture: () => void;
-  /** 0 = no countdown in progress. 1-3 = countdown steps remaining. */
-  readonly countdown: 0 | 1 | 2 | 3;
   readonly disabled?: boolean;
 }
 
-export function CaptureButton({ onCapture, countdown, disabled = false }: CaptureButtonProps): ReactNode {
+export function CaptureButton({ onCapture, disabled = false }: CaptureButtonProps): ReactNode {
   const { t } = useTranslation();
-  const isCountingDown = countdown > 0;
 
   return (
     <button
@@ -34,22 +27,13 @@ export function CaptureButton({ onCapture, countdown, disabled = false }: Captur
       onClick={onCapture}
       disabled={disabled}
       data-testid="capture-button"
-      aria-label={isCountingDown ? t('capture.autoCapturingIn', { n: countdown }) : t('capture.captureDocument')}
+      aria-label={t('capture.captureDocument')}
       className="relative flex h-[72px] w-[72px] items-center justify-center rounded-full bg-primary text-bg
         shadow-lg transition-transform duration-150 ease-out
         hover:bg-primary-dark active:translate-y-[1px] active:scale-[0.98]
         disabled:opacity-50 disabled:pointer-events-none
         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
     >
-      <span
-        aria-hidden="true"
-        className={`pointer-events-none absolute inset-0 rounded-full border-2 border-primary-light
-          ${
-            isCountingDown
-              ? 'motion-safe:animate-pulse motion-reduce:opacity-100 opacity-80'
-              : 'opacity-0'
-          }`}
-      />
       <Camera size={28} strokeWidth={1.5} aria-hidden="true" />
     </button>
   );

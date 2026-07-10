@@ -13,16 +13,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * DETECT (task 6.3.2) and the editor's later WARP call failed with
  * NOT_INITIALIZED every single time.
  *
- * Fix: ScannerScreen now calls `ensureOpenCvInit()` (exposed from
- * `useDocumentDetection`) as soon as `started` becomes true, regardless of
- * camera outcome. This test verifies that trigger fires even when
- * permission is denied (so the camera never opens and `start()` never
- * runs) — the exact scenario that was broken.
+ * Fix: ScannerScreen calls `ensureOpenCvInit()` as soon as `started` becomes
+ * true, regardless of camera outcome. This test verifies that trigger fires
+ * even when permission is denied (so the camera never opens) — the exact
+ * scenario that was broken.
+ *
+ * Fase 2.3 Unit 6: the live-detection loop (`useDocumentDetection.ts`,
+ * `start`/`stop`) is REMOVED entirely — `ensureOpenCvInit`/`workerClient` now
+ * come straight from `useOpenCvInit` (mocked below), ScannerScreen's sole
+ * call site. The original assertion that the live loop's own `start()` was
+ * never invoked no longer applies (there is no such loop left to invoke) —
+ * this rewrite keeps the suite's real INTENT: OpenCV init fires regardless
+ * of camera outcome.
  */
 
 const ensureOpenCvInitMock = vi.fn(async () => {});
-const startDetectionMock = vi.fn();
-const stopDetectionMock = vi.fn();
 
 vi.mock('@/features/scanner/hooks/useCamera', () => ({
   useCamera: () => ({
@@ -32,10 +37,8 @@ vi.mock('@/features/scanner/hooks/useCamera', () => ({
   }),
 }));
 
-vi.mock('@/features/scanner/hooks/useDocumentDetection', () => ({
-  useDocumentDetection: () => ({
-    start: startDetectionMock,
-    stop: stopDetectionMock,
+vi.mock('@/features/scanner/hooks/useOpenCvInit', () => ({
+  useOpenCvInit: () => ({
     workerClient: {
       init: vi.fn(async () => {}),
       detect: vi.fn(),
@@ -82,10 +85,6 @@ describe('ScannerScreen ensures OpenCV init even without a camera (bug fix)', ()
     await waitFor(() => {
       expect(ensureOpenCvInitMock).toHaveBeenCalledTimes(1);
     });
-
-    // The live-detection loop's own start() must NOT have been invoked —
-    // there is no granted permission / video element for it to run against.
-    expect(startDetectionMock).not.toHaveBeenCalled();
 
     // The import fallback (task 6.1.1) must be visible, confirming this
     // exercised the exact broken scenario (no camera path at all).

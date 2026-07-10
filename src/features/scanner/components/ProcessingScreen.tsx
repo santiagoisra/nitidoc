@@ -18,9 +18,9 @@
  * OpenCV, so this is where a degraded-mode banner is actually relevant.
  *
  * `ensureOpenCvInit`/`workerClient`/`retryManualInit` are passed down as
- * props from `ScannerScreen`'s single `useDocumentDetection()` (internally
- * `useOpenCvInit()`) instance — see `useBatchProcess.ts`'s own doc comment
- * for why a second independent `useOpenCvInit()` call site is avoided.
+ * props from `ScannerScreen`'s single `useOpenCvInit()` instance — see
+ * `useBatchProcess.ts`'s own doc comment for why a second independent
+ * `useOpenCvInit()` call site is avoided.
  */
 
 import type { ReactNode } from 'react';

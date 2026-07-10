@@ -19,6 +19,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * while `ensureOpenCvInit()` hangs forever in the background (the
  * `started`-effect's own best-effort load, unrelated to import), with no
  * unhandled promise rejection.
+ *
+ * Fase 2.3 Unit 6: `ensureOpenCvInit`/`workerClient` now come straight from
+ * `useOpenCvInit` (mocked below) — `ScannerScreen` no longer goes through the
+ * now-deleted `useDocumentDetection`.
  */
 
 // ensureOpenCvInit HANGS: never resolves nor rejects. The NEW import path
@@ -51,7 +55,6 @@ const materializeRawCaptureMock = vi.fn(
 vi.mock('@/features/scanner/hooks/useActivePage', () => ({
   useActivePage: () => ({
     materializeRawCapture: materializeRawCaptureMock,
-    materializeCapture: vi.fn(),
     isAtCap: false,
     canAddPage: true,
     activeWorking: null,
@@ -71,10 +74,8 @@ vi.mock('@/features/scanner/hooks/useCamera', () => ({
   }),
 }));
 
-vi.mock('@/features/scanner/hooks/useDocumentDetection', () => ({
-  useDocumentDetection: () => ({
-    start: vi.fn(),
-    stop: vi.fn(),
+vi.mock('@/features/scanner/hooks/useOpenCvInit', () => ({
+  useOpenCvInit: () => ({
     workerClient: {
       init: vi.fn(async () => {}),
       detect: detectMock,

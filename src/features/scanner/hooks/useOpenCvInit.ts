@@ -1,11 +1,13 @@
 /**
  * `useOpenCvInit` — OpenCV `INIT` state machine + bounded-backoff retry
  * keeper hook (Fase 2.3 / capture-ux-redesign.md "Unit 2 — Extract
- * `useOpenCvInit` keeper hook"). Extracted out of `useDocumentDetection.ts`
- * so the init/backoff/`OpenCvSlice`-mirroring machinery is independently
- * defined and testable, decoupled from the live per-frame detection loop
- * (itself slated for removal once the deferred-processing capture flow lands
- * — design section "Unit 6").
+ * `useOpenCvInit` keeper hook"). Originally extracted out of the live
+ * per-frame detection loop's own hook (`useDocumentDetection.ts`) so the
+ * init/backoff/`OpenCvSlice`-mirroring machinery was independently defined
+ * and testable, decoupled from that loop. Unit 6 removed the live-detection
+ * loop entirely (capture is manual-only; per-page detection now runs inside
+ * the deferred `'processing'` batch step, `useBatchProcess.ts`) — `
+ * ScannerScreen` is this hook's sole call site today.
  *
  * Owns:
  *  - Idempotent `ensureOpenCvInit()` (one promise cached per hook instance;
@@ -21,22 +23,20 @@
  *    `OPENCV_LOAD_FAILED` rejection instead of leaving the caller stuck on
  *    `status: 'loading'` forever.
  *  - Mirrors `idle -> loading -> ready` / `error` into the store's
- *    `OpenCvSlice` (`setOpenCvStatus`) so ANY consumer (not just the
- *    detection loop) can render a degraded-mode banner.
+ *    `OpenCvSlice` (`setOpenCvStatus`) so ANY consumer can render a
+ *    degraded-mode banner.
  *
- * Consumer contract (Unit 2): `useDocumentDetection.ts` calls this hook
- * EXACTLY ONCE internally — never a second time from a sibling call site —
- * and re-exports its `{ ensureOpenCvInit, retryManualInit, initState,
- * workerClient }` unchanged as part of its own return value (a "thin
- * re-export"), so every existing caller/test of `useDocumentDetection` keeps
- * working without change and the codebase still has exactly one live
- * init-promise cache per session (calling this hook from two different call
- * sites would each cache its OWN promise and could race a real second
- * `workerClient.init()` postMessage — `init()` itself is not idempotent, see
- * `workerClient.ts`). `onInitSuccess` lets that single caller resume its own
- * detection loop after a BACKGROUND retry recovers — the one piece of
- * behavior that must stay detection-loop-specific and therefore is NOT
- * handled inside this hook itself.
+ * Consumer contract: this hook must be called EXACTLY ONCE per session —
+ * never from two independent call sites — since `ensureOpenCvInit()` caches
+ * its in-flight promise PER HOOK INSTANCE; two instances would each cache
+ * their OWN promise and could race a real second `workerClient.init()`
+ * postMessage (`init()` itself is not idempotent, see `workerClient.ts`).
+ * `ScannerScreen` calls it once and passes `ensureOpenCvInit`/`workerClient`
+ * down to `ProcessingScreen` -> `useBatchProcess` (injected, not re-obtained
+ * via a second `useOpenCvInit()` call — see that hook's own doc comment).
+ * `onInitSuccess` is unused by that current caller (it existed to let the
+ * old live-detection loop resume itself after a BACKGROUND retry recovered
+ * OpenCV) but stays optional for any future consumer with the same need.
  */
 
 import { useCallback, useEffect, useRef } from 'react';
@@ -161,9 +161,9 @@ export function useOpenCvInit(options: UseOpenCvInitOptions = {}): UseOpenCvInit
         initStatusRef.current = 'ready';
         autoRetryCountRef.current = 0;
         setOpenCvStatus({ status: 'ready', progress: 1, progressIndeterminate: false, lastError: null });
-        // Notify the caller (typically useDocumentDetection) so it can resume
-        // its own loop if this success came from a BACKGROUND retry rather
-        // than the caller's own `start()` -> `ensureOpenCvInit()` chain.
+        // Notify the caller (via the optional `onInitSuccess` callback) so
+        // it can react if this success came from a BACKGROUND retry rather
+        // than its own initial `ensureOpenCvInit()` call.
         onInitSuccessRef.current?.();
       })
       .catch((error: unknown) => {
