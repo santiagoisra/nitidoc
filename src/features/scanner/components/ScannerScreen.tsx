@@ -125,6 +125,7 @@ export function ScannerScreen(): ReactNode {
   const phase = useScannerStore((s) => s.phase);
   const pages = useScannerStore((s) => s.pages);
   const resetDocument = useScannerStore((s) => s.resetDocument);
+  const applyFilterToAll = useScannerStore((s) => s.applyFilterToAll);
   const opencvStatus = useScannerStore((s) => s.opencv.status);
   const opencvLastError = useScannerStore((s) => s.opencv.lastError);
 
@@ -660,6 +661,7 @@ export function ScannerScreen(): ReactNode {
         initialRecipe={null}
         onConfirm={handleDraftConfirm}
         onCancel={handleEditorCancel}
+        onApplyToAll={pages.length > 0 ? applyFilterToAll : undefined}
       />
     );
   }
@@ -681,6 +683,7 @@ export function ScannerScreen(): ReactNode {
           initialRecipe={activePage.recipe}
           onConfirm={handleActivePageConfirm}
           onCancel={handleActivePageCancel}
+          onApplyToAll={pages.length > 1 ? applyFilterToAll : undefined}
         />
       );
     }

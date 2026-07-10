@@ -50,8 +50,9 @@
 
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlipHorizontal, RotateCw } from 'lucide-react';
+import { FlipHorizontal, RotateCw, SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/shared/ui';
+import { FilterPanel } from '@/features/scanner/components/FilterPanel';
 import {
   isConvex,
   inferAspectRatio,
@@ -65,10 +66,11 @@ import {
   recipeToCssTransform,
   rotateRecipe,
   flipHorizontalRecipe,
+  withFilter,
 } from '@/features/scanner/lib/editRecipe';
 import { getSharedWorkerClient } from '@/features/scanner/lib/workerClient';
 import type { AspectRatioName, Point, Quad } from '@/shared/types/geometry';
-import type { EditRecipe } from '@/shared/types/scanner';
+import type { EditRecipe, FilterParams } from '@/shared/types/scanner';
 
 const ASPECT_RATIO_OPTIONS: readonly AspectRatioName[] = ['a4', 'letter', 'ticket', 'unknown'];
 
@@ -124,6 +126,14 @@ export interface CornerEditorProps {
   readonly onConfirm: (result: CornerEditorConfirmResult) => void;
   /** Called when the user backs out without confirming (discards this session's local edits). */
   readonly onCancel: () => void;
+  /**
+   * Document-wide "apply filter to all pages" bulk rewrite (design section
+   * 5.4/ADR-011). Forwarded verbatim to `FilterPanel` — this component never
+   * calls it itself and never imports the store, keeping its own controlled
+   * contract store-agnostic (design section 5.4's own framing). Omit to hide
+   * the "Apply to all" action (e.g. a document with a single page).
+   */
+  readonly onApplyToAll?: (filter: FilterParams) => void;
 }
 
 function extractImageData(bitmap: ImageBitmap): ImageData {
@@ -146,6 +156,7 @@ export function CornerEditor({
   initialRecipe,
   onConfirm,
   onCancel,
+  onApplyToAll,
 }: CornerEditorProps): ReactNode {
   // Local state replaces F1's legacy warpedImage/recipe store fields — this
   // component is a controlled component over its props; the caller
@@ -178,6 +189,7 @@ export function CornerEditor({
   );
   const [isWarping, setIsWarping] = useState(false);
   const [warpError, setWarpError] = useState(false);
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   const [draggingIndex, setDraggingIndex] = useState<0 | 1 | 2 | 3 | null>(null);
   const [dragPoint, setDragPoint] = useState<Point | null>(null);
 
@@ -485,6 +497,25 @@ export function CornerEditor({
     setRecipeState((prev) => (prev ? flipHorizontalRecipe(prev) : prev));
   }, []);
 
+  /**
+   * Filter edits (design section 5.4, ADR-009): folded into LOCAL recipe
+   * state exactly like rotate/flip above — non-destructive, never triggers
+   * `runWarp`. The final value only reaches `DocumentSlice` once the caller's
+   * own Confirm flow commits this component's `recipe`
+   * (`materializeCapture`/`rewarpActivePage` -> `updateRecipe`).
+   */
+  const handleFilterChange = useCallback((filter: FilterParams) => {
+    setRecipeState((prev) => (prev ? withFilter(prev, filter) : prev));
+  }, []);
+
+  const handleOpenFilterPanel = useCallback(() => {
+    setFilterPanelOpen(true);
+  }, []);
+
+  const handleCloseFilterPanel = useCallback(() => {
+    setFilterPanelOpen(false);
+  }, []);
+
   const transform = recipe ? recipeToCssTransform(recipe) : 'none';
 
   const magnifierRect =
@@ -608,8 +639,28 @@ export function CornerEditor({
             >
               <FlipHorizontal size={18} strokeWidth={1.5} aria-hidden="true" />
             </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handleOpenFilterPanel}
+              data-testid="open-filter-panel-button"
+              aria-label="Filters"
+            >
+              <SlidersHorizontal size={18} strokeWidth={1.5} aria-hidden="true" />
+            </Button>
           </div>
         </div>
+      )}
+
+      {warpedImage && recipe && (
+        <FilterPanel
+          open={filterPanelOpen}
+          onClose={handleCloseFilterPanel}
+          baseBitmap={warpedImage}
+          filter={recipe.filter}
+          onChange={handleFilterChange}
+          onApplyToAll={onApplyToAll}
+        />
       )}
 
       {isWarping && (
