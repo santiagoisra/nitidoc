@@ -56,6 +56,7 @@ vi.mock('@/features/scanner/components/CameraView', () => ({
 }));
 
 import { ScannerScreen } from '@/features/scanner/components/ScannerScreen';
+import { ToastHost } from '@/shared/ui';
 import { useScannerStore, scannerStoreInitialState } from '@/features/scanner/store/scannerStore';
 
 function createFakeStream(): MediaStream {
@@ -81,7 +82,11 @@ describe('ScannerScreen capture guard (H1)', () => {
   });
 
   it('a manual capture while phase === "capturing" is a no-op (does not call captureFullResFrame)', async () => {
-    render(<ScannerScreen />);
+    render(
+      <ToastHost>
+        <ScannerScreen />
+      </ToastHost>,
+    );
 
     // Enter the scanner (started state) so the viewfinder + FAB render.
     fireEvent.click(screen.getByTestId('open-scanner'));
@@ -107,7 +112,11 @@ describe('ScannerScreen capture guard (H1)', () => {
       height: 4000,
     });
 
-    render(<ScannerScreen />);
+    render(
+      <ToastHost>
+        <ScannerScreen />
+      </ToastHost>,
+    );
     fireEvent.click(screen.getByTestId('open-scanner'));
 
     const captureButton = await screen.findByTestId('capture-button');

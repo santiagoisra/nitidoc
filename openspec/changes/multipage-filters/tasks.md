@@ -170,13 +170,13 @@ Start: `Toast` is presentational-only; `deletePage`/`restorePage`/`hardReleaseDe
 (Group 1b) but nothing calls them from UI. Finish: deleting a page shows a 5s undo toast; expiry hard-releases
 memory. Rollback: revert PR9 branch -- this is the final slice, tracker stays unmerged until it lands.
 
-- [ ] 6.1 `src/shared/ui/Toast.tsx`: extend `ToastProps` with `action?: { label: string; onClick: () => void }` and `durationMs?: number`. Do NOT rebuild the primitive.
-- [ ] 6.2 New `src/shared/ui/ToastHost.tsx`: renders a queue, owns per-toast auto-dismiss timers, exposes `useToast()`.
-- [ ] 6.3 `src/shared/ui/index.ts`: export `ToastHost`, `useToast`.
-- [ ] 6.4 New `src/features/scanner/hooks/usePageDeletion.ts`: calls `deletePage`, shows an undo toast (5s), cancels the timer + calls `restorePage()` on undo, calls `hardReleaseDeletion()` on timer expiry.
-- [ ] 6.5 Wire `PageGrid`'s trash action to `usePageDeletion`.
-- [ ] 6.6 Extend `tests/unit` for `Toast` (new props) and new `tests/unit/toastHost.test.tsx`, `tests/unit/usePageDeletion.test.ts`: undo-within-window restores at original `order` with resources intact (spec scenario "Undo dentro de la ventana de 5s"); expiry hard-releases (spec scenario "Expiracion sin undo libera memoria"); a second delete while one is pending supersedes the older one.
-- [ ] 6.7 Verify: `vitest run` (full suite) green; `tsc --noEmit` clean; manual smoke of delete->undo->expiry in dev.
+- [x] 6.1 `src/shared/ui/Toast.tsx`: extend `ToastProps` with `action?: { label: string; onClick: () => void }` and `durationMs?: number`. Do NOT rebuild the primitive.
+- [x] 6.2 New `src/shared/ui/ToastHost.tsx`: renders a queue, owns per-toast auto-dismiss timers, exposes `useToast()`.
+- [x] 6.3 `src/shared/ui/index.ts`: export `ToastHost`, `useToast`.
+- [x] 6.4 New `src/features/scanner/hooks/usePageDeletion.ts`: calls `deletePage`, shows an undo toast (5s), cancels the timer + calls `restorePage()` on undo, calls `hardReleaseDeletion()` on timer expiry.
+- [x] 6.5 Wire `PageGrid`'s trash action to `usePageDeletion`. Note: wired at the `ScannerScreen` call site (`PageGrid`'s `onDeletePage` prop contract, set in Group 5, is unchanged) — `deletePage` there now comes from `usePageDeletion()` instead of `DocumentSlice.deletePage` directly. `ToastHost` is mounted once at the app root (`src/app/App.tsx`) so `useToast()` (used by `usePageDeletion`) resolves anywhere in the tree.
+- [x] 6.6 Extend `tests/unit` for `Toast` (new props) and new `tests/unit/toastHost.test.tsx`, `tests/unit/usePageDeletion.test.ts`: undo-within-window restores at original `order` with resources intact (spec scenario "Undo dentro de la ventana de 5s"); expiry hard-releases (spec scenario "Expiracion sin undo libera memoria"); a second delete while one is pending supersedes the older one. Also updated 4 pre-existing `ScannerScreen`-rendering tests (`scannerCaptureGuard`, `scannerScreenImportDetect/Hang`, `scannerScreenOpenCvInit`) to wrap `<ScannerScreen />` in `<ToastHost>`, since `usePageDeletion`'s `useToast()` now throws outside a provider.
+- [x] 6.7 Verify: `vitest run` (full suite) green (29 files / 233 tests); `tsc --noEmit` clean; `npm run build` succeeds (initial gzip 66.45 kB, well under the 200KB budget). Manual smoke of delete->undo->expiry in dev deferred to orchestrator.
 
 ---
 

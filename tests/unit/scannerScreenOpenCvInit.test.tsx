@@ -57,6 +57,7 @@ vi.mock('@/features/scanner/components/CameraView', () => ({
 }));
 
 import { ScannerScreen } from '@/features/scanner/components/ScannerScreen';
+import { ToastHost } from '@/shared/ui';
 import { useScannerStore, scannerStoreInitialState } from '@/features/scanner/store/scannerStore';
 
 describe('ScannerScreen ensures OpenCV init even without a camera (bug fix)', () => {
@@ -71,7 +72,11 @@ describe('ScannerScreen ensures OpenCV init even without a camera (bug fix)', ()
   it('calls ensureOpenCvInit() once the scanner starts, even when permission is denied (no camera ever opens)', async () => {
     useScannerStore.setState({ ...scannerStoreInitialState, permission: 'denied' });
 
-    render(<ScannerScreen />);
+    render(
+      <ToastHost>
+        <ScannerScreen />
+      </ToastHost>,
+    );
     fireEvent.click(screen.getByTestId('open-scanner'));
 
     await waitFor(() => {
@@ -97,7 +102,11 @@ describe('ScannerScreen ensures OpenCV init even without a camera (bug fix)', ()
       } as unknown as MediaStream,
     });
 
-    render(<ScannerScreen />);
+    render(
+      <ToastHost>
+        <ScannerScreen />
+      </ToastHost>,
+    );
     fireEvent.click(screen.getByTestId('open-scanner'));
 
     await waitFor(() => {
@@ -109,7 +118,11 @@ describe('ScannerScreen ensures OpenCV init even without a camera (bug fix)', ()
     act(() => {
       useScannerStore.setState({ ...scannerStoreInitialState });
     });
-    render(<ScannerScreen />);
+    render(
+      <ToastHost>
+        <ScannerScreen />
+      </ToastHost>,
+    );
 
     // Still on the "Open scanner" button — `started` is false.
     expect(screen.getByTestId('open-scanner')).toBeTruthy();

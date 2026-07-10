@@ -92,6 +92,7 @@ vi.mock('@/features/scanner/lib/captureFallback', async () => {
 });
 
 import { ScannerScreen } from '@/features/scanner/components/ScannerScreen';
+import { ToastHost } from '@/shared/ui';
 import { useScannerStore, scannerStoreInitialState } from '@/features/scanner/store/scannerStore';
 
 describe('ScannerScreen import DETECT survives the bitmap being detached on transfer', () => {
@@ -117,7 +118,11 @@ describe('ScannerScreen import DETECT survives the bitmap being detached on tran
   });
 
   it('seeds the editor with the SCALED detected corners, not a frame-complete fallback', async () => {
-    render(<ScannerScreen />);
+    render(
+      <ToastHost>
+        <ScannerScreen />
+      </ToastHost>,
+    );
     fireEvent.click(screen.getByTestId('open-scanner'));
 
     const input = screen.getByTestId('import-fallback-input') as HTMLInputElement;

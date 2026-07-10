@@ -58,6 +58,7 @@ import { ImportFallback } from '@/features/scanner/components/ImportFallback';
 import { OpenCvDegradedBanner } from '@/features/scanner/components/OpenCvDegradedBanner';
 import { QualityHints } from '@/features/scanner/components/QualityHints';
 import { useActivePage } from '@/features/scanner/hooks/useActivePage';
+import { usePageDeletion } from '@/features/scanner/hooks/usePageDeletion';
 import { useCamera } from '@/features/scanner/hooks/useCamera';
 import { useDocumentDetection } from '@/features/scanner/hooks/useDocumentDetection';
 import { decodeImportedFile } from '@/features/scanner/lib/captureFallback';
@@ -136,10 +137,9 @@ export function ScannerScreen(): ReactNode {
   const resetDocument = useScannerStore((s) => s.resetDocument);
   const applyFilterToAll = useScannerStore((s) => s.applyFilterToAll);
   const reorderPages = useScannerStore((s) => s.reorderPages);
-  // Group 5 / PR8: minimal wiring so the grid is functional. Group 6 / PR9
-  // replaces this call site with `usePageDeletion` (5s undo toast) — see
-  // design section 5.5.
-  const deletePage = useScannerStore((s) => s.deletePage);
+  // Group 6 / PR9: deletion + 5s undo toast (design section 5.5). Replaces
+  // Group 5/PR8's minimal direct `DocumentSlice.deletePage` wiring.
+  const { deletePage } = usePageDeletion();
   const opencvStatus = useScannerStore((s) => s.opencv.status);
   const opencvLastError = useScannerStore((s) => s.opencv.lastError);
 
