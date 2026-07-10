@@ -9,41 +9,48 @@
  * Rewritten to the phase-driven, active-page/multipage model in Group 1c
  * (design section 5.1, ADR-010): `DocumentSlice.phase` is now the SOLE phase
  * owner (F1's legacy single-page capture state is gone). This screen renders:
- *  - `idle`/`capturing` (no draft yet) -> the live camera view + `CaptureTray`
- *    (design section 5.2, Group 5/PR8: thumbnail strip + page counter +
- *    "Listo"). Fase 2.3 (capture-ux-redesign.md) drops the dedicated
- *    `'tray'` phase — `'idle'` renders this same fallthrough view; Unit 3
- *    replaces this whole flow with a full-bleed `CaptureScreen`.
+ *  - `idle`/`capturing` -> the full-bleed `CaptureScreen` (Fase 2.3,
+ *    capture-ux-redesign.md, Unit 3): persistent camera, manual raw
+ *    captures accumulate in `DocumentSlice.rawCaptures`, no per-frame
+ *    DETECT. `CaptureScreen` owns its own permission/no-camera fallback
+ *    internally (the "phase-gating decouple") — see that component's doc
+ *    comment.
+ *  - `processing` -> a TEMPORARY minimal placeholder (Unit 4 replaces this
+ *    with the real deferred batch-processing screen).
  *  - `editing-corners` -> `CornerEditor`, in one of two modes: a FRESH
  *    capture (not yet a page — local `draftCapture` state below) or a
  *    RE-ENTERED page from the grid (`activatePage` already populated
- *    `activeWorking`/`activePageId`).
+ *    `activeWorking`/`activePageId`). The FRESH-capture mode is now DEAD
+ *    CODE (Fase 2.3, Unit 3): nothing sets `draftCapture` anymore since the
+ *    new `CaptureScreen` flow never leaves `'capturing'` on a successful
+ *    manual capture — kept present per the Unit 3 brief ("keep the old
+ *    draft-capture editor code present if removing it would break the
+ *    build") until Unit 6 removes it alongside the rest of the live-
+ *    detection path. The RE-ENTRY mode stays fully live/used.
  *  - `grid` -> `PageGrid` (design section 5.3, Group 5/PR8), lazy-loaded so
  *    `@dnd-kit` stays out of the initial bundle: drag-reorder, tap-to-edit,
  *    delete, "Capture more"/"Finish".
  *  - `done` -> a finish summary.
  *
- * Capture sequence (design section 2.2): pause the detection loop, capture
- * the full-res frame, scale the last known detected corners from the
- * downscaled detection space to the full-res capture space, and hold the
- * immutable capture in LOCAL state (`draftCapture` — replaces F1's legacy
- * `originalFrame` store field; a fresh capture is NOT part of `pages[]`
- * until `CornerEditor`'s Confirm triggers `materializeCapture`). Once a
- * draft exists, this screen renders `CornerEditor` (Group 5). Backing out of
- * the editor without confirming resumes the live detection loop (this
- * screen owns that transition, per Slice E scope) — the camera NEVER closes
- * across this transition (scanner spec "Confirmar una pagina no cierra la
- * camara").
+ * The trailing fallback branch at the bottom of this component (the OLD
+ * live camera + `CaptureTray` + auto-capture/quality-hints view, and its
+ * supporting `runCaptureSequence`/`handleManualCapture`/etc. handlers) is
+ * likewise DEAD CODE post-Unit-3: `DocumentPhase` is a closed union and
+ * every one of its values is now handled by an earlier branch, so this view
+ * can no longer actually be reached at runtime. It stays present (same
+ * "don't break the build by half-deleting" reasoning as the draft-capture
+ * editor above) — full removal is Unit 6.
  *
- * Import fallback sequence (task 6.3.2; design ADR-006): the SAME
- * pipeline is reused for a desktop-without-camera or permission-denied
- * import. `handleImportedFile` decodes the file (`decodeImportedFile`),
- * runs ONE `workerClient.detect` call on a downscaled copy of the imported
- * bitmap to pre-populate corners (falling back to `null` -> full-frame
- * corners in `CornerEditor` exactly like the no-detection/non-convex camera
- * paths), holds the full-res bitmap in the SAME `draftCapture` local state,
- * and lets `CornerEditor` take over — no separate warp code path exists for
- * import.
+ * Import fallback (Fase 2.3, Unit 3): the OLD `handleImportedFile`
+ * DETECT-then-`CornerEditor` pipeline (task 6.3.2 / ADR-006) has been
+ * REMOVED (not kept dead) — `CaptureScreen`'s own no-camera variant now owns
+ * import entirely via the lighter `materializeRawCapture` pipeline (decode
+ * -> raw capture, no DETECT, no per-image editor; that analysis is deferred
+ * to Unit 4's batch `'processing'` step). Removing it here (rather than
+ * keeping it dead) was necessary: its only callers were the 3 permission/
+ * no-camera/camera-error early-return branches this same Unit 3 pass
+ * deletes as part of the "phase-gating decouple" — keeping the handler
+ * without any caller would itself be an unused-local build break.
  */
 
 import type { ReactNode } from 'react';
@@ -54,10 +61,10 @@ import { useTranslation } from '@/shared/i18n';
 import { CameraSelector } from '@/features/scanner/components/CameraSelector';
 import { CameraView } from '@/features/scanner/components/CameraView';
 import { CaptureButton } from '@/features/scanner/components/CaptureButton';
+import { CaptureScreen } from '@/features/scanner/components/CaptureScreen';
 import { CaptureTray, PageThumbnail } from '@/features/scanner/components/CaptureTray';
 import { CornerEditor, type CornerEditorConfirmResult } from '@/features/scanner/components/CornerEditor';
 import { DetectionOverlay } from '@/features/scanner/components/DetectionOverlay';
-import { ImportFallback } from '@/features/scanner/components/ImportFallback';
 import { OpenCvDegradedBanner } from '@/features/scanner/components/OpenCvDegradedBanner';
 import { QualityHints } from '@/features/scanner/components/QualityHints';
 import { useActivePage } from '@/features/scanner/hooks/useActivePage';
@@ -65,13 +72,11 @@ import { useExportPdf } from '@/features/scanner/hooks/useExportPdf';
 import { usePageDeletion } from '@/features/scanner/hooks/usePageDeletion';
 import { useCamera } from '@/features/scanner/hooks/useCamera';
 import { useDocumentDetection } from '@/features/scanner/hooks/useDocumentDetection';
-import { decodeImportedFile } from '@/features/scanner/lib/captureFallback';
 import { captureFullResFrame } from '@/features/scanner/lib/captureFrame';
 import { DETECTION } from '@/features/scanner/lib/detectionConstants';
 import { isTooFar, scaleCornersToFullRes } from '@/features/scanner/lib/detectionMath';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
 import { isConvex, orderCorners } from '@/features/scanner/lib/geometry';
-import { bitmapToImageData } from '@/features/scanner/lib/mainThreadImageData';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
 import type { Quad } from '@/shared/types/geometry';
 
@@ -95,15 +100,6 @@ const PageGrid = lazy(() => import('@/features/scanner/components/PageGrid'));
 const DETECTION_FRAME_FALLBACK_HEIGHT = Math.round((DETECTION.DOWNSCALE_WIDTH * 4) / 3);
 
 /**
- * Bounds how long the import fallback waits for OpenCV to finish loading
- * before giving up on a DETECT pre-seed and opening the editor with
- * frame-completo corners instead (fix M5). A generous 15s covers a slow
- * first-time ~10MB WASM download on a real connection without leaving the
- * UI looking frozen indefinitely if OpenCV never becomes ready at all.
- */
-const IMPORT_DETECT_TIMEOUT_MS = 15_000;
-
-/**
  * A fresh, not-yet-confirmed capture (camera OR import). Replaces F1's
  * legacy `originalFrame` store field — held LOCALLY because it is not part of the
  * document (`pages[]`) until `CornerEditor`'s Confirm calls
@@ -124,8 +120,6 @@ export function ScannerScreen(): ReactNode {
   const permission = useScannerStore((s) => s.permission);
   const torchSupported = useScannerStore((s) => s.torchSupported);
   const torchOn = useScannerStore((s) => s.torchOn);
-  const devices = useScannerStore((s) => s.devices);
-  const lastCameraError = useScannerStore((s) => s.lastCameraError);
   const imageCaptureSupported = useScannerStore((s) => s.imageCaptureSupported);
   const realResolution = useScannerStore((s) => s.realResolution);
 
@@ -158,12 +152,6 @@ export function ScannerScreen(): ReactNode {
 
   const [draftCapture, setDraftCapture] = useState<DraftCapture | null>(null);
 
-  const [importError, setImportError] = useState<string | null>(null);
-  // LOW-2: reflects that an import is being processed (decode + optional
-  // OpenCV DETECT pre-seed) so the fallback UI can disable its picker and
-  // announce progress. Cleared on both success and failure.
-  const [importing, setImporting] = useState(false);
-
   /**
    * Corners handed off to the corner editor, scaled to the captured frame's
    * full-res space right when the capture happened (task 5.1.1; perspective
@@ -191,23 +179,23 @@ export function ScannerScreen(): ReactNode {
   const {
     start: startDetection,
     stop: stopDetection,
-    workerClient,
     retryManualInit,
     ensureOpenCvInit,
   } = useDocumentDetection({
     onAutoCapture: handleAutoCapture,
   });
 
-  useEffect(() => {
-    if (!started) {
-      return;
-    }
-    void openCamera();
-    // Only re-run when `started` flips — openCamera is stable across
-    // renders via useCallback, re-invoking it on every render would
-    // needlessly reopen the stream.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [started]);
+  // Fase 2.3 (capture-ux-redesign.md, Unit 3): camera-opening ownership
+  // moved to `CaptureScreen`'s own mount effect ("Re-arm camera on entry to
+  // 'capturing'") — it fires as soon as that screen mounts (i.e. as soon as
+  // `started && phase` is `'idle'`/`'capturing'`), covering both the very
+  // first "Open scanner" tap AND every later re-entry (grid "Capturar más" /
+  // done "Escanear otro"), which this screen's own former `started`-only
+  // effect never did. `openCamera` is passed down as a PROP (the SAME
+  // `useCamera()` hook instance below) rather than calling `useCamera()`
+  // again inside `CaptureScreen` — that hook's `streamRef`/generation-token
+  // guard is per-hook-instance, so a second instance would race this one
+  // over the same `MediaStream` with an unsynchronized supersession counter.
 
   // Bug fix found while building the task 7.2 E2E fixture test: OpenCV was
   // ONLY ever initialized as a side effect of the live-detection loop
@@ -361,140 +349,20 @@ export function ScannerScreen(): ReactNode {
   // hook's stable `onAutoCapture` callback always invokes the current one.
   runCaptureSequenceRef.current = runCaptureSequence;
 
-  /**
-   * Import fallback pipeline (task 6.3.2; design ADR-006): decode the
-   * user-selected file, run ONE `DETECT` against a downscaled copy to
-   * pre-populate corners (same contract as the camera loop: non-convex or
-   * missing detection means `editorInitialCornersRef` stays null and
-   * `CornerEditor` falls back to `frameCorners`), hold the full-res bitmap
-   * in the SAME `draftCapture` local state as the camera path, and let
-   * `CornerEditor` take over. Reuses the SAME `workerClient`/`CornerEditor`
-   * path the camera capture sequence uses — no parallel warp logic.
-   *
-   * IMPORTANT (bug found and fixed while building the task 7.2 E2E fixture
-   * test): when the import fallback is reached WITHOUT the camera ever
-   * opening (permission denied, or no camera at all), `useDocumentDetection`'s
-   * `start()` — previously the ONLY caller of OpenCV `INIT` — never runs, so
-   * OpenCV was never even asked to load, and BOTH the one-shot DETECT below
-   * and the editor's later `WARP` call failed with `NOT_INITIALIZED` every
-   * single time. Fixed by having ScannerScreen's own `ensureOpenCvInit`
-   * effect (above) kick off the load as soon as the scanner screen mounts,
-   * regardless of camera outcome; `await ensureOpenCvInit()` here is a
-   * defensive re-await of that SAME idempotent promise in case the user
-   * picks a file before the background load finished.
-   */
-  const handleImportedFile = useCallback(
-    async (file: File) => {
-      // Design section 2.3 / D-MEM: same hard cap as the camera path.
-      if (useScannerStore.getState().pages.length >= FILTER.PAGE_CAP) {
-        setImportError(t('common.documentLimitReached', { cap: FILTER.PAGE_CAP }));
-        return;
-      }
-
-      setImportError(null);
-      setImporting(true); // LOW-2: mark processing before any async work runs.
-      try {
-        const captured = await decodeImportedFile(file);
-
-        // Ensure OpenCV is loading/loaded BEFORE attempting DETECT — see the
-        // bug note above. Bounded with a timeout race (fix M5): `ensureOpenCvInit`
-        // can legitimately take a long time (first-ever ~10MB WASM download).
-        // `ensureOpenCvInit` itself no longer hangs indefinitely — HIGH-2 gave
-        // its underlying `INIT` attempt a hard `INIT_TIMEOUT_MS` ceiling that
-        // rejects with OPENCV_LOAD_FAILED on a hung worker — so this race is no
-        // longer the ONLY thing standing between the import and a frozen screen.
-        // It is kept purely as a tighter, import-specific bound (feedback sooner
-        // than the full init ceiling) that also falls through to the
-        // frame-completo editor. HIGH-1: the timer handle is captured and
-        // ALWAYS cleared in `finally`, so a race won by `ensureOpenCvInit()`
-        // never leaves a live timer whose eventual rejection becomes an
-        // unhandled promise rejection.
-        let scaledCorners: Quad | null = null;
-        let importTimeoutHandle: ReturnType<typeof setTimeout> | null = null;
-        try {
-          await Promise.race([
-            ensureOpenCvInit(),
-            new Promise((_resolve, reject) => {
-              importTimeoutHandle = setTimeout(
-                () => reject(new Error('OpenCV init timed out')),
-                IMPORT_DETECT_TIMEOUT_MS,
-              );
-            }),
-          ]);
-
-          // One-shot DETECT on a downscaled copy (mirrors the live loop's
-          // `createImageBitmap(video, { resizeWidth })`, but against the
-          // imported bitmap instead of a <video> frame).
-          const detectionBitmap = await createImageBitmap(captured.bitmap, {
-            resizeWidth: Math.min(DETECTION.DOWNSCALE_WIDTH, captured.width),
-          });
-          // Capture the detection width NOW: `workerClient.detect` transfers
-          // (detaches) the bitmap to the worker, after which `detectionBitmap.width`
-          // reads 0 — which fed `scaleCornersToFullRes` a 0 and made it throw, so a
-          // perfectly good detection was swallowed and the editor fell back to
-          // frame-complete corners.
-          const detectionWidth = detectionBitmap.width;
-          // Task 6.7.1: same offscreenSupported gating as the live loop —
-          // extract ImageData on the main thread and use detectImageData
-          // when the worker cannot rely on its own OffscreenCanvas.
-          const offscreenSupported = useScannerStore.getState().offscreenSupported;
-          try {
-            const result = offscreenSupported
-              ? await workerClient.detect(detectionBitmap, false)
-              : await workerClient.detectImageData(bitmapToImageData(detectionBitmap), false);
-            if (result.corners) {
-              const upscaled = orderCorners(
-                scaleCornersToFullRes(result.corners, detectionWidth, captured.width),
-              );
-              scaledCorners = isConvex(upscaled) ? upscaled : null;
-            }
-          } finally {
-            // MEDIUM-1: on the OffscreenCanvas path the worker only closes the
-            // transferred bitmap on the HAPPY path, so a rejecting `detect()`
-            // would leak `detectionBitmap` in the main thread. Close it here.
-            // On the detectImageData path `bitmapToImageData` ALREADY consumed
-            // and closed the bitmap, so closing again must be avoided (double
-            // close) — only close when we took the OffscreenCanvas branch.
-            if (offscreenSupported) {
-              detectionBitmap.close();
-            }
-          }
-        } catch {
-          // OPENCV_LOAD_FAILED (degraded mode, task 6.6.1 / HIGH-2 hung init),
-          // a timed-out init, or DETECT_FAILED: fall through with no pre-seed,
-          // same as a non-convex/missing camera detection (task 6.5.1 parity).
-          // The editor's own WARP call will fail too in true degraded mode,
-          // surfaced via `warp-error` — this is the documented degraded-mode
-          // limit.
-        } finally {
-          // HIGH-1: always clear the race timer. If `ensureOpenCvInit()` won
-          // the race, the timer is still armed; left uncleared its later
-          // rejection has no `.catch` and becomes an unhandled rejection.
-          if (importTimeoutHandle !== null) {
-            clearTimeout(importTimeoutHandle);
-          }
-        }
-
-        editorInitialCornersRef.current = scaledCorners;
-        setDraftCapture({
-          pageId: crypto.randomUUID(),
-          source: captured.bitmap,
-          width: captured.width,
-          height: captured.height,
-        });
-        setPhase('editing-corners');
-      } catch (error) {
-        setImportError(error instanceof Error ? error.message : t('scanner.couldNotReadImage'));
-      } finally {
-        setImporting(false); // LOW-2: clear processing on success OR failure.
-      }
-    },
-    [ensureOpenCvInit, setPhase, t, workerClient],
-  );
+  // Fase 2.3 (capture-ux-redesign.md, Unit 3): the OLD import-fallback
+  // pipeline that lived here (decode -> one-shot DETECT -> `CornerEditor`,
+  // task 6.3.2 / ADR-006) has been REMOVED — see this file's top doc comment
+  // for why it was removed rather than kept dead. `CaptureScreen`'s own
+  // no-camera variant now owns import entirely via `materializeRawCapture`.
 
   const handleStart = useCallback(() => {
     setStarted(true);
-  }, []);
+    // Transitions: start -> 'capturing' (design "Phase model"). Doing this
+    // alongside `setStarted` (rather than in a separate effect) means
+    // `CaptureScreen` mounts with the right phase on its very first render —
+    // no intermediate frame where `phase` is still the initial `'idle'`.
+    setPhase('capturing');
+  }, [setPhase]);
 
   const handleToggleTorch = useCallback(() => {
     void setTorch(!torchOn);
@@ -599,7 +467,10 @@ export function ScannerScreen(): ReactNode {
   }, [setPhase]);
 
   const handleGridCaptureMore = useCallback(() => {
-    setPhase('idle');
+    // Design "Phase model": grid "Capturar más" -> 'capturing'.
+    // `CaptureScreen`'s own mount effect re-arms the camera on this
+    // transition (design "Re-arm camera on entry to 'capturing'").
+    setPhase('capturing');
   }, [setPhase]);
 
   const handleGridFinish = useCallback(() => {
@@ -612,11 +483,11 @@ export function ScannerScreen(): ReactNode {
 
   const handleScanAgain = useCallback(() => {
     resetDocument();
-    setPhase('idle');
-    if (videoRef.current) {
-      startDetection(videoRef.current);
-    }
-  }, [resetDocument, setPhase, startDetection]);
+    // Design "Phase model": done "Escanear otro" -> resetDocument -> 'capturing'.
+    // `CaptureScreen` re-arms the camera itself on mount; no need to touch
+    // the (now-dead) live-detection loop here.
+    setPhase('capturing');
+  }, [resetDocument, setPhase]);
 
   if (!started) {
     return (
@@ -626,51 +497,39 @@ export function ScannerScreen(): ReactNode {
     );
   }
 
-  // Task 6.1.1 (permission denied) and task 6.2.1 (no camera on desktop):
-  // both render the SAME `ImportFallback`, which shares the pipeline with
-  // the camera path (ADR-006) via `handleImportedFile`. `phase` still gates
-  // the corner-editor branch below, so once a file is imported the screen
-  // falls straight through to `CornerEditor` exactly like a camera capture.
-  if (permission === 'denied' && !(phase === 'editing-corners' || phase === 'capturing' || phase === 'done')) {
-    return (
-      <ImportFallback reason="permission-denied" onFileSelected={(file) => void handleImportedFile(file)} errorMessage={importError} busy={importing} />
-    );
+  // Fase 2.3 (capture-ux-redesign.md, Unit 3), "Phase-gating decouple
+  // (critical)": `idle`/`capturing` both route to the full-bleed
+  // `CaptureScreen`, which owns its own permission/no-camera/camera-error
+  // fallback internally (`cameraUsable`) instead of ScannerScreen
+  // early-returning before this point — replaces the 3 former
+  // permission-denied/no-camera/lastCameraError early-return blocks that
+  // used to live here. `openCamera`/`switchCamera`/`setTorch` are the SAME
+  // `useCamera()` hook instance's functions, passed down as props (see the
+  // doc comment above where that hook is destructured).
+  if (phase === 'idle' || phase === 'capturing') {
+    return <CaptureScreen openCamera={openCamera} switchCamera={switchCamera} setTorch={setTorch} />;
   }
 
-  // Task 6.2.1: no videoinput device at all (desktop without a camera) — do
-  // NOT show a camera-open error; go straight to the import fallback. This
-  // check must come before `lastCameraError` because a `NotFoundError`
-  // clears `devices` (see useCamera.ts) without necessarily setting
-  // `lastCameraError`, and even if some other camera error is ALSO present,
-  // having zero devices is the more specific, more actionable condition.
-  if (
-    devices.length === 0 &&
-    permission !== 'granted' &&
-    !(phase === 'editing-corners' || phase === 'capturing' || phase === 'done')
-  ) {
+  // Unit 4 (capture-ux-redesign.md) replaces this with the real deferred
+  // batch-processing screen (progress bar, cancel). TEMPORARY placeholder so
+  // the app stays buildable/functional now that "Siguiente" can reach this
+  // phase (Unit 3 scope only implements CaptureScreen, not the processing
+  // step itself).
+  if (phase === 'processing') {
     return (
-      <ImportFallback reason="no-camera" onFileSelected={(file) => void handleImportedFile(file)} errorMessage={importError} busy={importing} />
-    );
-  }
-
-  if (lastCameraError != null && !(phase === 'editing-corners' || phase === 'capturing' || phase === 'done')) {
-    return (
-      <div className="flex w-full max-w-sm flex-col items-center gap-3 text-center">
-        <p role="alert" className="text-sm text-danger" data-testid="camera-error">
-          {t('scanner.cameraError')}
-        </p>
-        <ImportFallback reason="no-camera" onFileSelected={(file) => void handleImportedFile(file)} errorMessage={importError} busy={importing} />
+      <div className="flex h-full w-full items-center justify-center" data-testid="processing-placeholder">
+        <p className="text-sm text-text-muted">{t('common.processing')}</p>
       </div>
     );
   }
 
   // Group 5 / Slice E, rewired Group 1c: a FRESH, not-yet-confirmed capture
-  // (camera or import) hands off to the corner editor instead of the live
-  // camera view. 'capturing' also renders this branch (briefly, while
-  // captureFullResFrame resolves) so the screen never flashes back to a
-  // stale camera view mid-capture; at that instant `draftCapture` is still
-  // null, so it falls through to the camera-view branch below instead.
-  if ((phase === 'editing-corners' || phase === 'capturing') && draftCapture) {
+  // hands off to the corner editor instead of the live camera view. Fase 2.3
+  // (Unit 3): DEAD in practice — `'capturing'` is now intercepted above
+  // (routes to `CaptureScreen`) before reaching this point, and nothing sets
+  // `draftCapture` anymore, so this branch's condition is narrowed to
+  // `'editing-corners'` only (kept, see this file's top doc comment).
+  if (phase === 'editing-corners' && draftCapture) {
     return (
       <CornerEditor
         // Fix M3: key the editor by the draft's page id so a second capture

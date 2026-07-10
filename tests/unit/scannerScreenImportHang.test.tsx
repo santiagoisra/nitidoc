@@ -3,23 +3,65 @@ import { createElement, forwardRef } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * Slice F review fix HIGH-1 + coverage MEDIUM-2: the import fallback must fall
- * through to the frame-completo editor when OpenCV init HANGS, WITHOUT leaking
- * the race timer or producing an unhandled promise rejection.
+ * Fase 2.3 (capture-ux-redesign.md, Unit 3) REWRITE.
  *
- * Setup: `ensureOpenCvInit()` returns a promise that never settles (the hung
- * worker). `handleImportedFile` races it against `IMPORT_DETECT_TIMEOUT_MS`
- * (15s). After that window elapses the import must still store the imported
- * frame (opening CornerEditor with frame-completo corners) and clear its
- * `importing` state. A failing implementation (uncleared timer) would leave a
- * rejected timer promise with no `.catch`; this test installs an
- * `unhandledrejection` listener and asserts none fires.
+ * Previously (Slice F review fix HIGH-1 / MEDIUM-2) this test covered the
+ * OLD import pipeline racing a HANGING `ensureOpenCvInit()` against
+ * `IMPORT_DETECT_TIMEOUT_MS` before falling through to the frame-completo
+ * `CornerEditor`. That race existed because the old pipeline AWAITED OpenCV
+ * before running a one-shot DETECT.
+ *
+ * Unit 3's `CaptureScreen` no-camera-variant import handler does not touch
+ * OpenCV at all (DETECT is deferred to Unit 4's batch `'processing'` step) —
+ * there is nothing left to race against a hang. This rewrite preserves the
+ * suite's INTENT (an import must never get stuck waiting on OpenCV) by
+ * proving the NEW import path resolves promptly and adds a raw capture even
+ * while `ensureOpenCvInit()` hangs forever in the background (the
+ * `started`-effect's own best-effort load, unrelated to import), with no
+ * unhandled promise rejection.
  */
 
-const IMPORT_DETECT_TIMEOUT_MS = 15_000;
-
-// ensureOpenCvInit HANGS: never resolves nor rejects.
+// ensureOpenCvInit HANGS: never resolves nor rejects. The NEW import path
+// must not be blocked by this at all — it belongs to a completely separate,
+// backgrounded effect.
 const ensureOpenCvInitMock = vi.fn(() => new Promise<void>(() => {}));
+const detectMock = vi.fn();
+
+const materializeRawCaptureMock = vi.fn(
+  async ({
+    id,
+    originalBitmap,
+  }: {
+    id: string;
+    originalBitmap: { width: number; height: number; close: () => void };
+  }) => {
+    originalBitmap.close();
+    useScannerStore.getState().addRawCapture({
+      id,
+      order: useScannerStore.getState().rawCaptures.length,
+      originalBlob: {} as Blob,
+      thumbnail: { width: 100, height: 100, close: vi.fn() } as unknown as ImageBitmap,
+      originalWidth: originalBitmap.width,
+      originalHeight: originalBitmap.height,
+    });
+    return { status: 'added' as const };
+  },
+);
+
+vi.mock('@/features/scanner/hooks/useActivePage', () => ({
+  useActivePage: () => ({
+    materializeRawCapture: materializeRawCaptureMock,
+    materializeCapture: vi.fn(),
+    isAtCap: false,
+    canAddPage: true,
+    activeWorking: null,
+    activePageId: null,
+    activeDirty: false,
+    activatePage: vi.fn(),
+    deactivateActivePage: vi.fn(),
+    rewarpActivePage: vi.fn(),
+  }),
+}));
 
 vi.mock('@/features/scanner/hooks/useCamera', () => ({
   useCamera: () => ({
@@ -29,9 +71,6 @@ vi.mock('@/features/scanner/hooks/useCamera', () => ({
   }),
 }));
 
-const detectMock = vi.fn();
-const detectImageDataMock = vi.fn();
-
 vi.mock('@/features/scanner/hooks/useDocumentDetection', () => ({
   useDocumentDetection: () => ({
     start: vi.fn(),
@@ -39,7 +78,7 @@ vi.mock('@/features/scanner/hooks/useDocumentDetection', () => ({
     workerClient: {
       init: vi.fn(async () => {}),
       detect: detectMock,
-      detectImageData: detectImageDataMock,
+      detectImageData: vi.fn(),
       warp: vi.fn(),
       isBusy: vi.fn(() => false),
       terminate: vi.fn(),
@@ -51,18 +90,11 @@ vi.mock('@/features/scanner/hooks/useDocumentDetection', () => ({
 }));
 
 vi.mock('@/features/scanner/components/CameraView', () => ({
-  CameraView: forwardRef<HTMLVideoElement, { overlay?: unknown }>((_props, ref) =>
+  CameraView: forwardRef<HTMLVideoElement, { overlay?: unknown; fill?: boolean }>((_props, ref) =>
     createElement('video', { ref, 'data-testid': 'camera-view-video' }),
   ),
 }));
 
-// The corner editor renders once a frame is stored; stub it so we can assert
-// the fall-through happened without pulling in its full canvas machinery.
-vi.mock('@/features/scanner/components/CornerEditor', () => ({
-  CornerEditor: () => createElement('div', { 'data-testid': 'corner-editor' }),
-}));
-
-// Decode returns a fake CapturedFrameResult (no real ImageBitmap needed).
 vi.mock('@/features/scanner/lib/captureFallback', async () => {
   const actual = await vi.importActual<typeof import('@/features/scanner/lib/captureFallback')>(
     '@/features/scanner/lib/captureFallback',
@@ -70,7 +102,7 @@ vi.mock('@/features/scanner/lib/captureFallback', async () => {
   return {
     ...actual,
     decodeImportedFile: vi.fn(async () => ({
-      bitmap: { close: vi.fn() } as unknown as ImageBitmap,
+      bitmap: { width: 1200, height: 900, close: vi.fn() } as unknown as ImageBitmap,
       width: 1200,
       height: 900,
     })),
@@ -81,35 +113,25 @@ import { ScannerScreen } from '@/features/scanner/components/ScannerScreen';
 import { ToastHost } from '@/shared/ui';
 import { useScannerStore, scannerStoreInitialState } from '@/features/scanner/store/scannerStore';
 
-describe('ScannerScreen import fallback with a HANGING OpenCV init (HIGH-1 / MEDIUM-2)', () => {
+describe('ScannerScreen import (no-camera variant, Fase 2.3 Unit 3) is decoupled from a HANGING OpenCV init', () => {
   let unhandled: PromiseRejectionEvent[] = [];
   const onUnhandled = (event: PromiseRejectionEvent): void => {
     unhandled.push(event);
   };
 
   beforeEach(() => {
-    vi.useFakeTimers();
     vi.clearAllMocks();
     unhandled = [];
     window.addEventListener('unhandledrejection', onUnhandled);
     useScannerStore.setState({ ...scannerStoreInitialState, permission: 'denied' });
-    // createImageBitmap for the one-shot DETECT downscale (never reached before
-    // the timeout, but stub it so any code path is safe).
-    vi.stubGlobal(
-      'createImageBitmap',
-      vi.fn(async () => ({ width: 640, height: 480, close: vi.fn() }) as unknown as ImageBitmap),
-    );
   });
 
   afterEach(() => {
     window.removeEventListener('unhandledrejection', onUnhandled);
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
     cleanup();
   });
 
-  it('falls through to the frame-completo editor after IMPORT_DETECT_TIMEOUT_MS with no pre-seed, no timer leak, no unhandled rejection', async () => {
+  it('adds a raw capture immediately, without waiting on ensureOpenCvInit — no DETECT, no unhandled rejection', async () => {
     render(
       <ToastHost>
         <ScannerScreen />
@@ -117,45 +139,25 @@ describe('ScannerScreen import fallback with a HANGING OpenCV init (HIGH-1 / MED
     );
     fireEvent.click(screen.getByTestId('open-scanner'));
 
-    // The import fallback is showing (permission denied). Trigger a file import.
-    const input = screen.getByTestId('import-fallback-input') as HTMLInputElement;
+    // The (backgrounded, unrelated) started-effect already kicked off the
+    // hanging ensureOpenCvInit() — confirms this scenario really has OpenCV
+    // stuck, exactly like the original regression's setup.
+    expect(ensureOpenCvInitMock).toHaveBeenCalledTimes(1);
+
+    const input = await screen.findByTestId('import-fallback-input');
     const file = new File([new Uint8Array([1, 2, 3])], 'doc.png', { type: 'image/png' });
 
     await act(async () => {
       fireEvent.change(input, { target: { files: [file] } });
-      // Let decodeImportedFile resolve and the race arm its timer.
-      await Promise.resolve();
-      await Promise.resolve();
+      for (let i = 0; i < 8; i += 1) await Promise.resolve();
     });
 
-    // While within the race window, the frame is NOT yet stored (still waiting
-    // on the hung init / timeout) — phase stays 'idle', editor not shown.
-    expect(useScannerStore.getState().phase).toBe('idle');
+    // The import resolved WITHOUT ever waiting on the hung init.
+    expect(materializeRawCaptureMock).toHaveBeenCalledTimes(1);
+    expect(useScannerStore.getState().rawCaptures).toHaveLength(1);
+    expect(detectMock).not.toHaveBeenCalled();
     expect(screen.queryByTestId('corner-editor')).toBeNull();
 
-    // Advance PAST the import race timeout: the race rejects, the catch falls
-    // through with no pre-seed, and the frame is stored -> phase becomes
-    // 'editing-corners' -> the (stubbed) CornerEditor renders.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(IMPORT_DETECT_TIMEOUT_MS + 1);
-      // Flush the trailing microtasks after the rejection settles (no real-timer
-      // `waitFor` here — it deadlocks under fake timers, see the sibling
-      // useDocumentDetection test's `flushMicrotasks` note).
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(useScannerStore.getState().phase).toBe('editing-corners');
-    expect(screen.getByTestId('corner-editor')).toBeTruthy();
-
-    // No pre-seed: DETECT was never reached because the init race rejected first.
-    expect(detectMock).not.toHaveBeenCalled();
-    expect(detectImageDataMock).not.toHaveBeenCalled();
-
-    // Critically: no unhandled rejection escaped (HIGH-1 — the race timer was
-    // cleared and/or its rejection handled).
     expect(unhandled).toHaveLength(0);
   });
 });
