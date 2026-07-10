@@ -19,6 +19,7 @@
 
 import type { ReactNode } from 'react';
 import { Button } from '@/shared/ui';
+import { useTranslation } from '@/shared/i18n';
 
 export interface OpenCvDegradedBannerProps {
   readonly lastError: string | null;
@@ -26,6 +27,7 @@ export interface OpenCvDegradedBannerProps {
 }
 
 export function OpenCvDegradedBanner({ lastError, onRetry }: OpenCvDegradedBannerProps): ReactNode {
+  const { t } = useTranslation();
   return (
     <div
       role="status"
@@ -34,11 +36,10 @@ export function OpenCvDegradedBanner({ lastError, onRetry }: OpenCvDegradedBanne
       data-testid="opencv-degraded-banner"
     >
       <p className="text-sm text-text">
-        Document detection is unavailable right now{lastError ? ` (${lastError})` : ''}. You can still capture a
-        photo and adjust its corners manually.
+        {t('opencv.unavailable', { error: lastError ? ` (${lastError})` : '' })}
       </p>
       <Button type="button" variant="secondary" onClick={onRetry} data-testid="opencv-retry-button">
-        Retry
+        {t('opencv.retry')}
       </Button>
     </div>
   );

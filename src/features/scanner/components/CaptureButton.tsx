@@ -15,6 +15,7 @@
 
 import type { ReactNode } from 'react';
 import { Camera } from 'lucide-react';
+import { useTranslation } from '@/shared/i18n';
 
 export interface CaptureButtonProps {
   readonly onCapture: () => void;
@@ -24,6 +25,7 @@ export interface CaptureButtonProps {
 }
 
 export function CaptureButton({ onCapture, countdown, disabled = false }: CaptureButtonProps): ReactNode {
+  const { t } = useTranslation();
   const isCountingDown = countdown > 0;
 
   return (
@@ -32,7 +34,7 @@ export function CaptureButton({ onCapture, countdown, disabled = false }: Captur
       onClick={onCapture}
       disabled={disabled}
       data-testid="capture-button"
-      aria-label={isCountingDown ? `Auto-capturing in ${countdown}` : 'Capture document'}
+      aria-label={isCountingDown ? t('capture.autoCapturingIn', { n: countdown }) : t('capture.captureDocument')}
       className="relative flex h-[72px] w-[72px] items-center justify-center rounded-full bg-primary text-bg
         shadow-lg transition-transform duration-150 ease-out
         hover:bg-primary-dark active:translate-y-[1px] active:scale-[0.98]

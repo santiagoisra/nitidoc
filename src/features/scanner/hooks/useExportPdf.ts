@@ -8,6 +8,7 @@
 
 import { useCallback, useState } from 'react';
 import { useToast } from '@/shared/ui';
+import { useTranslation } from '@/shared/i18n';
 import { exportPagesToPdf } from '@/features/scanner/lib/exportPdf';
 import type { DocumentPage } from '@/features/scanner/store/documentSlice';
 
@@ -19,6 +20,7 @@ export interface UseExportPdfResult {
 }
 
 export function useExportPdf(): UseExportPdfResult {
+  const { t } = useTranslation();
   const { showToast } = useToast();
   const [exporting, setExporting] = useState(false);
 
@@ -30,13 +32,13 @@ export function useExportPdf(): UseExportPdfResult {
       setExporting(true);
       exportPagesToPdf(pages)
         .catch(() => {
-          showToast({ message: 'Could not export PDF.', variant: 'danger' });
+          showToast({ message: t('scanner.exportPdfError'), variant: 'danger' });
         })
         .finally(() => {
           setExporting(false);
         });
     },
-    [exporting, showToast],
+    [exporting, showToast, t],
   );
 
   return { exporting, exportPdf };

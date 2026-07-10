@@ -17,6 +17,7 @@
 
 import { useCallback, useRef } from 'react';
 import { useToast } from '@/shared/ui';
+import { useTranslation } from '@/shared/i18n';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
 
 /** Starting value (design section 5.5): "5000ms is a starting value". */
@@ -28,6 +29,7 @@ export interface UsePageDeletionResult {
 }
 
 export function usePageDeletion(): UsePageDeletionResult {
+  const { t } = useTranslation();
   const { showToast, dismissToast } = useToast();
   // Tracks THIS hook's own undo-window timer (not ToastHost's). Only one
   // deletion can be pending at a time (only one `pendingDeletion` slot
@@ -55,11 +57,11 @@ export function usePageDeletion(): UsePageDeletionResult {
 
       let toastId = '';
       toastId = showToast({
-        message: 'Page removed.',
+        message: t('capture.pageRemoved'),
         variant: 'info',
         durationMs: UNDO_WINDOW_MS,
         action: {
-          label: 'Undo',
+          label: t('capture.undo'),
           onClick: () => {
             if (hardReleaseTimerRef.current !== null) {
               clearTimeout(hardReleaseTimerRef.current);
@@ -76,7 +78,7 @@ export function usePageDeletion(): UsePageDeletionResult {
         useScannerStore.getState().hardReleaseDeletion();
       }, UNDO_WINDOW_MS);
     },
-    [showToast, dismissToast],
+    [showToast, dismissToast, t],
   );
 
   return { deletePage };

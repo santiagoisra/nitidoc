@@ -17,6 +17,8 @@ import type { ChangeEvent, ReactNode } from 'react';
 import { useCallback, useRef } from 'react';
 import { FileImage, Loader2 } from 'lucide-react';
 import { Button } from '@/shared/ui';
+import { useTranslation } from '@/shared/i18n';
+import type { TranslationKey } from '@/shared/i18n';
 import { IMPORT_FALLBACK_ACCEPT } from '@/features/scanner/lib/captureFallback';
 
 export type ImportFallbackReason = 'permission-denied' | 'no-camera';
@@ -38,20 +40,22 @@ export interface ImportFallbackProps {
  * Per-browser instructions for re-enabling a denied camera permission (task
  * 6.1.1). Detected via `navigator.userAgent` — a best-effort, presentational
  * heuristic only; it never gates functionality, only which copy is shown.
+ * Returns a translation KEY (not the resolved string) so the caller renders
+ * it via `t()` and the copy follows the active locale.
  */
-function detectBrowserInstructions(): string {
+function detectBrowserInstructionsKey(): TranslationKey {
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
   if (/Firefox/i.test(ua)) {
-    return 'Open the padlock icon in the address bar, set Camera to "Allow", then reload the page.';
+    return 'import.instructionsFirefox';
   }
   if (/Edg\//i.test(ua)) {
-    return 'Click the lock/info icon in the address bar, set Camera to "Allow", then reload the page.';
+    return 'import.instructionsLockIcon';
   }
   if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) {
-    return 'Open Safari Settings > Websites > Camera, allow this site, then reload the page.';
+    return 'import.instructionsSafari';
   }
   // Default: Chrome/Chromium-based instructions, the most common case.
-  return 'Click the lock/info icon in the address bar, set Camera to "Allow", then reload the page.';
+  return 'import.instructionsLockIcon';
 }
 
 export function ImportFallback({
@@ -60,6 +64,7 @@ export function ImportFallback({
   errorMessage,
   busy = false,
 }: ImportFallbackProps): ReactNode {
+  const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const handleChange = useCallback(
@@ -94,15 +99,15 @@ export function ImportFallback({
       {reason === 'permission-denied' && (
         <div className="flex flex-col gap-2" data-testid="permission-denied-instructions">
           <p role="alert" className="text-sm text-danger">
-            Camera access was denied.
+            {t('import.cameraAccessDenied')}
           </p>
-          <p className="text-sm text-text-muted">{detectBrowserInstructions()}</p>
+          <p className="text-sm text-text-muted">{t(detectBrowserInstructionsKey())}</p>
         </div>
       )}
 
       {reason === 'no-camera' && (
         <p className="text-sm text-text-muted" data-testid="no-camera-instructions">
-          No camera was detected on this device. You can still scan a document by importing an image file.
+          {t('import.noCameraDetected')}
         </p>
       )}
 
@@ -124,7 +129,7 @@ export function ImportFallback({
         ) : (
           <FileImage size={18} strokeWidth={1.5} aria-hidden="true" />
         )}
-        {busy ? 'Processing…' : 'Import image'}
+        {busy ? t('common.processing') : t('import.importImage')}
       </Button>
 
       {/* LOW-2: polite live region so assistive tech announces the wait. */}
@@ -134,7 +139,7 @@ export function ImportFallback({
         className="sr-only"
         data-testid="import-fallback-status"
       >
-        {busy ? 'Processing the selected image, please wait.' : ''}
+        {busy ? t('import.processingStatus') : ''}
       </p>
 
       {/*
@@ -150,7 +155,7 @@ export function ImportFallback({
         onChange={handleChange}
         className="sr-only"
         data-testid="import-fallback-input"
-        aria-label="Import a document image"
+        aria-label={t('import.importADocumentImage')}
       />
     </div>
   );

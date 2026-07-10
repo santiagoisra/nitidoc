@@ -48,6 +48,7 @@ import type { ReactNode } from 'react';
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { Flashlight, FlashlightOff } from 'lucide-react';
 import { Button } from '@/shared/ui';
+import { useTranslation } from '@/shared/i18n';
 import { CameraSelector } from '@/features/scanner/components/CameraSelector';
 import { CameraView } from '@/features/scanner/components/CameraView';
 import { CaptureButton } from '@/features/scanner/components/CaptureButton';
@@ -115,6 +116,7 @@ interface DraftCapture {
 }
 
 export function ScannerScreen(): ReactNode {
+  const { t } = useTranslation();
   const { openCamera, switchCamera, setTorch } = useCamera();
 
   const permission = useScannerStore((s) => s.permission);
@@ -381,7 +383,7 @@ export function ScannerScreen(): ReactNode {
     async (file: File) => {
       // Design section 2.3 / D-MEM: same hard cap as the camera path.
       if (useScannerStore.getState().pages.length >= FILTER.PAGE_CAP) {
-        setImportError(`Document limit reached (${FILTER.PAGE_CAP} pages).`);
+        setImportError(t('common.documentLimitReached', { cap: FILTER.PAGE_CAP }));
         return;
       }
 
@@ -478,12 +480,12 @@ export function ScannerScreen(): ReactNode {
         });
         setPhase('editing-corners');
       } catch (error) {
-        setImportError(error instanceof Error ? error.message : 'Could not read the selected image.');
+        setImportError(error instanceof Error ? error.message : t('scanner.couldNotReadImage'));
       } finally {
         setImporting(false); // LOW-2: clear processing on success OR failure.
       }
     },
-    [ensureOpenCvInit, setPhase, workerClient],
+    [ensureOpenCvInit, setPhase, t, workerClient],
   );
 
   const handleStart = useCallback(() => {
@@ -615,7 +617,7 @@ export function ScannerScreen(): ReactNode {
   if (!started) {
     return (
       <Button variant="primary" type="button" onClick={handleStart} data-testid="open-scanner">
-        Open scanner
+        {t('scanner.openScanner')}
       </Button>
     );
   }
@@ -651,7 +653,7 @@ export function ScannerScreen(): ReactNode {
     return (
       <div className="flex w-full max-w-sm flex-col items-center gap-3 text-center">
         <p role="alert" className="text-sm text-danger" data-testid="camera-error">
-          Could not open the camera. Try again, or import an image instead.
+          {t('scanner.cameraError')}
         </p>
         <ImportFallback reason="no-camera" onFileSelected={(file) => void handleImportedFile(file)} errorMessage={importError} busy={importing} />
       </div>
@@ -715,7 +717,7 @@ export function ScannerScreen(): ReactNode {
   // runnability.
   if (phase === 'grid') {
     return (
-      <Suspense fallback={<p data-testid="page-grid-loading">Loading…</p>}>
+      <Suspense fallback={<p data-testid="page-grid-loading">{t('scanner.loading')}</p>}>
         <PageGrid
           pages={pages}
           onActivatePage={handleActivatePageTap}
@@ -732,7 +734,7 @@ export function ScannerScreen(): ReactNode {
     return (
       <div className="flex w-full max-w-md flex-col items-center gap-4" data-testid="scan-done">
         <p className="text-sm text-text-muted">
-          Scan complete — {pages.length} page{pages.length === 1 ? '' : 's'}.
+          {t('scanner.scanComplete', { n: pages.length })}
         </p>
         <Button
           type="button"
@@ -741,10 +743,10 @@ export function ScannerScreen(): ReactNode {
           disabled={pages.length === 0 || exporting}
           data-testid="done-export-pdf"
         >
-          {exporting ? 'Exporting…' : 'Export PDF'}
+          {exporting ? t('scanner.exporting') : t('scanner.exportPdf')}
         </Button>
         <Button type="button" variant="primary" onClick={handleScanAgain} data-testid="scan-again">
-          Scan another document
+          {t('scanner.scanAnother')}
         </Button>
       </div>
     );
@@ -790,9 +792,9 @@ export function ScannerScreen(): ReactNode {
 
       {!openCvDegraded && showNoDetectionHint && (
         <div className="flex flex-col items-center gap-2 text-center" data-testid="no-detection-hint">
-          <p className="text-sm text-text-muted">No document detected yet.</p>
+          <p className="text-sm text-text-muted">{t('scanner.noDocumentDetected')}</p>
           <Button variant="secondary" type="button" onClick={handleCaptureAnyway} data-testid="capture-anyway">
-            Capture anyway
+            {t('scanner.captureAnyway')}
           </Button>
         </div>
       )}
@@ -808,7 +810,7 @@ export function ScannerScreen(): ReactNode {
               aria-pressed={autoCaptureEnabled}
               data-testid="auto-capture-toggle"
             >
-              {autoCaptureEnabled ? 'Auto on' : 'Auto off'}
+              {autoCaptureEnabled ? t('scanner.autoOn') : t('scanner.autoOff')}
             </Button>
           )}
           {torchSupported && (
@@ -824,7 +826,7 @@ export function ScannerScreen(): ReactNode {
               ) : (
                 <FlashlightOff size={18} strokeWidth={1.5} aria-hidden="true" />
               )}
-              <span className="sr-only">Toggle torch</span>
+              <span className="sr-only">{t('scanner.toggleTorch')}</span>
             </Button>
           )}
         </div>

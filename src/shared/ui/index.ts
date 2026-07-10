@@ -1,5 +1,6 @@
 export { Button } from '@/shared/ui/Button';
 export type { ButtonProps, ButtonVariant } from '@/shared/ui/Button';
+export { LanguageToggle } from '@/shared/ui/LanguageToggle';
 export { Sheet } from '@/shared/ui/Sheet';
 export type { SheetProps } from '@/shared/ui/Sheet';
 export { Toast } from '@/shared/ui/Toast';

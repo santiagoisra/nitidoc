@@ -36,6 +36,7 @@
 import type { ChangeEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/shared/ui';
+import { useTranslation } from '@/shared/i18n';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
 import { buildCssFilter } from '@/features/scanner/lib/filterPipeline';
 import { makeThumbnail } from '@/features/scanner/lib/pageResources';
@@ -46,15 +47,6 @@ import type { FilterParams, FilterPreset } from '@/shared/types/scanner';
 const CSS_PRESETS: readonly FilterPreset[] = ['original', 'enhanced', 'grayscale'];
 const ADAPTIVE_PRESETS: readonly FilterPreset[] = ['bw', 'bw-high-contrast', 'eco'];
 const ALL_PRESETS: readonly FilterPreset[] = [...CSS_PRESETS, ...ADAPTIVE_PRESETS];
-
-const PRESET_LABELS: Record<FilterPreset, string> = {
-  original: 'Original',
-  enhanced: 'Enhanced',
-  grayscale: 'Grayscale',
-  bw: 'B&W',
-  'bw-high-contrast': 'B&W high contrast',
-  eco: 'Eco',
-};
 
 export interface FilterPanelProps {
   /** UNFILTERED warp base (design section 3, ADR-009) — a small thumbnail is derived from this for previews. */
@@ -87,6 +79,15 @@ function extractImageData(bitmap: ImageBitmap): ImageDataLike {
 }
 
 export function FilterPanel({ baseBitmap, filter, onChange, onApplyToAll }: FilterPanelProps): ReactNode {
+  const { t } = useTranslation();
+  const PRESET_LABELS: Record<FilterPreset, string> = {
+    original: t('filter.presetOriginal'),
+    enhanced: t('filter.presetEnhanced'),
+    grayscale: t('filter.presetGrayscale'),
+    bw: t('filter.presetBw'),
+    'bw-high-contrast': t('filter.presetBwHighContrast'),
+    eco: t('filter.presetEco'),
+  };
   // Close-before-overwrite hygiene for the derived thumbnail (design section
   // 1.5/7), held in a ref (not state) so cleanup/replacement always sees the
   // CURRENT live bitmap rather than a stale render's closure.
@@ -286,7 +287,7 @@ export function FilterPanel({ baseBitmap, filter, onChange, onApplyToAll }: Filt
 
   return (
     <div className="flex w-full flex-col gap-4" data-testid="filter-panel">
-      <h3 className="text-sm font-medium text-text">Filters</h3>
+      <h3 className="text-sm font-medium text-text">{t('filter.title')}</h3>
       <div className="grid grid-cols-3 gap-2" data-testid="filter-preset-grid">
         {ALL_PRESETS.map((preset) => {
           const isAdaptive = ADAPTIVE_PRESETS.includes(preset);
@@ -308,40 +309,40 @@ export function FilterPanel({ baseBitmap, filter, onChange, onApplyToAll }: Filt
       </div>
 
       <label className="flex flex-col gap-1 text-sm text-text-muted" data-testid="filter-slider-brightness">
-        Brightness
+        {t('filter.brightness')}
         <input
           type="range"
           min={-100}
           max={100}
           value={filter.brightness}
           onChange={handleBrightnessChange}
-          aria-label="Brightness"
+          aria-label={t('filter.brightness')}
           data-testid="brightness-input"
         />
       </label>
 
       <label className="flex flex-col gap-1 text-sm text-text-muted" data-testid="filter-slider-contrast">
-        Contrast
+        {t('filter.contrast')}
         <input
           type="range"
           min={-100}
           max={100}
           value={filter.contrast}
           onChange={handleContrastChange}
-          aria-label="Contrast"
+          aria-label={t('filter.contrast')}
           data-testid="contrast-input"
         />
       </label>
 
       <label className="flex flex-col gap-1 text-sm text-text-muted" data-testid="filter-slider-sharpness">
-        Sharpness
+        {t('filter.sharpness')}
         <input
           type="range"
           min={0}
           max={100}
           value={filter.sharpness}
           onChange={handleSharpnessChange}
-          aria-label="Sharpness"
+          aria-label={t('filter.sharpness')}
           data-testid="sharpness-input"
         />
       </label>
@@ -355,12 +356,12 @@ export function FilterPanel({ baseBitmap, filter, onChange, onApplyToAll }: Filt
               onClick={handleApplyToAllClick}
               data-testid="apply-to-all-button"
             >
-              Apply to all pages
+              {t('filter.applyToAll')}
             </Button>
           ) : (
             <div className="flex flex-col gap-2" data-testid="apply-to-all-confirm">
               <p className="text-sm text-text-muted">
-                Apply this filter to every page? Individual filters will be overwritten.
+                {t('filter.applyToAllConfirmText')}
               </p>
               <div className="flex items-center gap-2">
                 <Button
@@ -369,7 +370,7 @@ export function FilterPanel({ baseBitmap, filter, onChange, onApplyToAll }: Filt
                   onClick={handleApplyToAllCancel}
                   data-testid="apply-to-all-cancel"
                 >
-                  Cancel
+                  {t('filter.cancel')}
                 </Button>
                 <Button
                   type="button"
@@ -377,7 +378,7 @@ export function FilterPanel({ baseBitmap, filter, onChange, onApplyToAll }: Filt
                   onClick={handleApplyToAllConfirm}
                   data-testid="apply-to-all-confirm-button"
                 >
-                  Apply to all
+                  {t('filter.applyToAllConfirmButton')}
                 </Button>
               </div>
             </div>
