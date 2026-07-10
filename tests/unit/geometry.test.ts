@@ -5,6 +5,7 @@ import {
   layoutSizeForRotation,
   orderCorners,
   outputSize,
+  reduceToQuad,
 } from '@/features/scanner/lib/geometry';
 import type { Point, Quad } from '@/shared/types/geometry';
 
@@ -326,6 +327,73 @@ describe('orderCorners (task 7.1.2)', () => {
       const inputSet = new Set([tl, tr, br, bl].map((p) => `${(p as Point).x.toFixed(2)},${(p as Point).y.toFixed(2)}`));
       expect(orderedSet).toEqual(inputSet);
     });
+  });
+});
+
+describe('reduceToQuad (Fase 2.2 punch-list item 1, root cause B)', () => {
+  /**
+   * Regression coverage for the "detection never works" bug: real document
+   * contours commonly `approxPolyDP` to 5-8 points instead of a clean 4
+   * (shadow/texture/curl noise adding extra vertices along an otherwise
+   * straight edge). `reduceToQuad` must pick out the 4 TRUE corners from a
+   * larger point set via the extreme-points (sum/difference) heuristic.
+   */
+  it('reduces a 6-point near-rectangle (2 extra noise vertices on edges) to its 4 true corners', () => {
+    const tl = { x: 0, y: 0 };
+    const tr = { x: 100, y: 0 };
+    const br = { x: 100, y: 150 };
+    const bl = { x: 0, y: 150 };
+    // Extra vertices sitting ON edges (not true corners): a slight inward
+    // bump on the top edge, and a slight outward bump on the right edge.
+    const topBump = { x: 50, y: -5 };
+    const rightBump = { x: 105, y: 75 };
+
+    const points = [tl, topBump, tr, rightBump, br, bl];
+    const result = reduceToQuad(points);
+
+    expect(result).not.toBeNull();
+    const quad = result as Quad;
+    expect(isConvex(quad)).toBe(true);
+    expect(quad[0]).toEqual(tl);
+    expect(quad[1]).toEqual(tr);
+    expect(quad[2]).toEqual(br);
+    expect(quad[3]).toEqual(bl);
+  });
+
+  it('reduces an 8-point rectangle with a noise vertex on every edge to its 4 true corners', () => {
+    const tl = { x: 0, y: 0 };
+    const tr = { x: 200, y: 0 };
+    const br = { x: 200, y: 100 };
+    const bl = { x: 0, y: 100 };
+    const points = [
+      tl,
+      { x: 100, y: -8 }, // top edge bump
+      tr,
+      { x: 208, y: 50 }, // right edge bump
+      br,
+      { x: 100, y: 108 }, // bottom edge bump
+      bl,
+      { x: -8, y: 50 }, // left edge bump
+    ];
+
+    const result = reduceToQuad(points);
+    expect(result).not.toBeNull();
+    const quad = result as Quad;
+    expect(isConvex(quad)).toBe(true);
+    expect(quad[0]).toEqual(tl);
+    expect(quad[1]).toEqual(tr);
+    expect(quad[2]).toEqual(br);
+    expect(quad[3]).toEqual(bl);
+  });
+
+  it('returns null for fewer than 4 points', () => {
+    expect(reduceToQuad([{ x: 0, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 2 }])).toBeNull();
+  });
+
+  it('returns null when the extreme points collapse to fewer than 4 distinct points (degenerate shape)', () => {
+    // A single point repeated: every extreme resolves to the same point.
+    const p = { x: 5, y: 5 };
+    expect(reduceToQuad([p, p, p, p])).toBeNull();
   });
 });
 

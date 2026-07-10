@@ -93,7 +93,8 @@ export const es = {
 
   'quality.moveCloser': 'Acercate más',
   'quality.tooDark': 'Muy oscuro',
-  'quality.holdSteady': 'Mantené firme',
+  'quality.blurry': 'Imagen borrosa — enfocá',
+  'quality.detecting': 'Detectando… mantené firme',
 
   'camera.selectCamera': 'Seleccionar cámara',
   'camera.cameraN': 'Cámara {n}',

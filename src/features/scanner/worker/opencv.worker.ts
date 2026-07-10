@@ -10,8 +10,9 @@
  *   INIT_DONE or ERROR{OPENCV_LOAD_FAILED}.
  * - DETECT: bitmap -> internal OffscreenCanvas -> getImageData ->
  *   cv.matFromImageData -> cvtColor(GRAY) -> GaussianBlur -> Canny ->
- *   findContours -> largest-area contour -> approxPolyDP(4 sides) ->
- *   orderCorners + isConvex -> optional QualityMetrics.
+ *   findContours -> largest-area contour -> approxPolyDP (accepts 4-8
+ *   points, reducing >4 via `reduceToQuad`) -> orderCorners + isConvex ->
+ *   optional QualityMetrics.
  * - DETECT_IMAGEDATA (task 6.7.1; design section 8): same pipeline as
  *   DETECT (via the shared `runDetectPipeline`), but skips the internal
  *   OffscreenCanvas draw step entirely — used when NEITHER the main thread
@@ -24,7 +25,7 @@
  *   (design section 8).
  */
 
-import { isConvex, orderCorners, outputSize } from '@/features/scanner/lib/geometry';
+import { isConvex, orderCorners, outputSize, reduceToQuad } from '@/features/scanner/lib/geometry';
 import { DETECTION } from '@/features/scanner/lib/detectionConstants';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
 import { loadOpenCv } from '@/features/scanner/lib/opencvLoader';
@@ -50,9 +51,6 @@ import type {
   WorkerRequest,
   WorkerResponse,
 } from './messages';
-
-/** Minimum contour area (in the downscaled detection frame) to be considered a candidate document. */
-const MIN_CONTOUR_AREA_RATIO = 0.1;
 
 let cv: CvBindings | null = null;
 
@@ -199,7 +197,8 @@ function computeQuality(grayMat: CvMat): QualityMetrics {
  * (`handleDetectImageData`, receives already-extracted `ImageData` from the
  * main thread) converge here once they have a plain `ImageData` in hand —
  * cvtColor(GRAY) -> GaussianBlur -> Canny -> findContours -> largest-area
- * contour -> approxPolyDP(4 sides) -> orderCorners + isConvex -> optional
+ * contour -> approxPolyDP (4-8 points, reduced to a quad via
+ * `reduceToQuad` when > 4) -> orderCorners + isConvex -> optional
  * QualityMetrics. Single source of truth for the OpenCV pipeline itself.
  */
 function runDetectPipeline(
@@ -257,16 +256,29 @@ function runDetectPipeline(
     }
 
     let corners: Quad | null = null;
-    if (largestContour && largestArea >= frameArea * MIN_CONTOUR_AREA_RATIO) {
+    if (largestContour && largestArea >= frameArea * DETECTION.MIN_CONTOUR_AREA_RATIO) {
       const perimeter = cvBindings.arcLength(largestContour, true);
-      cvBindings.approxPolyDP(largestContour, approx, 0.02 * perimeter, true);
+      cvBindings.approxPolyDP(largestContour, approx, DETECTION.POLY_APPROX_EPSILON_RATIO * perimeter, true);
       const points = contourToPoints(approx);
 
+      // Fix (Fase 2.2 punch-list item 1, root cause B): the exact-4-points
+      // fast path is preserved, but real document edges (shadows, texture, a
+      // slight curl) commonly approximate to 5-`MAX_APPROX_POINTS` points
+      // instead of a clean 4 — those used to be silently discarded here,
+      // which is why detection "never worked" against real documents.
+      // `reduceToQuad` (geometry.ts) derives the 4 most likely true corners
+      // from the larger point set via the extreme-points method.
+      let candidate: Quad | null = null;
       if (points.length === 4) {
-        const withinFrame = points.every(
+        candidate = orderCorners(points);
+      } else if (points.length > 4 && points.length <= DETECTION.MAX_APPROX_POINTS) {
+        candidate = reduceToQuad(points);
+      }
+
+      if (candidate) {
+        const withinFrame = candidate.every(
           (p) => p.x >= 0 && p.x <= width && p.y >= 0 && p.y <= height,
         );
-        const candidate = orderCorners(points);
         if (withinFrame && isConvex(candidate)) {
           corners = candidate;
         }
