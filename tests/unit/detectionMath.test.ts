@@ -5,10 +5,11 @@ import {
   lerp,
   lerpPoint,
   lerpQuad,
-  maxCornerVariance,
+  maxCornerStdDevPx,
   scaleCornersToFullRes,
   TOO_FAR_AREA_RATIO_THRESHOLD,
 } from '@/features/scanner/lib/detectionMath';
+import { DETECTION } from '@/features/scanner/lib/detectionConstants';
 import type { Point, Quad } from '@/shared/types/geometry';
 
 function quad(points: readonly [Point, Point, Point, Point]): Quad {
@@ -77,18 +78,18 @@ describe('lerpQuad (task 4.2.1)', () => {
   });
 });
 
-describe('maxCornerVariance (task 4.3.1)', () => {
+describe('maxCornerStdDevPx (task 4.3.1; fix M-stability)', () => {
   it('returns 0 for an empty or single-sample buffer (nothing to vary yet)', () => {
-    expect(maxCornerVariance([])).toBe(0);
-    expect(maxCornerVariance([RECT])).toBe(0);
+    expect(maxCornerStdDevPx([])).toBe(0);
+    expect(maxCornerStdDevPx([RECT])).toBe(0);
   });
 
   it('returns 0 when every quad in the buffer is identical (perfectly stable)', () => {
     const buffer = [RECT, RECT, RECT, RECT];
-    expect(maxCornerVariance(buffer)).toBe(0);
+    expect(maxCornerStdDevPx(buffer)).toBe(0);
   });
 
-  it('returns a positive variance when corners jitter between samples', () => {
+  it('returns a positive stddev, in real linear pixels, when corners jitter between samples', () => {
     const jittered = quad([
       { x: 2, y: 1 },
       { x: 101, y: -1 },
@@ -96,7 +97,7 @@ describe('maxCornerVariance (task 4.3.1)', () => {
       { x: -1, y: 99 },
     ]);
     const buffer = [RECT, jittered, RECT, jittered];
-    expect(maxCornerVariance(buffer)).toBeGreaterThan(0);
+    expect(maxCornerStdDevPx(buffer)).toBeGreaterThan(0);
   });
 
   it('increases with larger jitter amplitude', () => {
@@ -114,7 +115,64 @@ describe('maxCornerVariance (task 4.3.1)', () => {
     ]);
     const smallBuffer = [RECT, smallJitter];
     const bigBuffer = [RECT, bigJitter];
-    expect(maxCornerVariance(bigBuffer)).toBeGreaterThan(maxCornerVariance(smallBuffer));
+    expect(maxCornerStdDevPx(bigBuffer)).toBeGreaterThan(maxCornerStdDevPx(smallBuffer));
+  });
+
+  it('returns a real LINEAR pixel unit, not a squared variance (regression for the bug that made auto-capture never fire)', () => {
+    // A uniform +/-4px jitter on one axis should read as ~4px stddev, NOT
+    // ~16 (which is what the old squared-variance implementation produced
+    // and which made it impossible to ever cross a small pixel threshold).
+    const jitteredBy4 = quad([
+      { x: 4, y: 0 },
+      { x: 100, y: 0 },
+      { x: 100, y: 100 },
+      { x: 0, y: 100 },
+    ]);
+    const buffer = [RECT, jitteredBy4];
+    expect(maxCornerStdDevPx(buffer)).toBeCloseTo(2, 1);
+  });
+
+  it('classifies a tight cluster of corners (small handheld jitter) as stable at the calibrated threshold', () => {
+    // Small jitter (~2px amplitude) across a buffer -> stddev well under
+    // DETECTION.STABILITY_STDDEV_PX -> "stable".
+    const tightBuffer = [
+      RECT,
+      quad([
+        { x: 1, y: 1 },
+        { x: 99, y: 1 },
+        { x: 99, y: 99 },
+        { x: 1, y: 99 },
+      ]),
+      quad([
+        { x: -1, y: -1 },
+        { x: 101, y: -1 },
+        { x: 101, y: 101 },
+        { x: -1, y: 101 },
+      ]),
+      RECT,
+    ];
+    expect(maxCornerStdDevPx(tightBuffer)).toBeLessThan(DETECTION.STABILITY_STDDEV_PX);
+  });
+
+  it('classifies a loose cluster of corners (large handheld shake) as NOT stable at the calibrated threshold', () => {
+    // Large jitter (~20-30px amplitude) -> stddev well over
+    // DETECTION.STABILITY_STDDEV_PX -> "not stable".
+    const looseBuffer = [
+      RECT,
+      quad([
+        { x: 25, y: 20 },
+        { x: 125, y: -15 },
+        { x: 130, y: 120 },
+        { x: -20, y: 115 },
+      ]),
+      quad([
+        { x: -20, y: -25 },
+        { x: 75, y: 30 },
+        { x: 70, y: 80 },
+        { x: 20, y: 85 },
+      ]),
+    ];
+    expect(maxCornerStdDevPx(looseBuffer)).toBeGreaterThan(DETECTION.STABILITY_STDDEV_PX);
   });
 });
 

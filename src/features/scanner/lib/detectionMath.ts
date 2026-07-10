@@ -44,34 +44,40 @@ export function lerpQuad(prev: Quad | null, next: Quad, alpha: number): Quad {
 }
 
 /**
- * Per-point variance of a buffer of quads (design section 2.1 stability
- * buffer). Returns the MAXIMUM per-corner variance across all 4 corners —
- * the buffer is only considered stable when every corner's variance is
- * under the threshold, so the max is the single number callers need to
- * compare against `STABILITY_VARIANCE_PX`.
+ * Per-point standard deviation, IN PIXELS, of a buffer of quads (design
+ * section 2.1 stability buffer). Returns the MAXIMUM per-corner stddev
+ * across all 4 corners — the buffer is only considered stable when every
+ * corner's stddev is under the threshold, so the max is the single number
+ * callers need to compare against `STABILITY_STDDEV_PX`.
  *
- * Variance here is the mean squared distance from each corner's mean
- * position across the buffer (population variance of the 2D point cloud
- * per corner index). Returns 0 for a buffer with fewer than 2 samples
- * (nothing to vary yet).
+ * Internally this is the RMS (root-mean-square) distance from each corner's
+ * mean position across the buffer — i.e. `sqrt(populationVariance)` of the
+ * 2D point cloud per corner index — so the returned unit is a real LINEAR
+ * pixel tolerance, not a squared quantity. (Fix M-stability: a previous
+ * version returned raw squared-deviation variance, which is unusable as a
+ * pixel tolerance since e.g. a 4px jitter produces a variance around 16,
+ * not 4 — that bug is why auto-capture's stability window effectively
+ * required sub-pixel stillness and never fired handheld.) Returns 0 for a
+ * buffer with fewer than 2 samples (nothing to vary yet).
  */
-export function maxCornerVariance(buffer: readonly Quad[]): number {
+export function maxCornerStdDevPx(buffer: readonly Quad[]): number {
   if (buffer.length < 2) {
     return 0;
   }
 
-  let maxVariance = 0;
+  let maxStdDev = 0;
   for (let cornerIndex = 0; cornerIndex < 4; cornerIndex += 1) {
     const points = buffer.map((quad) => quad[cornerIndex as 0 | 1 | 2 | 3]);
     const meanX = points.reduce((sum, p) => sum + p.x, 0) / points.length;
     const meanY = points.reduce((sum, p) => sum + p.y, 0) / points.length;
     const variance =
       points.reduce((sum, p) => sum + ((p.x - meanX) ** 2 + (p.y - meanY) ** 2), 0) / points.length;
-    if (variance > maxVariance) {
-      maxVariance = variance;
+    const stdDev = Math.sqrt(variance);
+    if (stdDev > maxStdDev) {
+      maxStdDev = stdDev;
     }
   }
-  return maxVariance;
+  return maxStdDev;
 }
 
 /**

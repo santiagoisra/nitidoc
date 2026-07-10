@@ -73,7 +73,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { getSharedWorkerClient, WorkerError, type WorkerClient } from '@/features/scanner/lib/workerClient';
 import { DETECTION } from '@/features/scanner/lib/detectionConstants';
-import { lerpQuad, maxCornerVariance } from '@/features/scanner/lib/detectionMath';
+import { lerpQuad, maxCornerStdDevPx } from '@/features/scanner/lib/detectionMath';
 import { bitmapToImageData } from '@/features/scanner/lib/mainThreadImageData';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
 import type { Quad } from '@/shared/types/geometry';
@@ -161,7 +161,7 @@ export function useDocumentDetection(
   const runningRef = useRef(false);
   const useRvfcRef = useRef(true);
 
-  /** Stability buffer: recent timestamped samples used by maxCornerVariance (task 4.3.1; fix M1). */
+  /** Stability buffer: recent timestamped samples used by maxCornerStdDevPx (task 4.3.1; fix M1). */
   const stabilityBufferRef = useRef<StabilitySample[]>([]);
   const stableSinceRef = useRef<number | null>(null);
 
@@ -448,8 +448,8 @@ export function useDocumentDetection(
             buffer.shift();
           }
 
-          const variance = maxCornerVariance(buffer.map((sample) => sample.quad));
-          const isStable = variance < DETECTION.STABILITY_VARIANCE_PX;
+          const stdDevPx = maxCornerStdDevPx(buffer.map((sample) => sample.quad));
+          const isStable = stdDevPx < DETECTION.STABILITY_STDDEV_PX;
           setStability(isStable ? 1 : 0);
 
           if (isStable && autoCaptureEnabled) {
