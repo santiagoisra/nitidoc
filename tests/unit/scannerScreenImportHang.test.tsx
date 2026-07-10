@@ -78,6 +78,7 @@ vi.mock('@/features/scanner/lib/captureFallback', async () => {
 });
 
 import { ScannerScreen } from '@/features/scanner/components/ScannerScreen';
+import { ToastHost } from '@/shared/ui';
 import { useScannerStore, scannerStoreInitialState } from '@/features/scanner/store/scannerStore';
 
 describe('ScannerScreen import fallback with a HANGING OpenCV init (HIGH-1 / MEDIUM-2)', () => {
@@ -109,7 +110,11 @@ describe('ScannerScreen import fallback with a HANGING OpenCV init (HIGH-1 / MED
   });
 
   it('falls through to the frame-completo editor after IMPORT_DETECT_TIMEOUT_MS with no pre-seed, no timer leak, no unhandled rejection', async () => {
-    render(<ScannerScreen />);
+    render(
+      <ToastHost>
+        <ScannerScreen />
+      </ToastHost>,
+    );
     fireEvent.click(screen.getByTestId('open-scanner'));
 
     // The import fallback is showing (permission denied). Trigger a file import.
