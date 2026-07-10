@@ -150,6 +150,17 @@ async function flushInitialMountWarp(): Promise<void> {
   warpDeferreds.length = 0;
 }
 
+/**
+ * Fase 2.1 punch-list item 2: the aspect-ratio selector now lives in the
+ * 'adjust' step, reached via "Next" from 'corners' (design: two-step editor).
+ * "Next" is only enabled once a warp has already landed (mirrors the OLD
+ * single-step "Confirm" gate), which `flushInitialMountWarp` above already
+ * guarantees before this is called.
+ */
+function goToAdjustStep(): void {
+  fireEvent.click(screen.getByTestId('corner-editor-next'));
+}
+
 describe('CornerEditor warp concurrency + bitmap hygiene (C1/C2)', () => {
   let onConfirmMock: ReturnType<typeof vi.fn>;
   let onCancelMock: ReturnType<typeof vi.fn>;
@@ -183,6 +194,7 @@ describe('CornerEditor warp concurrency + bitmap hygiene (C1/C2)', () => {
     );
 
     await flushInitialMountWarp();
+    goToAdjustStep();
 
     // Fire warp A (choose "letter"), then warp B (choose "ticket") BEFORE A
     // resolves. handleAspectChange runs runWarp because the seeded quad is
@@ -238,6 +250,7 @@ describe('CornerEditor warp concurrency + bitmap hygiene (C1/C2)', () => {
     );
 
     await flushInitialMountWarp();
+    goToAdjustStep();
 
     fireEvent.click(screen.getByTestId('aspect-ratio-letter'));
     await waitFor(() => expect(warpDeferreds.length).toBe(1));
