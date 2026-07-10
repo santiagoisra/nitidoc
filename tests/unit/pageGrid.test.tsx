@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ToastHost } from '@/shared/ui';
 import type { DocumentPage } from '@/features/scanner/store/documentSlice';
 import { NEUTRAL_FILTER } from '@/shared/types/scanner';
 
@@ -130,14 +131,16 @@ describe('PageGrid (Group 5 / PR8, design section 5.3)', () => {
     const onReorder = vi.fn();
 
     render(
-      <PageGrid
-        pages={pages}
-        onActivatePage={vi.fn()}
-        onDeletePage={vi.fn()}
-        onReorder={onReorder}
-        onCaptureMore={vi.fn()}
-        onFinish={vi.fn()}
-      />,
+      <ToastHost>
+        <PageGrid
+          pages={pages}
+          onActivatePage={vi.fn()}
+          onDeletePage={vi.fn()}
+          onReorder={onReorder}
+          onCaptureMore={vi.fn()}
+          onFinish={vi.fn()}
+        />
+      </ToastHost>,
     );
 
     expect(capturedOnDragEnd).not.toBeNull();
@@ -157,14 +160,16 @@ describe('PageGrid (Group 5 / PR8, design section 5.3)', () => {
     const onReorder = vi.fn();
 
     render(
-      <PageGrid
-        pages={pages}
-        onActivatePage={vi.fn()}
-        onDeletePage={vi.fn()}
-        onReorder={onReorder}
-        onCaptureMore={vi.fn()}
-        onFinish={vi.fn()}
-      />,
+      <ToastHost>
+        <PageGrid
+          pages={pages}
+          onActivatePage={vi.fn()}
+          onDeletePage={vi.fn()}
+          onReorder={onReorder}
+          onCaptureMore={vi.fn()}
+          onFinish={vi.fn()}
+        />
+      </ToastHost>,
     );
 
     capturedOnDragEnd?.({ active: { id: 'p1' }, over: null });
@@ -177,14 +182,16 @@ describe('PageGrid (Group 5 / PR8, design section 5.3)', () => {
     const onActivatePage = vi.fn();
 
     render(
-      <PageGrid
-        pages={pages}
-        onActivatePage={onActivatePage}
-        onDeletePage={vi.fn()}
-        onReorder={vi.fn()}
-        onCaptureMore={vi.fn()}
-        onFinish={vi.fn()}
-      />,
+      <ToastHost>
+        <PageGrid
+          pages={pages}
+          onActivatePage={onActivatePage}
+          onDeletePage={vi.fn()}
+          onReorder={vi.fn()}
+          onCaptureMore={vi.fn()}
+          onFinish={vi.fn()}
+        />
+      </ToastHost>,
     );
 
     fireEvent.click(screen.getByTestId('page-grid-activate-p2'));
@@ -199,14 +206,16 @@ describe('PageGrid (Group 5 / PR8, design section 5.3)', () => {
     const onDeletePage = vi.fn();
 
     render(
-      <PageGrid
-        pages={pages}
-        onActivatePage={onActivatePage}
-        onDeletePage={onDeletePage}
-        onReorder={vi.fn()}
-        onCaptureMore={vi.fn()}
-        onFinish={vi.fn()}
-      />,
+      <ToastHost>
+        <PageGrid
+          pages={pages}
+          onActivatePage={onActivatePage}
+          onDeletePage={onDeletePage}
+          onReorder={vi.fn()}
+          onCaptureMore={vi.fn()}
+          onFinish={vi.fn()}
+        />
+      </ToastHost>,
     );
 
     fireEvent.click(screen.getByTestId('page-grid-delete-p1'));
@@ -221,14 +230,16 @@ describe('PageGrid (Group 5 / PR8, design section 5.3)', () => {
     const onFinish = vi.fn();
 
     render(
-      <PageGrid
-        pages={pages}
-        onActivatePage={vi.fn()}
-        onDeletePage={vi.fn()}
-        onReorder={vi.fn()}
-        onCaptureMore={onCaptureMore}
-        onFinish={onFinish}
-      />,
+      <ToastHost>
+        <PageGrid
+          pages={pages}
+          onActivatePage={vi.fn()}
+          onDeletePage={vi.fn()}
+          onReorder={vi.fn()}
+          onCaptureMore={onCaptureMore}
+          onFinish={onFinish}
+        />
+      </ToastHost>,
     );
 
     fireEvent.click(screen.getByTestId('grid-capture-more'));
@@ -242,14 +253,16 @@ describe('PageGrid (Group 5 / PR8, design section 5.3)', () => {
     const pages = [makePage('p1', 0, { ...NEUTRAL_FILTER, preset: 'grayscale' })];
 
     render(
-      <PageGrid
-        pages={pages}
-        onActivatePage={vi.fn()}
-        onDeletePage={vi.fn()}
-        onReorder={vi.fn()}
-        onCaptureMore={vi.fn()}
-        onFinish={vi.fn()}
-      />,
+      <ToastHost>
+        <PageGrid
+          pages={pages}
+          onActivatePage={vi.fn()}
+          onDeletePage={vi.fn()}
+          onReorder={vi.fn()}
+          onCaptureMore={vi.fn()}
+          onFinish={vi.fn()}
+        />
+      </ToastHost>,
     );
 
     // PageGrid reuses CaptureTray's `PageThumbnail`, which draws with the

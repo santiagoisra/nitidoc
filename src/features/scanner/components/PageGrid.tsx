@@ -26,6 +26,7 @@ import { SortableContext, rectSortingStrategy, useSortable } from '@dnd-kit/sort
 import { CSS } from '@dnd-kit/utilities';
 import { Button } from '@/shared/ui';
 import { PageThumbnail } from '@/features/scanner/components/CaptureTray';
+import { useExportPdf } from '@/features/scanner/hooks/useExportPdf';
 import type { DocumentPage } from '@/features/scanner/store/documentSlice';
 
 export interface PageGridProps {
@@ -71,6 +72,11 @@ export function PageGrid({
   onFinish,
 }: PageGridProps): ReactNode {
   const sensors = useSensors(useSensor(PointerSensor));
+  const { exporting, exportPdf } = useExportPdf();
+
+  const handleExportPdf = useCallback(() => {
+    exportPdf(pages);
+  }, [exportPdf, pages]);
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -109,6 +115,15 @@ export function PageGrid({
       <div className="flex w-full items-center justify-between gap-3">
         <Button type="button" variant="secondary" onClick={onCaptureMore} data-testid="grid-capture-more">
           Capture more
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={handleExportPdf}
+          disabled={pages.length === 0 || exporting}
+          data-testid="grid-export-pdf"
+        >
+          {exporting ? 'Exporting…' : 'Export PDF'}
         </Button>
         <Button type="button" variant="primary" onClick={onFinish} data-testid="grid-finish">
           Finish
