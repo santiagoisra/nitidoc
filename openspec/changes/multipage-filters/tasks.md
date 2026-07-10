@@ -80,11 +80,11 @@ components read/write the active page via `DocumentSlice`; `CaptureSlice` and it
 Rollback: revert PR3 branch back to PR2's state (DocumentSlice unused but present) -- app still builds because
 PR4 (test rewrite) has not landed, so `sdd-apply` must land PR3+PR4 as one reviewable pair before merging past this point.
 
-- [ ] 1c.1 `src/features/scanner/components/ScannerScreen.tsx`: rewrite phase-driven render per design section 5.1 (`capturing`/`tray` -> camera+tray, `editing-corners` -> `CornerEditor`, `grid` -> `PageGrid` placeholder, `done` -> summary). Materialize-on-capture calls `addPage` + `setActiveWorking(null)`, resumes `startDetection` (reuses `handleEditorCancel` pattern) -- keeps camera open (spec `scanner` scenario "Confirmar una pagina no cierra la camara").
-- [ ] 1c.2 `src/features/scanner/components/CornerEditor.tsx`: source becomes `activeWorking.originalBitmap`; re-warp writes `setActiveWorking({...prev, warpedBase: fresh})` + `updateRecipe` + `setActiveDirty(true)`. Preserve the existing extract-once/clone-per-warp pattern (buffer detach on transfer).
-- [ ] 1c.3 `src/features/scanner/store/scannerStore.ts`: delete `CaptureSlice`, `initialCaptureSlice`, and its actions; remove from the combined store type.
-- [ ] 1c.4 Grep the repo for any remaining `CaptureSlice`/`setOriginalFrame`/`setWarpedImage`/`setRecipe`/`resetCaptureSlice` references outside tests; fix call sites.
-- [ ] 1c.5 Verify (build only, tests land in PR4): `tsc --noEmit` clean; `pnpm build` succeeds; manual smoke of capture->confirm->tray in dev.
+- [x] 1c.1 `src/features/scanner/components/ScannerScreen.tsx`: rewrite phase-driven render per design section 5.1 (`capturing`/`tray` -> camera+tray, `editing-corners` -> `CornerEditor`, `grid` -> `PageGrid` placeholder, `done` -> summary). Materialize-on-capture calls `addPage` + `setActiveWorking(null)`, resumes `startDetection` (reuses `handleEditorCancel` pattern) -- keeps camera open (spec `scanner` scenario "Confirmar una pagina no cierra la camara").
+- [x] 1c.2 `src/features/scanner/components/CornerEditor.tsx`: source becomes `activeWorking.originalBitmap`; re-warp writes `setActiveWorking({...prev, warpedBase: fresh})` + `updateRecipe` + `setActiveDirty(true)`. Preserve the existing extract-once/clone-per-warp pattern (buffer detach on transfer).
+- [x] 1c.3 `src/features/scanner/store/scannerStore.ts`: delete `CaptureSlice`, `initialCaptureSlice`, and its actions; remove from the combined store type.
+- [x] 1c.4 Grep the repo for any remaining `CaptureSlice`/`setOriginalFrame`/`setWarpedImage`/`setRecipe`/`resetCaptureSlice` references outside tests; fix call sites.
+- [x] 1c.5 Verify (build only, tests land in PR4): `tsc --noEmit` clean; `pnpm build` succeeds; manual smoke of capture->confirm->tray in dev.
 
 ## Group 1d -- Rewrite impacted F1 tests (PR4)
 
@@ -93,11 +93,11 @@ Start: `tests/unit/*` reference `CaptureSlice` shape and fail to compile against
 against `DocumentSlice`; no test references `CaptureSlice`; memory-hygiene coverage (close-before-overwrite,
 16MP cap, single-OffscreenCanvas) preserved. Rollback: this PR is purely tests -- revert without touching `src/`.
 
-- [ ] 1d.1 Rewrite `tests/unit/scannerStore.test.ts`: replace all `CaptureSlice` assertions with `DocumentSlice` equivalents (may merge with `documentSlice.test.ts` from 1b.8 -- keep one source of truth, delete duplicates).
-- [ ] 1d.2 Rewrite `tests/unit/cornerEditorWarp.test.tsx` against `activeWorking`-sourced bitmap + `updateRecipe`/`setActiveDirty` calls.
-- [ ] 1d.3 Rewrite `tests/unit/scannerCaptureGuard.test.tsx`, `tests/unit/scannerScreenOpenCvInit.test.tsx`, `tests/unit/scannerScreenImportHang.test.tsx`, `tests/unit/scannerScreenImportDetect.test.tsx` against the phase-driven `ScannerScreen`.
-- [ ] 1d.4 Confirm F1 memory-hygiene tests still pass unmodified in intent: close-before-overwrite, 16MP capture cap, single-OffscreenCanvas-per-operation (grep for their assertions across the rewritten files).
-- [ ] 1d.5 Verify: `vitest run` (full suite) green; `rg CaptureSlice tests/` returns no matches; `tsc --noEmit` clean.
+- [x] 1d.1 Rewrite `tests/unit/scannerStore.test.ts`: replace all `CaptureSlice` assertions with `DocumentSlice` equivalents (may merge with `documentSlice.test.ts` from 1b.8 -- keep one source of truth, delete duplicates). Note: `scannerStore.test.ts` was kept as the COMBINED-store wiring test (proving `scannerStore.ts`'s adapter wires `DocumentSlice` actions correctly) rather than merged wholesale, since `documentSlice.test.ts` already owns the isolated slice contract.
+- [x] 1d.2 Rewrite `tests/unit/cornerEditorWarp.test.tsx` against `activeWorking`-sourced bitmap + `updateRecipe`/`setActiveDirty` calls. Note: `CornerEditor` was redesigned as a store-agnostic controlled component (see design deviation note below), so this file asserts via `onConfirm` call args + `bitmap.close()` spies instead of reading the store directly -- same bugs (C1/C2/L2) covered with the same rigor.
+- [x] 1d.3 Rewrite `tests/unit/scannerCaptureGuard.test.tsx`, `tests/unit/scannerScreenOpenCvInit.test.tsx`, `tests/unit/scannerScreenImportHang.test.tsx`, `tests/unit/scannerScreenImportDetect.test.tsx` against the phase-driven `ScannerScreen`. These 4 files needed NO changes -- their assertions target `ScannerScreen`-level behavior (phase transitions, `ensureOpenCvInit`, import DETECT/hang guards) which is preserved verbatim by the rewrite; `CornerEditor`'s prop rename (`frame` -> `originalBitmap`/`width`/`height`) doesn't affect their mocks (`initialCorners` prop name unchanged).
+- [x] 1d.4 Confirm F1 memory-hygiene tests still pass unmodified in intent: close-before-overwrite, 16MP capture cap, single-OffscreenCanvas-per-operation (grep for their assertions across the rewritten files). Confirmed: close-before-overwrite lives in `documentSlice.test.ts` + `scannerStore.test.ts` (combined-store wiring) + `cornerEditorWarp.test.tsx` (local-state hygiene); 16MP cap lives in untouched `captureResize.test.ts`; single-OffscreenCanvas-per-operation lives in untouched worker/pageResources tests -- none of these were touched or weakened by this PR.
+- [x] 1d.5 Verify: `vitest run` (full suite) green (21 files / 175 tests); `rg CaptureSlice tests/` returns no matches; `tsc --noEmit` clean.
 
 ---
 

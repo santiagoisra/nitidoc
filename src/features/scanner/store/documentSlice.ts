@@ -3,7 +3,7 @@ import { FILTER } from '@/features/scanner/lib/filterConstants';
 
 /**
  * `DocumentSlice` — the multipage document model (Fase 2, design section
- * 1.2-1.5). Replaces the single-page `CaptureSlice` (F1). This file owns
+ * 1.2-1.5). Replaces F1's single-page capture slice. This file owns
  * ONLY the state shape + SYNCHRONOUS store actions; it does not decode,
  * compress, or otherwise perform async work — that lives in the
  * `useActivePage` controller (Group 2) and `pageResources.ts` helpers.
@@ -14,8 +14,12 @@ import { FILTER } from '@/features/scanner/lib/filterConstants';
  * type-level invariant — the slice literally has room for only one
  * `ActivePageResources`, not a convention enforced by discipline.
  *
- * Wired ALONGSIDE `CaptureSlice` into `scannerStore.ts` for this PR (Group
- * 1b) — no UI consumer yet. `CaptureSlice` is removed in Group 1c.
+ * Wired into `scannerStore.ts` as the SOLE store slice governing the
+ * document/capture model (Group 1c / PR3, ADR-010) — F1's single-page capture
+ * slice has been removed; `ScannerScreen`/`CornerEditor` consume
+ * this slice's state/actions directly (optionally via the `useActivePage`
+ * controller, Group 2) instead of the old `originalFrame`/`warpedImage`/
+ * `recipe`/`phase` fields.
  */
 
 /** Per-page record (design section 1.2). */
@@ -145,16 +149,13 @@ function reindex(pages: readonly DocumentPage[]): DocumentPage[] {
 }
 
 /**
- * Zustand slice-creator (standard "slices pattern"), generic over the
- * combined store type `T` so this file never imports `ScannerStore` and
- * stays free of circular module references. No action here needs to read a
- * field outside `DocumentSlice`'s own shape, so `set`/`get` are typed purely
- * in terms of `DocumentSlice` — no generic `T` needed. `scannerStore.ts`
- * wires this in via a small adapter around its combined `set`/`get` (see the
- * `SCOPE NOTE (Fase 2, Group 1b / PR2)` doc comment there for why: the
- * combined store's `phase` key is still owned by `CaptureSlice` until Group
- * 1c removes it, so `setPhase`/`phase` are excluded from what actually
- * reaches `ScannerStore` for now).
+ * Zustand slice-creator (standard "slices pattern"). This file never imports
+ * `ScannerStore` and stays free of circular module references — no action
+ * here needs to read a field outside `DocumentSlice`'s own shape, so
+ * `set`/`get` are typed purely in terms of `DocumentSlice`. `scannerStore.ts`
+ * wires this in via a thin adapter around its combined `set`/`get` (Group 1c:
+ * `DocumentSlice.phase`/`setPhase` is now the SOLE `phase` owner in the
+ * combined store — no adapter/`Omit<>` needed anymore).
  */
 export function createDocumentActions(
   set: (partial: Partial<DocumentSlice> | ((state: DocumentSlice) => Partial<DocumentSlice>)) => void,
@@ -182,7 +183,7 @@ export function createDocumentActions(
     setActiveWorking: (res) =>
       set((state) => {
         // Close-before-overwrite hygiene (design section 1.5), mirrors
-        // `setWarpedImage`/`setOriginalFrame` in the F1 CaptureSlice. Checked
+        // F1's legacy `setWarpedImage`/`setOriginalFrame` actions. Checked
         // independently per bitmap field since `res` may reuse one of the
         // two prior bitmaps in principle.
         const prev = state.activeWorking;

@@ -9,13 +9,19 @@ import type {
 /**
  * Slice E adversarial-review regression tests for CornerEditor's warp
  * concurrency + bitmap hygiene (findings C1/C2) and the redundant-tap warp
- * (finding L2).
+ * (finding L2), rewritten in Group 1d (PR4) against the active-page model
+ * (design section 5.4, ADR-010): CornerEditor is now a CONTROLLED component
+ * over `originalBitmap`/`initialRecipe` props and reports its confirmed
+ * result via `onConfirm` instead of writing to F1's legacy single-page
+ * capture state (`warpedImage`/`recipe`) in the store — there is no store to read from
+ * anymore, so these tests assert via `onConfirm`'s call args and via
+ * `bitmap.close()` spy counts, exactly preserving the original bugs' intent.
  *
- * These bugs had NO coverage before this file. The race test in particular is
- * written to FAIL against the pre-fix code (which had no warp sequencing and
- * no stale-bitmap close), proving it is not decorative — see the assertions on
- * `close` being called on the superseded result and on only the LATEST warp
- * reaching the store.
+ * These bugs had NO coverage before the original (F1) version of this file.
+ * The race test in particular is written to FAIL against pre-fix code (which
+ * had no warp sequencing and no stale-bitmap close), proving it is not
+ * decorative — see the assertions on `close` being called on the superseded
+ * result and on only the LATEST warp reaching `onConfirm`.
  */
 
 // ── Controllable worker-client mock ─────────────────────────────────────────
@@ -56,7 +62,6 @@ vi.mock('@/features/scanner/lib/workerClient', () => ({
 }));
 
 import { CornerEditor } from '@/features/scanner/components/CornerEditor';
-import { useScannerStore, scannerStoreInitialState } from '@/features/scanner/store/scannerStore';
 
 // ── Canvas / ImageBitmap shims (happy-dom lacks a 2d canvas + createImageBitmap) ──
 function installCanvasShims(): void {
@@ -111,19 +116,8 @@ function makeBitmap(): ImageBitmap & { close: ReturnType<typeof vi.fn> } {
   } as unknown as ImageBitmap & { close: ReturnType<typeof vi.fn> };
 }
 
-function makeFrame(): {
-  source: ImageBitmap;
-  width: number;
-  height: number;
-  capturedAt: number;
-} {
-  return {
-    source: makeBitmap(),
-    width: 3000,
-    height: 4000,
-    capturedAt: 1_000,
-  };
-}
+const FRAME_WIDTH = 3000;
+const FRAME_HEIGHT = 4000;
 
 const CONVEX_CORNERS: Quad = [
   { x: 100, y: 100 },
@@ -140,7 +134,7 @@ function warpResult(bitmap: ImageBitmap): WarpResponse {
  * CornerEditor now runs ONE warp on mount so the corrected preview shows
  * immediately (and Confirm enables) without the user first nudging a handle.
  * These tests measure only INTERACTION-triggered warps, so we let that initial
- * mount warp fire, resolve it, and reset the mock/store before the interaction
+ * mount warp fire, resolve it, and clear the mock before the interaction
  * under test.
  */
 async function flushInitialMountWarp(): Promise<void> {
@@ -154,17 +148,18 @@ async function flushInitialMountWarp(): Promise<void> {
   }
   warpMock.mockClear();
   warpDeferreds.length = 0;
-  act(() => {
-    useScannerStore.setState({ warpedImage: null, recipe: null });
-  });
 }
 
 describe('CornerEditor warp concurrency + bitmap hygiene (C1/C2)', () => {
+  let onConfirmMock: ReturnType<typeof vi.fn>;
+  let onCancelMock: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
     vi.clearAllMocks();
     warpDeferreds.length = 0;
     installCanvasShims();
-    useScannerStore.setState({ ...scannerStoreInitialState });
+    onConfirmMock = vi.fn();
+    onCancelMock = vi.fn();
   });
 
   afterEach(() => {
@@ -176,10 +171,14 @@ describe('CornerEditor warp concurrency + bitmap hygiene (C1/C2)', () => {
   it('drops a stale warp (A) when a newer warp (B) is dispatched first, closing A\'s bitmap and keeping only B', async () => {
     render(
       <CornerEditor
-        frame={makeFrame() as never}
+        pageId="draft-1"
+        originalBitmap={makeBitmap()}
+        width={FRAME_WIDTH}
+        height={FRAME_HEIGHT}
         initialCorners={CONVEX_CORNERS}
-        onConfirm={vi.fn()}
-        onCancel={vi.fn()}
+        initialRecipe={null}
+        onConfirm={onConfirmMock}
+        onCancel={onCancelMock}
       />,
     );
 
@@ -210,24 +209,31 @@ describe('CornerEditor warp concurrency + bitmap hygiene (C1/C2)', () => {
       await Promise.resolve();
     });
 
-    await waitFor(() => {
-      // Only B reached the store.
-      expect(useScannerStore.getState().warpedImage).toBe(bitmapB);
-    });
-
     // A's bitmap was CLOSED (fix C2 — a discarded stale result never leaks).
-    expect((bitmapA as unknown as { close: ReturnType<typeof vi.fn> }).close).toHaveBeenCalledTimes(1);
-    // B's bitmap is live in the store, NOT closed.
+    await waitFor(() => {
+      expect((bitmapA as unknown as { close: ReturnType<typeof vi.fn> }).close).toHaveBeenCalledTimes(1);
+    });
+    // B's bitmap is live in the component, NOT closed.
     expect((bitmapB as unknown as { close: ReturnType<typeof vi.fn> }).close).not.toHaveBeenCalled();
+
+    // Confirming now hands B (the winner) to the caller — proof that only B
+    // reached the component's live state, not A.
+    fireEvent.click(screen.getByTestId('corner-editor-confirm'));
+    expect(onConfirmMock).toHaveBeenCalledTimes(1);
+    expect(onConfirmMock).toHaveBeenCalledWith(expect.objectContaining({ warpedBase: bitmapB }));
   });
 
-  it('a warp resolving after unmount closes its bitmap and never touches the store', async () => {
+  it('a warp resolving after unmount closes its bitmap and never reaches onConfirm', async () => {
     const { unmount } = render(
       <CornerEditor
-        frame={makeFrame() as never}
+        pageId="draft-1"
+        originalBitmap={makeBitmap()}
+        width={FRAME_WIDTH}
+        height={FRAME_HEIGHT}
         initialCorners={CONVEX_CORNERS}
-        onConfirm={vi.fn()}
-        onCancel={vi.fn()}
+        initialRecipe={null}
+        onConfirm={onConfirmMock}
+        onCancel={onCancelMock}
       />,
     );
 
@@ -236,8 +242,8 @@ describe('CornerEditor warp concurrency + bitmap hygiene (C1/C2)', () => {
     fireEvent.click(screen.getByTestId('aspect-ratio-letter'));
     await waitFor(() => expect(warpDeferreds.length).toBe(1));
 
-    // Unmount (simulates the user hitting Back / resetCaptureSlice) with a warp
-    // still in flight.
+    // Unmount (simulates the user hitting Back / the screen navigating away)
+    // with a warp still in flight.
     unmount();
 
     const orphan = makeBitmap();
@@ -248,9 +254,10 @@ describe('CornerEditor warp concurrency + bitmap hygiene (C1/C2)', () => {
       await Promise.resolve();
     });
 
-    // The store was never written and the orphan bitmap was closed.
-    expect(useScannerStore.getState().warpedImage).toBeNull();
+    // The orphan bitmap was closed and onConfirm was never (and can never be,
+    // post-unmount) invoked with it.
     expect((orphan as unknown as { close: ReturnType<typeof vi.fn> }).close).toHaveBeenCalledTimes(1);
+    expect(onConfirmMock).not.toHaveBeenCalled();
   });
 });
 
@@ -259,7 +266,6 @@ describe('CornerEditor redundant-tap guard (L2)', () => {
     vi.clearAllMocks();
     warpDeferreds.length = 0;
     installCanvasShims();
-    useScannerStore.setState({ ...scannerStoreInitialState });
   });
 
   afterEach(() => {
@@ -271,8 +277,12 @@ describe('CornerEditor redundant-tap guard (L2)', () => {
   it('a pointerdown + pointerup with NO pointermove does not dispatch a warp', async () => {
     render(
       <CornerEditor
-        frame={makeFrame() as never}
+        pageId="draft-1"
+        originalBitmap={makeBitmap()}
+        width={FRAME_WIDTH}
+        height={FRAME_HEIGHT}
         initialCorners={CONVEX_CORNERS}
+        initialRecipe={null}
         onConfirm={vi.fn()}
         onCancel={vi.fn()}
       />,
@@ -297,8 +307,12 @@ describe('CornerEditor redundant-tap guard (L2)', () => {
   it('a pointerdown + pointermove + pointerup DOES dispatch a warp', async () => {
     render(
       <CornerEditor
-        frame={makeFrame() as never}
+        pageId="draft-1"
+        originalBitmap={makeBitmap()}
+        width={FRAME_WIDTH}
+        height={FRAME_HEIGHT}
         initialCorners={CONVEX_CORNERS}
+        initialRecipe={null}
         onConfirm={vi.fn()}
         onCancel={vi.fn()}
       />,

@@ -6,13 +6,32 @@
  * Group 4 / Slice D live detection and auto-capture + Group 5 / Slice E
  * corner editor and warp + Group 6 / Slice F edge cases and fallbacks).
  *
+ * Rewritten to the phase-driven, active-page/multipage model in Group 1c
+ * (design section 5.1, ADR-010): `DocumentSlice.phase` is now the SOLE phase
+ * owner (F1's legacy single-page capture state is gone). This screen renders:
+ *  - `idle`/`capturing`/`tray` -> the live camera view + a continuous-capture
+ *    tray PLACEHOLDER (page counter + "Listo"). The real `CaptureTray`/
+ *    `PageGrid` land in Group 5/PR8 — see the inline `// PLACEHOLDER` markers
+ *    below.
+ *  - `editing-corners` -> `CornerEditor`, in one of two modes: a FRESH
+ *    capture (not yet a page — local `draftCapture` state below) or a
+ *    RE-ENTERED page from the grid (`activatePage` already populated
+ *    `activeWorking`/`activePageId`).
+ *  - `grid` -> a page-grid PLACEHOLDER (list + reorder-less tap-to-edit +
+ *    "Capture more"/"Finish").
+ *  - `done` -> a finish summary.
+ *
  * Capture sequence (design section 2.2): pause the detection loop, capture
  * the full-res frame, scale the last known detected corners from the
- * downscaled detection space to the full-res capture space, and store the
- * immutable `CapturedFrame` (moves `CaptureSlice.phase` to
- * 'editing-corners'). Once in that phase, this screen renders `CornerEditor`
- * (Group 5). Backing out of the editor without confirming resumes the live
- * detection loop (this screen owns that transition, per Slice E scope).
+ * downscaled detection space to the full-res capture space, and hold the
+ * immutable capture in LOCAL state (`draftCapture` — replaces F1's legacy
+ * `originalFrame` store field; a fresh capture is NOT part of `pages[]`
+ * until `CornerEditor`'s Confirm triggers `materializeCapture`). Once a
+ * draft exists, this screen renders `CornerEditor` (Group 5). Backing out of
+ * the editor without confirming resumes the live detection loop (this
+ * screen owns that transition, per Slice E scope) — the camera NEVER closes
+ * across this transition (scanner spec "Confirmar una pagina no cierra la
+ * camara").
  *
  * Import fallback sequence (task 6.3.2; design ADR-006): the SAME
  * pipeline is reused for a desktop-without-camera or permission-denied
@@ -20,8 +39,9 @@
  * runs ONE `workerClient.detect` call on a downscaled copy of the imported
  * bitmap to pre-populate corners (falling back to `null` -> full-frame
  * corners in `CornerEditor` exactly like the no-detection/non-convex camera
- * paths), stores the full-res bitmap as `originalFrame`, and lets
- * `CornerEditor` take over — no separate warp code path exists for import.
+ * paths), holds the full-res bitmap in the SAME `draftCapture` local state,
+ * and lets `CornerEditor` take over — no separate warp code path exists for
+ * import.
  */
 
 import type { ReactNode } from 'react';
@@ -31,17 +51,19 @@ import { Button } from '@/shared/ui';
 import { CameraSelector } from '@/features/scanner/components/CameraSelector';
 import { CameraView } from '@/features/scanner/components/CameraView';
 import { CaptureButton } from '@/features/scanner/components/CaptureButton';
-import { CornerEditor } from '@/features/scanner/components/CornerEditor';
+import { CornerEditor, type CornerEditorConfirmResult } from '@/features/scanner/components/CornerEditor';
 import { DetectionOverlay } from '@/features/scanner/components/DetectionOverlay';
 import { ImportFallback } from '@/features/scanner/components/ImportFallback';
 import { OpenCvDegradedBanner } from '@/features/scanner/components/OpenCvDegradedBanner';
 import { QualityHints } from '@/features/scanner/components/QualityHints';
+import { useActivePage } from '@/features/scanner/hooks/useActivePage';
 import { useCamera } from '@/features/scanner/hooks/useCamera';
 import { useDocumentDetection } from '@/features/scanner/hooks/useDocumentDetection';
 import { decodeImportedFile } from '@/features/scanner/lib/captureFallback';
 import { captureFullResFrame } from '@/features/scanner/lib/captureFrame';
 import { DETECTION } from '@/features/scanner/lib/detectionConstants';
 import { isTooFar, scaleCornersToFullRes } from '@/features/scanner/lib/detectionMath';
+import { FILTER } from '@/features/scanner/lib/filterConstants';
 import { isConvex, orderCorners } from '@/features/scanner/lib/geometry';
 import { bitmapToImageData } from '@/features/scanner/lib/mainThreadImageData';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
@@ -67,6 +89,20 @@ const DETECTION_FRAME_FALLBACK_HEIGHT = Math.round((DETECTION.DOWNSCALE_WIDTH * 
  */
 const IMPORT_DETECT_TIMEOUT_MS = 15_000;
 
+/**
+ * A fresh, not-yet-confirmed capture (camera OR import). Replaces F1's
+ * legacy `originalFrame` store field — held LOCALLY because it is not part of the
+ * document (`pages[]`) until `CornerEditor`'s Confirm calls
+ * `materializeCapture` (design section 2.2 "Materialize on capture").
+ * `pageId` is generated up front so it can be reused as the new page's id.
+ */
+interface DraftCapture {
+  readonly pageId: string;
+  readonly source: ImageBitmap;
+  readonly width: number;
+  readonly height: number;
+}
+
 export function ScannerScreen(): ReactNode {
   const { openCamera, switchCamera, setTorch } = useCamera();
 
@@ -85,13 +121,20 @@ export function ScannerScreen(): ReactNode {
   const autoCaptureEnabled = useScannerStore((s) => s.autoCaptureEnabled);
   const setAutoCaptureEnabled = useScannerStore((s) => s.setAutoCaptureEnabled);
   const noDetectionSince = useScannerStore((s) => s.noDetectionSince);
-  const setOriginalFrame = useScannerStore((s) => s.setOriginalFrame);
   const setPhase = useScannerStore((s) => s.setPhase);
   const phase = useScannerStore((s) => s.phase);
-  const originalFrame = useScannerStore((s) => s.originalFrame);
-  const resetCaptureSlice = useScannerStore((s) => s.resetCaptureSlice);
+  const pages = useScannerStore((s) => s.pages);
+  const resetDocument = useScannerStore((s) => s.resetDocument);
   const opencvStatus = useScannerStore((s) => s.opencv.status);
   const opencvLastError = useScannerStore((s) => s.opencv.lastError);
+
+  // Group 2 / PR5 controller: Materialize-on-capture, Activate/Deactivate,
+  // Re-warp (design section 2.2), plus the 30-page cap guard (design section
+  // 2.3 / D-MEM).
+  const { activeWorking, activePageId, isAtCap, canAddPage, materializeCapture, activatePage, deactivateActivePage, rewarpActivePage } =
+    useActivePage();
+
+  const [draftCapture, setDraftCapture] = useState<DraftCapture | null>(null);
 
   const [importError, setImportError] = useState<string | null>(null);
   // LOW-2: reflects that an import is being processed (decode + optional
@@ -178,11 +221,15 @@ export function ScannerScreen(): ReactNode {
   // idempotent while already running, so this can safely re-run whenever
   // its dependencies change without double-starting the loop.
   //
-  // Slice E addition: the loop must stay stopped while `phase` is
-  // 'editing-corners' or 'capturing' — the corner editor owns resuming it
-  // (via handleEditorCancel/handleEditorConfirm below) once the user is done
-  // with this frame, so DETECT never races the editor's own warp calls over
-  // the same worker.
+  // Slice E addition, extended in Group 1c: the loop must stay stopped while
+  // `phase` is 'editing-corners' or 'capturing' — the corner editor owns
+  // resuming it (via handleEditorCancel/materialize/deactivate below) once
+  // the user is done with this page, so DETECT never races the editor's own
+  // warp calls over the same worker. `tray`/`grid`/`done`/`idle` all resume
+  // it automatically whenever the camera <video> is mounted (continuous
+  // capture keeps the camera open — scanner spec "Confirmar una pagina no
+  // cierra la camara"); when it is not mounted (e.g. `grid`, which renders
+  // no `CameraView`), `videoRef.current` is null and this is a no-op.
   useEffect(() => {
     const video = videoRef.current;
     if (!video || permission !== 'granted' || phase === 'editing-corners' || phase === 'capturing') {
@@ -227,6 +274,13 @@ export function ScannerScreen(): ReactNode {
       return;
     }
 
+    // Design section 2.3 / D-MEM: hard cap at FILTER.PAGE_CAP pages. The tray
+    // placeholder disables the capture button at the cap (see `canAddPage`
+    // below), but guard here too in case a caller (auto-capture) races it.
+    if (useScannerStore.getState().pages.length >= FILTER.PAGE_CAP) {
+      return;
+    }
+
     // Design section 2.2: pause the loop before capturing so DETECT and the
     // full-res capture never race over the same video frame / worker.
     stopDetection();
@@ -255,27 +309,30 @@ export function ScannerScreen(): ReactNode {
       editorInitialCornersRef.current =
         scaledCorners != null && isConvex(scaledCorners) ? scaledCorners : null;
 
-      setOriginalFrame({
+      setDraftCapture({
+        pageId: crypto.randomUUID(),
         source: captured.bitmap,
         width: captured.width,
         height: captured.height,
-        capturedAt: Date.now(),
       });
+      setPhase('editing-corners');
 
-      // On success the frame is handed off; CornerEditor renders once `phase`
-      // becomes 'editing-corners' (set by setOriginalFrame). Backing out of
-      // or confirming the editor resumes the loop — see handleEditorCancel /
-      // handleEditorConfirm below.
+      // On success the draft is handed off; CornerEditor renders now that
+      // `phase` is 'editing-corners'. Backing out of or confirming the
+      // editor resumes the loop — see handleEditorCancel / handleDraftConfirm
+      // below.
     } catch {
       // Slice D review fix M4: if capture throws (e.g. ImageCapture failure),
       // never leave the scanner frozen in 'capturing'. Restore a usable phase
-      // and resume the live detection loop so the user can retry.
-      setPhase('idle');
+      // and resume the live detection loop so the user can retry. `tray` keeps
+      // the camera+tray view (identical rendering to `idle` here); it is the
+      // more accurate phase once at least one page may already exist.
+      setPhase('tray');
       if (videoRef.current) {
         startDetection(videoRef.current);
       }
     }
-  }, [imageCaptureSupported, setOriginalFrame, setPhase, startDetection, stopDetection]);
+  }, [imageCaptureSupported, setPhase, startDetection, stopDetection]);
 
   // Keep the ref pointing at the latest capture sequence so the detection
   // hook's stable `onAutoCapture` callback always invokes the current one.
@@ -286,10 +343,10 @@ export function ScannerScreen(): ReactNode {
    * user-selected file, run ONE `DETECT` against a downscaled copy to
    * pre-populate corners (same contract as the camera loop: non-convex or
    * missing detection means `editorInitialCornersRef` stays null and
-   * `CornerEditor` falls back to `frameCorners`), store the full-res bitmap
-   * as `originalFrame`, and let `CornerEditor` take over. Reuses the SAME
-   * `workerClient`/`CapturedFrame`/`CornerEditor` path the camera capture
-   * sequence uses — no parallel warp logic.
+   * `CornerEditor` falls back to `frameCorners`), hold the full-res bitmap
+   * in the SAME `draftCapture` local state as the camera path, and let
+   * `CornerEditor` take over. Reuses the SAME `workerClient`/`CornerEditor`
+   * path the camera capture sequence uses — no parallel warp logic.
    *
    * IMPORTANT (bug found and fixed while building the task 7.2 E2E fixture
    * test): when the import fallback is reached WITHOUT the camera ever
@@ -305,6 +362,12 @@ export function ScannerScreen(): ReactNode {
    */
   const handleImportedFile = useCallback(
     async (file: File) => {
+      // Design section 2.3 / D-MEM: same hard cap as the camera path.
+      if (useScannerStore.getState().pages.length >= FILTER.PAGE_CAP) {
+        setImportError(`Document limit reached (${FILTER.PAGE_CAP} pages).`);
+        return;
+      }
+
       setImportError(null);
       setImporting(true); // LOW-2: mark processing before any async work runs.
       try {
@@ -390,19 +453,20 @@ export function ScannerScreen(): ReactNode {
         }
 
         editorInitialCornersRef.current = scaledCorners;
-        setOriginalFrame({
+        setDraftCapture({
+          pageId: crypto.randomUUID(),
           source: captured.bitmap,
           width: captured.width,
           height: captured.height,
-          capturedAt: Date.now(),
         });
+        setPhase('editing-corners');
       } catch (error) {
         setImportError(error instanceof Error ? error.message : 'Could not read the selected image.');
       } finally {
         setImporting(false); // LOW-2: clear processing on success OR failure.
       }
     },
-    [ensureOpenCvInit, setOriginalFrame, workerClient],
+    [ensureOpenCvInit, setPhase, workerClient],
   );
 
   const handleStart = useCallback(() => {
@@ -426,33 +490,106 @@ export function ScannerScreen(): ReactNode {
   }, [runCaptureSequence]);
 
   /**
-   * Discards the current capture (original frame + any warp result/recipe)
-   * and resumes the live detection loop (Slice E owns this transition per
-   * the apply prompt: "Slice E tambien es dueña de reanudar el loop de
-   * deteccion si el usuario vuelve atras"). `resetCaptureSlice` itself closes
-   * the retained `originalFrame`/`warpedImage` bitmaps (design section 7) —
-   * this handler does not close them again.
+   * Discards the current FRESH-CAPTURE draft (never touches `DocumentSlice`
+   * — the draft never became a page) and resumes the live detection loop
+   * (Slice E owns this transition). Releases the draft's live bitmap itself
+   * (design section 7 memory hygiene) since nothing else retains it.
    */
   const handleEditorCancel = useCallback(() => {
-    resetCaptureSlice();
-    setPhase('idle');
+    setDraftCapture((current) => {
+      current?.source.close();
+      return null;
+    });
+    setPhase('tray');
     editorInitialCornersRef.current = null;
     if (videoRef.current) {
       startDetection(videoRef.current);
     }
-  }, [resetCaptureSlice, setPhase, startDetection]);
+  }, [setPhase, startDetection]);
 
   /**
-   * Confirms the current recipe/warp as the finished capture. Fase 1 has a
-   * single screen with no downstream export step, so "done" simply marks
-   * the phase and leaves the warped preview + recipe in the store for the
-   * user to see; a fresh capture (handleManualCapture) starts a new cycle,
-   * whose setOriginalFrame will close this originalFrame's bitmap per the
-   * store's existing close-before-overwrite hygiene.
+   * Confirms a FRESH capture: hands the warped result off to
+   * `materializeCapture` (design section 2.2 "Materialize on capture" —
+   * compress+thumbnail, `addPage`, close the live bitmaps) and returns to the
+   * camera immediately. Compression runs in the background; the camera never
+   * closes and detection resumes via the phase-driven effect above (scanner
+   * spec "Confirmar una pagina no cierra la camara").
    */
-  const handleEditorConfirm = useCallback(() => {
+  const handleDraftConfirm = useCallback(
+    (result: CornerEditorConfirmResult) => {
+      const draft = draftCapture;
+      if (!draft) return;
+      setDraftCapture(null);
+      editorInitialCornersRef.current = null;
+      setPhase('tray');
+      void materializeCapture({
+        pageId: draft.pageId,
+        recipe: result.recipe,
+        originalBitmap: draft.source,
+        warpedBase: result.warpedBase,
+        originalWidth: draft.width,
+        originalHeight: draft.height,
+        warpedWidth: result.warpedBase.width,
+        warpedHeight: result.warpedBase.height,
+      });
+    },
+    [draftCapture, materializeCapture, setPhase],
+  );
+
+  /**
+   * Re-entry (grid tap -> activatePage -> 'editing-corners') Confirm: writes
+   * the fresh warp + recipe into the active page (design section 2.2
+   * "Re-warp (active)") then deactivates (recompresses since now dirty,
+   * closes the full-res bitmaps) and returns to the grid.
+   */
+  const handleActivePageConfirm = useCallback(
+    (result: CornerEditorConfirmResult) => {
+      if (!activePageId) return;
+      rewarpActivePage({ pageId: activePageId, freshWarpedBase: result.warpedBase, recipe: result.recipe });
+      setPhase('grid');
+      void deactivateActivePage();
+    },
+    [activePageId, rewarpActivePage, deactivateActivePage, setPhase],
+  );
+
+  /**
+   * Re-entry Cancel: no store write ever happened during interactive editing
+   * (CornerEditor keeps LOCAL state until Confirm), so simply deactivating
+   * discards this session's edits (`activeDirty` is still false) and returns
+   * to the grid.
+   */
+  const handleActivePageCancel = useCallback(() => {
+    setPhase('grid');
+    void deactivateActivePage();
+  }, [deactivateActivePage, setPhase]);
+
+  /** Grid tile tap -> activatePage -> open the corner editor for that page (design section 5.3). */
+  const handleActivatePageTap = useCallback(
+    (pageId: string) => {
+      void activatePage(pageId).then(() => setPhase('editing-corners'));
+    },
+    [activatePage, setPhase],
+  );
+
+  const handleTrayDone = useCallback(() => {
+    setPhase('grid');
+  }, [setPhase]);
+
+  const handleGridCaptureMore = useCallback(() => {
+    setPhase('tray');
+  }, [setPhase]);
+
+  const handleGridFinish = useCallback(() => {
     setPhase('done');
   }, [setPhase]);
+
+  const handleScanAgain = useCallback(() => {
+    resetDocument();
+    setPhase('idle');
+    if (videoRef.current) {
+      startDetection(videoRef.current);
+    }
+  }, [resetDocument, setPhase, startDetection]);
 
   if (!started) {
     return (
@@ -500,32 +637,97 @@ export function ScannerScreen(): ReactNode {
     );
   }
 
-  // Group 5 / Slice E: once a frame is captured, hand off to the corner
-  // editor instead of the live camera view. 'capturing' also renders this
-  // branch (briefly, while captureFullResFrame resolves) so the screen
-  // never flashes back to a stale camera view mid-capture.
-  if ((phase === 'editing-corners' || phase === 'capturing') && originalFrame) {
+  // Group 5 / Slice E, rewired Group 1c: a FRESH, not-yet-confirmed capture
+  // (camera or import) hands off to the corner editor instead of the live
+  // camera view. 'capturing' also renders this branch (briefly, while
+  // captureFullResFrame resolves) so the screen never flashes back to a
+  // stale camera view mid-capture; at that instant `draftCapture` is still
+  // null, so it falls through to the camera-view branch below instead.
+  if ((phase === 'editing-corners' || phase === 'capturing') && draftCapture) {
     return (
       <CornerEditor
-        // Fix M3: key the editor by the frame's capture timestamp so a second
-        // capture REMOUNTS it with fresh `corners`/`aspectOverride` state.
-        // Without a key, the useState seeds only apply on first mount and the
-        // next capture would inherit the previous frame's dragged corners /
-        // aspect override.
-        key={originalFrame.capturedAt}
-        frame={originalFrame}
+        // Fix M3: key the editor by the draft's page id so a second capture
+        // REMOUNTS it with fresh `corners`/`aspectOverride` state. Without a
+        // key, the useState seeds only apply on first mount and the next
+        // capture would inherit the previous draft's dragged corners / aspect
+        // override.
+        key={draftCapture.pageId}
+        pageId={draftCapture.pageId}
+        originalBitmap={draftCapture.source}
+        width={draftCapture.width}
+        height={draftCapture.height}
         initialCorners={editorInitialCornersRef.current}
-        onConfirm={handleEditorConfirm}
+        initialRecipe={null}
+        onConfirm={handleDraftConfirm}
         onCancel={handleEditorCancel}
       />
     );
   }
 
-  if (phase === 'done' && originalFrame) {
+  // Re-entry: a page tapped in the grid was already activated (activeWorking
+  // populated by `activatePage`) before `phase` flipped to 'editing-corners'
+  // (design section 5.3/5.4).
+  if (phase === 'editing-corners' && activeWorking && activePageId) {
+    const activePage = pages.find((page) => page.id === activePageId);
+    if (activePage) {
+      return (
+        <CornerEditor
+          key={activePageId}
+          pageId={activePageId}
+          originalBitmap={activeWorking.originalBitmap}
+          width={activeWorking.originalBitmap.width}
+          height={activeWorking.originalBitmap.height}
+          initialCorners={null}
+          initialRecipe={activePage.recipe}
+          onConfirm={handleActivePageConfirm}
+          onCancel={handleActivePageCancel}
+        />
+      );
+    }
+  }
+
+  // PLACEHOLDER (Group 5 / PR8 owns the real `PageGrid` with @dnd-kit
+  // drag-and-drop, design section 5.3): a minimal list so the app is
+  // runnable end-to-end with reorder-less tap-to-edit + navigation.
+  if (phase === 'grid') {
+    return (
+      <div className="flex w-full max-w-md flex-col items-center gap-4" data-testid="page-grid-placeholder">
+        <p className="text-sm text-text-muted">
+          {pages.length} page{pages.length === 1 ? '' : 's'} captured.
+        </p>
+        <ul className="flex w-full flex-col gap-2" data-testid="page-grid-list">
+          {pages.map((page) => (
+            <li key={page.id}>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => handleActivatePageTap(page.id)}
+                data-testid={`page-grid-item-${page.id}`}
+              >
+                Page {page.order + 1}
+              </Button>
+            </li>
+          ))}
+        </ul>
+        <div className="flex w-full items-center justify-between gap-3">
+          <Button type="button" variant="secondary" onClick={handleGridCaptureMore} data-testid="grid-capture-more">
+            Capture more
+          </Button>
+          <Button type="button" variant="primary" onClick={handleGridFinish} data-testid="grid-finish">
+            Finish
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === 'done') {
     return (
       <div className="flex w-full max-w-md flex-col items-center gap-4" data-testid="scan-done">
-        <p className="text-sm text-text-muted">Scan complete.</p>
-        <Button type="button" variant="primary" onClick={handleEditorCancel} data-testid="scan-again">
+        <p className="text-sm text-text-muted">
+          Scan complete — {pages.length} page{pages.length === 1 ? '' : 's'}.
+        </p>
+        <Button type="button" variant="primary" onClick={handleScanAgain} data-testid="scan-again">
           Scan another document
         </Button>
       </div>
@@ -553,6 +755,10 @@ export function ScannerScreen(): ReactNode {
   // component itself).
   const openCvDegraded = opencvStatus === 'error';
 
+  // `idle`/`capturing` (transient, no draft yet)/`tray` all render the SAME
+  // continuous camera view (design section 5.1: "capturing/tray -> camera +
+  // tray"). The tray strip PLACEHOLDER (Group 5/PR8 owns the real
+  // `CaptureTray`) only makes sense once at least one page exists.
   return (
     <div className="flex w-full max-w-md flex-col items-center gap-4">
       {openCvDegraded && <OpenCvDegradedBanner lastError={opencvLastError} onRetry={retryManualInit} />}
@@ -572,6 +778,12 @@ export function ScannerScreen(): ReactNode {
           <Button variant="secondary" type="button" onClick={handleCaptureAnyway} data-testid="capture-anyway">
             Capture anyway
           </Button>
+        </div>
+      )}
+
+      {isAtCap && (
+        <div className="flex flex-col items-center gap-2 text-center" data-testid="page-cap-hint">
+          <p className="text-sm text-text-muted">Document limit reached ({FILTER.PAGE_CAP} pages).</p>
         </div>
       )}
 
@@ -608,7 +820,21 @@ export function ScannerScreen(): ReactNode {
         </div>
       </div>
 
-      <CaptureButton onCapture={handleManualCapture} countdown={countdown} />
+      {/* PLACEHOLDER (Group 5 / PR8 owns the real `CaptureTray`, design
+          section 5.2): a page counter + "Listo" once at least one page has
+          been captured this session. Never renders full-res (only a count). */}
+      {pages.length > 0 && (
+        <div className="flex w-full items-center justify-between gap-3" data-testid="capture-tray-placeholder">
+          <p className="text-sm text-text-muted">
+            {pages.length} page{pages.length === 1 ? '' : 's'} captured
+          </p>
+          <Button type="button" variant="secondary" onClick={handleTrayDone} data-testid="tray-done">
+            Listo
+          </Button>
+        </div>
+      )}
+
+      <CaptureButton onCapture={handleManualCapture} countdown={countdown} disabled={!canAddPage} />
     </div>
   );
 }
