@@ -15,6 +15,15 @@
  * the FULL new id order and calls `onReorder` (spec scenario "Reorder por
  * drag-and-drop" — no partial patch, so `DocumentSlice.reorderPages` can
  * re-index densely).
+ *
+ * Fase 2.3 (capture-ux-redesign.md, Unit 5):
+ *  - Empty state: `pages.length === 0` (every captured page skipped by the
+ *    processing fallback or all deleted) renders a "Capturar" CTA instead of
+ *    an empty/dead grid — reuses the same `onCaptureMore` -> `'capturing'`
+ *    transition the populated grid's own button already wires.
+ *  - `needsReview` badge: a tile whose page has `needsReview` (Unit 4's
+ *    detect-fallback flag) shows a small badge so the user knows to
+ *    double-check that page's corners before finishing.
  */
 
 import type { ReactNode } from 'react';
@@ -26,7 +35,7 @@ import { SortableContext, rectSortingStrategy, useSortable } from '@dnd-kit/sort
 import { CSS } from '@dnd-kit/utilities';
 import { Button } from '@/shared/ui';
 import { useTranslation } from '@/shared/i18n';
-import { PageThumbnail } from '@/features/scanner/components/CaptureTray';
+import { PageThumbnail } from '@/features/scanner/components/PageThumbnail';
 import { useExportPdf } from '@/features/scanner/hooks/useExportPdf';
 import type { DocumentPage } from '@/features/scanner/store/documentSlice';
 
@@ -92,6 +101,20 @@ export function PageGrid({
     },
     [pages, onReorder],
   );
+
+  if (pages.length === 0) {
+    // Unit 5 "Empty-state PageGrid": nothing to reorder/export/finish yet
+    // (every raw capture was skipped by the processing fallback, or every
+    // page since deleted) — a dead grid (0 tiles, disabled export, a
+    // pointless "Finish") is worse than routing straight back to capture.
+    return (
+      <div className="flex w-full max-w-md flex-col items-center gap-4" data-testid="page-grid-empty">
+        <Button type="button" variant="primary" onClick={onCaptureMore} data-testid="grid-empty-cta">
+          {t('grid.emptyCta')}
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex w-full max-w-md flex-col items-center gap-4" data-testid="page-grid">
@@ -174,6 +197,14 @@ function SortableGridItem({ page, onActivate, onDelete }: SortableGridItemProps)
           testId={`page-grid-thumb-${page.id}`}
         />
       </button>
+      {page.needsReview && (
+        <span
+          className="absolute left-1 top-1 rounded-full bg-warning/90 px-1.5 py-0.5 text-[10px] font-semibold text-bg"
+          data-testid={`page-grid-review-badge-${page.id}`}
+        >
+          {t('grid.needsReview')}
+        </span>
+      )}
       <button
         type="button"
         onClick={(event) => {

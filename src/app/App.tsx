@@ -3,6 +3,7 @@ import { ScanLine } from 'lucide-react';
 import { LanguageToggle, ToastHost } from '@/shared/ui';
 import { LocaleProvider } from '@/shared/i18n';
 import { ScannerScreen } from '@/features/scanner/components/ScannerScreen';
+import { useScannerStore } from '@/features/scanner/store/scannerStore';
 
 /**
  * App shell — Fase 1 has a single screen (the scanner), no router.
@@ -20,21 +21,52 @@ import { ScannerScreen } from '@/features/scanner/components/ScannerScreen';
  * `usePageDeletion`/`useExportPdf`'s toast messages. `LanguageToggle` is
  * mounted in the header, next to the brand mark — "Nitidoc" itself is a
  * proper noun/brand and stays untranslated.
+ *
+ * Fase 2.3 (capture-ux-redesign.md, Unit 5, D-3 "No-scroll scope"): the root
+ * subscribes to `DocumentSlice.phase` directly (the SAME `useScannerStore`
+ * instance `ScannerScreen` reads) so the shell can decide, one level above
+ * `ScannerScreen`, whether the current phase wants a truly full-bleed
+ * no-scroll layout (`capturing`/`processing` — a persistent camera or a
+ * determinate progress screen, neither of which has anything worth
+ * scrolling to) or the normal centered/scrollable layout every other phase
+ * needs (`grid` alone can hold up to `FILTER.PAGE_CAP` = 30 thumbnails,
+ * which cannot all fit on one screen without scrolling). "No-scroll" here
+ * means the PAGE itself (`<html>`/`<body>`/this root `div`) never scrolls —
+ * `<main>` scrolls internally instead, so a header, if any, always stays
+ * pinned above the content instead of scrolling out of view.
  */
 export function App(): ReactNode {
+  const phase = useScannerStore((state) => state.phase);
+  const immersive = phase === 'capturing' || phase === 'processing';
+
   return (
     <LocaleProvider>
       <ToastHost>
-        <div className="flex min-h-[100dvh] flex-col bg-bg text-text">
-          <header className="flex items-center justify-between gap-3 border-b border-text-muted/10 px-4 py-4">
-            <div className="flex items-center gap-3">
-              <ScanLine size={24} strokeWidth={1.5} className="text-primary" aria-hidden="true" />
-              <span className="text-lg font-semibold tracking-tight">Nitidoc</span>
-            </div>
-            <LanguageToggle />
-          </header>
+        <div
+          className="viewport-shell flex flex-col overflow-hidden overscroll-none bg-bg text-text"
+          data-testid="app-shell"
+        >
+          {!immersive && (
+            <header
+              className="flex items-center justify-between gap-3 border-b border-text-muted/10 px-4 py-4"
+              data-testid="app-header"
+            >
+              <div className="flex items-center gap-3">
+                <ScanLine size={24} strokeWidth={1.5} className="text-primary" aria-hidden="true" />
+                <span className="text-lg font-semibold tracking-tight">Nitidoc</span>
+              </div>
+              <LanguageToggle />
+            </header>
+          )}
 
-          <main className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-8">
+          <main
+            className={
+              immersive
+                ? 'flex flex-1 flex-col overflow-hidden'
+                : 'flex flex-1 flex-col items-center justify-center gap-6 overflow-y-auto px-4 py-8'
+            }
+            data-testid="app-main"
+          >
             <ScannerScreen />
           </main>
         </div>

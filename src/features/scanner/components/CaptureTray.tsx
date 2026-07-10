@@ -19,16 +19,19 @@
  * the SAME `exporting`/`onExportPdf` (`useExportPdf()`) the caller already
  * wires into `PageGrid`/`ScannerScreen`'s `done` phase — no separate export
  * logic here.
+ *
+ * Fase 2.3 (capture-ux-redesign.md, Unit 5): `PageThumbnail` moved out into
+ * its own `PageThumbnail.tsx` module (this component is dead code post-Unit-3
+ * and slated for deletion in Unit 6, but `PageThumbnail` itself is still
+ * consumed live by `PageGrid` and the `done` summary strip).
  */
 
 import type { ReactNode } from 'react';
-import { useEffect, useRef } from 'react';
 import { Button } from '@/shared/ui';
 import { useTranslation } from '@/shared/i18n';
+import { PageThumbnail } from '@/features/scanner/components/PageThumbnail';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
-import { buildThumbnailCssFilter } from '@/features/scanner/lib/filterPipeline';
 import type { DocumentPage } from '@/features/scanner/store/documentSlice';
-import type { FilterParams } from '@/shared/types/scanner';
 
 export interface CaptureTrayProps {
   readonly pages: readonly DocumentPage[];
@@ -87,56 +90,5 @@ export function CaptureTray({ pages, isAtCap, onDone, exporting, onExportPdf }: 
         </div>
       </div>
     </div>
-  );
-}
-
-export interface PageThumbnailProps {
-  /** An already-cached `~150px` thumbnail `ImageBitmap` (D6) — drawn as-is, never decoded/resized here. */
-  readonly bitmap: ImageBitmap;
-  /**
-   * The page's current filter (Fase 2.1 punch-list item 3, "CRITICAL
-   * visibility fix"). Rendered as a `ctx.filter` CSS string via
-   * `buildThumbnailCssFilter` so an applied filter is actually VISIBLE in
-   * the tray/grid instead of always drawing the unfiltered cached bitmap.
-   */
-  readonly filter: FilterParams;
-  readonly testId?: string;
-}
-
-/**
- * Draws a cached thumbnail `ImageBitmap` onto a small `<canvas>`, applying
- * the page's current filter as a `ctx.filter` CSS string before drawing
- * (Fase 2.1 item 3). Shared by `CaptureTray` and `PageGrid` (design section
- * 5.2/5.3) — mirrors the same `useEffect` + canvas-2d draw pattern already
- * used by `FilterPanel`'s `PresetTile`. Never touches full-res: the bitmap
- * it receives IS the cached thumbnail, not a decode source. For the 3
- * adaptive presets (`bw`/`bw-high-contrast`/`eco`), `buildThumbnailCssFilter`
- * returns a CSS APPROXIMATION rather than the pixel-accurate worker render —
- * acceptable for this small preview (see that helper's doc comment); the
- * accurate render stays in `FilterPanel`'s edit-step preview.
- */
-export function PageThumbnail({ bitmap, filter, testId }: PageThumbnailProps): ReactNode {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.filter = buildThumbnailCssFilter(filter);
-    ctx.drawImage(bitmap, 0, 0);
-    ctx.filter = 'none';
-  }, [bitmap, filter]);
-
-  return (
-    <canvas
-      ref={canvasRef}
-      className="aspect-[3/4] h-20 shrink-0 rounded bg-surface object-cover"
-      data-testid={testId}
-      aria-hidden="true"
-    />
   );
 }

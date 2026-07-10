@@ -52,9 +52,36 @@ body {
   margin: 0;
   background-color: var(--color-bg);
   color: var(--color-text);
+  /**
+   * Capture UX redesign (Fase 2.3, capture-ux-redesign.md, Unit 5, D-3):
+   * the whole app is meant to feel like a native mobile shell — kill the
+   * double-tap-to-zoom/pinch delay everywhere, not just inside the
+   * full-bleed capture/processing screens (`.viewport-shell` below only
+   * fixes the ROOT layout height; touch behavior is a separate axis).
+   */
+  touch-action: manipulation;
 }
 
 /* Numbers / metadata use tabular figures per design system spec */
 .tabular-nums {
   font-variant-numeric: tabular-nums;
+}
+
+/**
+ * Capture UX redesign (Fase 2.3, capture-ux-redesign.md, Unit 5, D-3):
+ * pins the app root to the real visual viewport height so `capturing`/
+ * `processing` can be truly full-bleed and no-scroll, and every other phase
+ * scrolls INTERNALLY (inside `<main>`) instead of the page itself scrolling.
+ * Declared as three cascading longhands (NOT a single Tailwind arbitrary
+ * value, which would just replace itself) so older browsers fall back
+ * gracefully: a UA that doesn't understand `100svh`/`100dvh` simply ignores
+ * that declaration and keeps the previous one — `100vh` (universal) ->
+ * `100svh` (small viewport, excludes retractable browser UI) -> `100dvh`
+ * (dynamic viewport, best on iOS Safari where the URL bar show/hide would
+ * otherwise resize `100vh` under the user's feet).
+ */
+.viewport-shell {
+  height: 100vh;
+  height: 100svh;
+  height: 100dvh;
 }

@@ -82,6 +82,8 @@ export const es = {
   'grid.captureMore': 'Capturar más',
   'grid.finish': 'Finalizar',
   'grid.deletePage': 'Eliminar página',
+  'grid.needsReview': 'Revisar',
+  'grid.emptyCta': 'Capturar',
 
   'import.instructionsFirefox':
     'Abrí el ícono de candado en la barra de direcciones, poné la Cámara en "Permitir" y volvé a cargar la página.',
