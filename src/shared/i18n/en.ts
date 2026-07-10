@@ -91,7 +91,8 @@ export const en = {
 
   'quality.moveCloser': 'Move closer',
   'quality.tooDark': 'Too dark',
-  'quality.holdSteady': 'Hold steady',
+  'quality.blurry': 'Blurry — tap to focus or improve lighting',
+  'quality.detecting': 'Detecting… hold steady',
 
   'camera.selectCamera': 'Select camera',
   'camera.cameraN': 'Camera {n}',

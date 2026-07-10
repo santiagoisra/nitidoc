@@ -130,6 +130,7 @@ export function ScannerScreen(): ReactNode {
   const corners = useScannerStore((s) => s.corners);
   const rawCorners = useScannerStore((s) => s.rawCorners);
   const quality = useScannerStore((s) => s.quality);
+  const stability = useScannerStore((s) => s.stability);
   const countdown = useScannerStore((s) => s.countdown);
   const autoCaptureEnabled = useScannerStore((s) => s.autoCaptureEnabled);
   const setAutoCaptureEnabled = useScannerStore((s) => s.setAutoCaptureEnabled);
@@ -788,7 +789,9 @@ export function ScannerScreen(): ReactNode {
         }
       />
 
-      {!openCvDegraded && <QualityHints quality={quality} tooFar={tooFar} />}
+      {!openCvDegraded && (
+        <QualityHints quality={quality} tooFar={tooFar} detected={rawCorners != null} stability={stability} />
+      )}
 
       {!openCvDegraded && showNoDetectionHint && (
         <div className="flex flex-col items-center gap-2 text-center" data-testid="no-detection-hint">

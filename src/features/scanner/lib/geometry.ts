@@ -183,6 +183,66 @@ export function orderCorners(points: readonly Point[]): Quad {
 }
 
 /**
+ * Reduces an arbitrary set of >= 4 points (typically an `approxPolyDP`
+ * result with more than 4 vertices — shadows, texture, or a slight curl on
+ * a real document commonly yield 5-8 points instead of a clean 4) down to
+ * the 4 points most likely to be the document's true corners (Fase 2.2
+ * punch-list item 1, root cause B).
+ *
+ * Method: the "extreme points" heuristic (the same sum/difference
+ * projections `pyimagesearch`'s classic four-point-transform `order_points`
+ * uses to LABEL 4 already-known corners, applied here to SELECT 4 corners
+ * out of a larger point set):
+ *  - min(x + y)  -> top-left-most extreme
+ *  - max(x + y)  -> bottom-right-most extreme
+ *  - min(x - y)  -> bottom-left-most extreme
+ *  - max(x - y)  -> top-right-most extreme
+ *
+ * For a (possibly rotated) near-rectangular contour, the true 4 corners are
+ * exactly the points that maximize/minimize these two projections — any
+ * extra vertices introduced by noise sit strictly BETWEEN two true corners
+ * along an edge, so they never win an extreme. This avoids needing an
+ * explicit convex-hull step: the 4 extreme points of any point set already
+ * lie on its convex hull.
+ *
+ * Returns `null` if fewer than 4 DISTINCT points are selected (a degenerate
+ * shape where two extremes coincide — e.g. a triangle-like blob), which the
+ * caller treats the same as "no valid contour this frame". The 4 selected
+ * points are handed to `orderCorners` for the final canonical
+ * [TL, TR, BR, BL] ordering — `orderCorners` already knows how to correctly
+ * order 4 arbitrary corners regardless of rotation (ADR-004: single source
+ * of truth for corner ordering), so this function does not duplicate that
+ * logic.
+ */
+export function reduceToQuad(points: readonly Point[]): Quad | null {
+  if (points.length < 4) {
+    return null;
+  }
+
+  let minSum = points[0] as Point;
+  let maxSum = points[0] as Point;
+  let minDiff = points[0] as Point;
+  let maxDiff = points[0] as Point;
+
+  for (const p of points) {
+    const sum = p.x + p.y;
+    const diff = p.x - p.y;
+    if (sum < minSum.x + minSum.y) minSum = p;
+    if (sum > maxSum.x + maxSum.y) maxSum = p;
+    if (diff < minDiff.x - minDiff.y) minDiff = p;
+    if (diff > maxDiff.x - maxDiff.y) maxDiff = p;
+  }
+
+  const key = (p: Point): string => `${p.x},${p.y}`;
+  const distinct = new Set([minSum, maxSum, minDiff, maxDiff].map(key));
+  if (distinct.size < 4) {
+    return null;
+  }
+
+  return orderCorners([minSum, maxDiff, maxSum, minDiff]);
+}
+
+/**
  * Infers the aspect ratio classification of a quad (design section 6.3).
  * Elongated quads (max/min side ratio >= TICKET_ELONGATION_THRESHOLD) are
  * classified as 'ticket' before attempting a table match. Otherwise the

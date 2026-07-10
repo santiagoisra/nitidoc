@@ -76,7 +76,7 @@ import { DETECTION } from '@/features/scanner/lib/detectionConstants';
 import { lerpQuad, maxCornerStdDevPx } from '@/features/scanner/lib/detectionMath';
 import { bitmapToImageData } from '@/features/scanner/lib/mainThreadImageData';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
-import type { Quad } from '@/shared/types/geometry';
+import type { QualityMetrics, Quad } from '@/shared/types/geometry';
 
 /** `requestVideoFrameCallback` isn't in lib.dom yet on all TS lib targets; declare the minimal surface used. */
 interface VideoFrameCallbackHost {
@@ -164,6 +164,15 @@ export function useDocumentDetection(
   /** Stability buffer: recent timestamped samples used by maxCornerStdDevPx (task 4.3.1; fix M1). */
   const stabilityBufferRef = useRef<StabilitySample[]>([]);
   const stableSinceRef = useRef<number | null>(null);
+
+  /**
+   * Consecutive-blurry-frame counter (Fase 2.2 punch-list item 1): the raw
+   * per-frame `isBlurry` signal is noisy (a single motion-blurred or
+   * transiently out-of-focus frame shouldn't flash the hint), so the hint
+   * only turns on after `DETECTION.BLUR_PERSIST_FRAMES` consecutive blurry
+   * DETECT results, and turns off immediately on the first sharp one.
+   */
+  const blurryStreakRef = useRef(0);
 
   /** Imperative countdown timer handles (fix C1). Non-empty iff a countdown is currently armed. */
   const countdownTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -481,7 +490,15 @@ export function useDocumentDetection(
         }
 
         if (result.quality) {
-          setQuality(result.quality);
+          // Debounce the blur hint (Fase 2.2 punch-list item 1): only
+          // report `isBlurry: true` after a sustained run of blurry frames;
+          // a single sharp frame resets the streak immediately.
+          blurryStreakRef.current = result.quality.isBlurry ? blurryStreakRef.current + 1 : 0;
+          const debouncedQuality: QualityMetrics = {
+            ...result.quality,
+            isBlurry: blurryStreakRef.current >= DETECTION.BLUR_PERSIST_FRAMES,
+          };
+          setQuality(debouncedQuality);
         }
       } catch {
         // DETECT_FAILED / worker error mid-flight — treat like "no
