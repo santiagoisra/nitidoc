@@ -141,6 +141,24 @@ describe('useActivePage.materializeRawCapture (Fase 2.3, capture-ux-redesign.md 
     expect(compressBitmapToJpegMock).not.toHaveBeenCalled();
     expect(makeThumbnailMock).not.toHaveBeenCalled();
   });
+
+  it('review fix (F1 hygiene): closes originalBitmap even when makeThumbnail/compressBitmapToJpeg rejects, and rethrows without adding a raw capture', async () => {
+    const { result } = renderHook(() => useActivePage());
+    const originalBitmap = fakeBitmap(2000, 3000);
+    makeThumbnailMock.mockRejectedValueOnce(new Error('thumbnail failed'));
+
+    await expect(
+      result.current.materializeRawCapture({
+        id: 'raw-fail',
+        originalBitmap,
+        originalWidth: 2000,
+        originalHeight: 3000,
+      }),
+    ).rejects.toThrow('thumbnail failed');
+
+    expect(originalBitmap.close).toHaveBeenCalledTimes(1);
+    expect(useScannerStore.getState().rawCaptures).toHaveLength(0);
+  });
 });
 
 describe('useActivePage.isAtCap / canAddPage — combined pages+rawCaptures count', () => {
