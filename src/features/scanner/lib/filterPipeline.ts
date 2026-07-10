@@ -67,6 +67,12 @@ export function buildCssFilter(filter: FilterParams): string {
  * even though it is NOT pixel-accurate. The active-page EDIT preview stays
  * accurate — it renders via `FilterPanel`'s worker-routed preset tiles, not
  * this helper.
+ *
+ * Fase 2.2 punch-list item 4c: the original multipliers below read too close
+ * to "looks like original" on a real device (per a real-device test report).
+ * Bumped the contrast/brightness multipliers so `bw`/`bw-high-contrast`/`eco`
+ * visibly read as a B&W/high-contrast approximation at thumbnail size —
+ * still a documented CSS approximation, not the accurate worker render.
  */
 export function buildThumbnailCssFilter(filter: FilterParams): string {
   const brightnessValue = 1 + filter.brightness / 100;
@@ -74,11 +80,11 @@ export function buildThumbnailCssFilter(filter: FilterParams): string {
 
   switch (filter.preset) {
     case 'bw':
-      return `grayscale(1) contrast(${1.4 * contrastValue}) brightness(${brightnessValue})`;
-    case 'bw-high-contrast':
       return `grayscale(1) contrast(${1.8 * contrastValue}) brightness(${brightnessValue})`;
+    case 'bw-high-contrast':
+      return `grayscale(1) contrast(${2.5 * contrastValue}) brightness(${brightnessValue})`;
     case 'eco':
-      return `grayscale(1) contrast(${1.15 * contrastValue}) brightness(${1.05 * brightnessValue})`;
+      return `grayscale(1) contrast(${1.3 * contrastValue}) brightness(${1.1 * brightnessValue})`;
     default:
       return buildCssFilter(filter);
   }
