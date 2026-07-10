@@ -255,7 +255,7 @@ export function createDocumentActions(
           // of the caller's live bitmap is NOT this action's concern — the
           // async orchestrator (`useActivePage.materializeRawCapture`) owns
           // closing it on a blocked cap, same split of responsibility as
-          // `materializeCapture`/`addPage`.
+          // `addPage` has with its own caller.
           return {};
         }
         return { rawCaptures: [...state.rawCaptures, raw] };

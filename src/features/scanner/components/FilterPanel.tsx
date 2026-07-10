@@ -10,9 +10,8 @@
  * which the caller folds into its own local `EditRecipe` (via
  * `editRecipe.withFilter`) exactly like `CornerEditor`'s rotate/flip
  * handlers — so filter edits are non-destructive and NEVER trigger a
- * re-warp (D4), and (for a re-entered page) only reach the store once the
- * caller's own Confirm flow commits the recipe (`useActivePage.rewarpActivePage`
- * -> `updateRecipe`, or `materializeCapture` -> `addPage` for a fresh draft).
+ * re-warp (D4), and only reach the store once the caller's own Confirm flow
+ * commits the recipe (`useActivePage.rewarpActivePage` -> `updateRecipe`).
  *
  * The one exception is "Apply to all" (D7/ADR-011): it is a DOCUMENT-WIDE
  * bulk rewrite across every page's recipe, not a per-session edit, so it is

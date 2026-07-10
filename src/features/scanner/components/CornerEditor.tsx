@@ -9,10 +9,13 @@
  * Two callers, one component (design section 5.1/5.4):
  *  - Fresh, not-yet-confirmed capture: `originalBitmap` is the live captured
  *    frame, `initialRecipe` is `null` (a brand-new recipe is built on first
- *    warp). Confirm hands `{ warpedBase, recipe }` to the caller, which calls
- *    `useActivePage.materializeCapture` (design section 2.2 "Materialize on
- *    capture") — this component never touches `DocumentSlice` directly for
- *    this path.
+ *    warp). Confirm hands `{ warpedBase, recipe }` to the caller — this
+ *    component never touches `DocumentSlice` directly for this path. Fase 2.3
+ *    (capture-ux-redesign.md, Unit 6): this fresh-capture mode is now DEAD —
+ *    `CaptureScreen`'s manual captures never reach this component; per-page
+ *    detection/warp happens in the deferred `'processing'` batch step
+ *    instead (`useBatchProcess.ts`). Kept documented here since the RE-ENTRY
+ *    mode below reuses the exact same confirm/cancel contract.
  *  - Re-entry into an already-materialized page (grid tap -> activatePage):
  *    `originalBitmap` is `activeWorking.originalBitmap`, `initialRecipe` is
  *    the page's existing recipe (so filter/rotation/flip survive a corner
@@ -135,7 +138,7 @@ const MAGNIFIER_ZOOM = 2.5;
 const HANDLE_HIT_SIZE = 44; // touch target >= 44px
 
 export interface CornerEditorConfirmResult {
-  /** Fresh, UNFILTERED warp base. Ownership transfers to the caller (materializeCapture / rewarpActivePage own closing it). */
+  /** Fresh, UNFILTERED warp base. Ownership transfers to the caller (`rewarpActivePage` owns closing it). */
   readonly warpedBase: ImageBitmap;
   readonly recipe: EditRecipe;
 }
@@ -608,8 +611,8 @@ export function CornerEditor({
    * Filter edits (design section 5.4, ADR-009): folded into LOCAL recipe
    * state exactly like rotate/flip above — non-destructive, never triggers
    * `runWarp`. The final value only reaches `DocumentSlice` once the caller's
-   * own Confirm flow commits this component's `recipe`
-   * (`materializeCapture`/`rewarpActivePage` -> `updateRecipe`).
+   * own Confirm flow commits this component's `recipe` (`rewarpActivePage`
+   * -> `updateRecipe`).
    */
   const handleFilterChange = useCallback((filter: FilterParams) => {
     setRecipeState((prev) => (prev ? withFilter(prev, filter) : prev));

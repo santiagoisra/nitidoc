@@ -23,11 +23,7 @@ export const es = {
   'scanner.loading': 'Cargando…',
   'scanner.scanComplete': { one: 'Escaneo completo — {n} página.', other: 'Escaneo completo — {n} páginas.' },
   'scanner.scanAnother': 'Escanear otro documento',
-  'scanner.noDocumentDetected': 'Todavía no se detectó ningún documento.',
-  'scanner.captureAnyway': 'Capturar de todos modos',
   'scanner.couldNotReadImage': 'No se pudo leer la imagen seleccionada.',
-  'scanner.autoOn': 'Auto activado',
-  'scanner.autoOff': 'Auto desactivado',
   'scanner.toggleTorch': 'Alternar linterna',
   'scanner.exportPdf': 'Exportar PDF',
   'scanner.exporting': 'Exportando…',
@@ -64,7 +60,6 @@ export const es = {
 
   'capture.pagesCaptured': { one: '{n} página capturada', other: '{n} páginas capturadas' },
   'capture.done': 'Listo',
-  'capture.autoCapturingIn': 'Captura automática en {n}',
   'capture.captureDocument': 'Capturar documento',
   'capture.pageRemoved': 'Página eliminada.',
   'capture.undo': 'Deshacer',
@@ -101,11 +96,6 @@ export const es = {
   'opencv.unavailable':
     'La detección de documentos no está disponible en este momento{error}. Igual podés capturar una foto y ajustar sus esquinas manualmente.',
   'opencv.retry': 'Reintentar',
-
-  'quality.moveCloser': 'Acercate más',
-  'quality.tooDark': 'Muy oscuro',
-  'quality.blurry': 'Imagen borrosa — enfocá',
-  'quality.detecting': 'Detectando… mantené firme',
 
   'camera.selectCamera': 'Seleccionar cámara',
   'camera.cameraN': 'Cámara {n}',

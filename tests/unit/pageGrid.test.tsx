@@ -265,10 +265,10 @@ describe('PageGrid (Group 5 / PR8, design section 5.3)', () => {
       </ToastHost>,
     );
 
-    // PageGrid reuses CaptureTray's `PageThumbnail`, which draws with the
-    // page's filter applied as a `ctx.filter` CSS string — 'grayscale' is
-    // CSS-routable, so a real `grayscale()` filter must be visible at
-    // drawImage-call time (it is reset to 'none' immediately afterward).
+    // PageGrid reuses `PageThumbnail`, which draws with the page's filter
+    // applied as a `ctx.filter` CSS string — 'grayscale' is CSS-routable, so
+    // a real `grayscale()` filter must be visible at drawImage-call time (it
+    // is reset to 'none' immediately afterward).
     expect(drawnFilters[0]).toContain('grayscale(1)');
   });
 

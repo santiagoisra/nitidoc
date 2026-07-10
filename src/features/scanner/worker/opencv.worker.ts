@@ -159,6 +159,20 @@ function readScalar(mat: CvMat): number {
   return mat.data64F.length > 0 ? (mat.data64F[0] as number) : 0;
 }
 
+/**
+ * Laplacian-variance/mean-intensity thresholds for `computeQuality` (design
+ * section 4.5). Fase 2.3 (capture-ux-redesign.md, Unit 6): these used to
+ * live in `detectionConstants.ts` (`DETECTION.BLUR_THRESHOLD`/
+ * `DETECTION.DARK_THRESHOLD`), consumed by the live-detection loop's
+ * `QualityHints` UI. Both were removed along with that UI, so `computeQuality`
+ * — kept here since it is harmless and still part of the unchanged DETECT/
+ * DETECT_IMAGEDATA worker contract (`withQuality`/`QualityMetrics` in
+ * `messages.ts`) — now sources its own two threshold constants locally
+ * instead of importing dead ones. Values unchanged from the originals.
+ */
+const QUALITY_BLUR_THRESHOLD = 20;
+const QUALITY_DARK_THRESHOLD = 60;
+
 function computeQuality(grayMat: CvMat): QualityMetrics {
   if (!cv) throw new Error('OpenCV not initialized.');
   const laplacian = new cv.Mat();
@@ -178,8 +192,8 @@ function computeQuality(grayMat: CvMat): QualityMetrics {
     return {
       laplacianVariance,
       meanIntensity,
-      isBlurry: laplacianVariance < DETECTION.BLUR_THRESHOLD,
-      isDark: meanIntensity < DETECTION.DARK_THRESHOLD,
+      isBlurry: laplacianVariance < QUALITY_BLUR_THRESHOLD,
+      isDark: meanIntensity < QUALITY_DARK_THRESHOLD,
     };
   } finally {
     if (!laplacian.isDeleted()) laplacian.delete();

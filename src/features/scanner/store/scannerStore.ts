@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import type { Quad, QualityMetrics } from '@/shared/types/geometry';
 import type { DocumentActions, DocumentSlice } from './documentSlice';
 import { createDocumentActions, initialDocumentSlice } from './documentSlice';
 
@@ -17,13 +16,9 @@ import { createDocumentActions, initialDocumentSlice } from './documentSlice';
  * setTorchSupported, setTorchOn, setPermission, setCaptureCapabilities,
  * resetCamera).
  *
- * SCOPE NOTE (Group 4 / Slice D): detection-owning actions are implemented
- * here (setCorners, setQuality, setStability, setCountdown,
- * toggleAutoCapture, setNoDetectionSince).
- *
  * SCOPE NOTE (Group 6 / Slice F): `setOpenCvStatus` is implemented here so
- * `useDocumentDetection` can surface the OpenCV load state machine (design
- * section 4.1) to the UI.
+ * OpenCV-init consumers (`useOpenCvInit`) can surface the OpenCV load state
+ * machine (design section 4.1) to the UI.
  *
  * SCOPE NOTE (Fase 2, Group 1c / PR3 — ADR-010): F1's legacy single-page
  * capture slice (`originalFrame`/`warpedImage`/`recipe`/`phase` and its
@@ -34,7 +29,17 @@ import { createDocumentActions, initialDocumentSlice } from './documentSlice';
  * 'phase'>` adapter Group 1b used to coexist with the legacy slice's own
  * `phase` field is gone. `ScannerScreen`/`CornerEditor` are rewired to the
  * active-page model (see those files' own doc comments). `OpenCvSlice`/
- * `CameraSlice`/`DetectionSlice` are untouched by this migration.
+ * `CameraSlice` are untouched by this migration.
+ *
+ * SCOPE NOTE (Fase 2.3, capture-ux-redesign.md, Unit 6): `DetectionSlice`
+ * (the live-detection loop's `corners`/`rawCorners`/`quality`/`stability`/
+ * `countdown`/`autoCaptureEnabled`/`noDetectionSince` fields, their setters,
+ * and `resetDetection`) is REMOVED along with `useDocumentDetection.ts` — the
+ * capture flow is manual-only now (deferred per-page detection runs inside
+ * `useBatchProcess.ts`'s `'processing'` batch step instead of a live per-frame
+ * loop), so there is no overlay/stability/countdown/auto-capture state left
+ * to own. `OpenCvSlice` and `CameraSlice.offscreenSupported` are UNCHANGED —
+ * both are still read by the deferred batch step and the worker client.
  */
 
 export type CameraPermission = 'idle' | 'prompt' | 'granted' | 'denied';
@@ -60,20 +65,6 @@ export interface CameraSlice {
   readonly lastCameraError: string | null;
 }
 
-export interface DetectionSlice {
-  /** Interpolated corners in the downscaled detection frame's coordinate space. */
-  readonly corners: Quad | null;
-  /** Last raw (non-interpolated) corners from the worker, used for stability calc. */
-  readonly rawCorners: Quad | null;
-  readonly quality: QualityMetrics | null;
-  /** 0..1, where 1 means fully stable. */
-  readonly stability: number;
-  readonly autoCaptureEnabled: boolean;
-  readonly countdown: 0 | 1 | 2 | 3;
-  /** Timestamp since detection last produced null corners; drives the 5s hint. */
-  readonly noDetectionSince: number | null;
-}
-
 export type OpenCvStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 export interface OpenCvState {
@@ -92,20 +83,6 @@ export interface OpenCvSlice {
 export interface OpenCvActions {
   /** Patches the OpenCV load state machine (design section 4.1). Merges onto the existing state. */
   readonly setOpenCvStatus: (patch: Partial<OpenCvState>) => void;
-}
-
-export interface DetectionActions {
-  /** Writes both the interpolated and raw corners from the latest DETECT result (design section 5.1). */
-  readonly setCorners: (interpolated: Quad | null, raw: Quad | null) => void;
-  readonly setQuality: (quality: QualityMetrics | null) => void;
-  /** 0..1, where 1 means fully stable (task 4.3.1 stability buffer). */
-  readonly setStability: (stability: number) => void;
-  readonly setCountdown: (countdown: 0 | 1 | 2 | 3) => void;
-  readonly setAutoCaptureEnabled: (enabled: boolean) => void;
-  /** Timestamp (ms) since detection last failed to produce corners, or null when currently detecting. */
-  readonly setNoDetectionSince: (timestamp: number | null) => void;
-  /** Resets the detection slice to its initial values (e.g. on unmount / camera close). */
-  readonly resetDetection: () => void;
 }
 
 export interface CameraActions {
@@ -127,11 +104,9 @@ export interface CameraActions {
 }
 
 export type ScannerStore = CameraSlice &
-  DetectionSlice &
   OpenCvSlice &
   DocumentSlice &
   CameraActions &
-  DetectionActions &
   OpenCvActions &
   DocumentActions;
 
@@ -148,16 +123,6 @@ const initialCameraSlice: CameraSlice = {
   lastCameraError: null,
 };
 
-const initialDetectionSlice: DetectionSlice = {
-  corners: null,
-  rawCorners: null,
-  quality: null,
-  stability: 0,
-  autoCaptureEnabled: true,
-  countdown: 0,
-  noDetectionSince: null,
-};
-
 const initialOpenCvState: OpenCvState = {
   status: 'idle',
   progress: 0,
@@ -170,7 +135,7 @@ const initialOpenCvSlice: OpenCvSlice = {
   opencv: initialOpenCvState,
 };
 
-export type ScannerStateShape = CameraSlice & DetectionSlice & OpenCvSlice & DocumentSlice;
+export type ScannerStateShape = CameraSlice & OpenCvSlice & DocumentSlice;
 
 /**
  * Re-export for reuse by future actions/tests without re-typing the initial
@@ -179,7 +144,6 @@ export type ScannerStateShape = CameraSlice & DetectionSlice & OpenCvSlice & Doc
 export const scannerStoreInitialState: ScannerStateShape = {
   ...initialDocumentSlice,
   ...initialCameraSlice,
-  ...initialDetectionSlice,
   ...initialOpenCvSlice,
 };
 
@@ -197,14 +161,6 @@ export const useScannerStore = create<ScannerStore>((set, get) => ({
     set({ imageCaptureSupported, offscreenSupported }),
   setLastCameraError: (lastCameraError) => set({ lastCameraError }),
   resetCamera: () => set({ ...initialCameraSlice }),
-
-  setCorners: (corners, rawCorners) => set({ corners, rawCorners }),
-  setQuality: (quality) => set({ quality }),
-  setStability: (stability) => set({ stability }),
-  setCountdown: (countdown) => set({ countdown }),
-  setAutoCaptureEnabled: (autoCaptureEnabled) => set({ autoCaptureEnabled }),
-  setNoDetectionSince: (noDetectionSince) => set({ noDetectionSince }),
-  resetDetection: () => set({ ...initialDetectionSlice }),
 
   setOpenCvStatus: (patch) => set((state) => ({ opencv: { ...state.opencv, ...patch } })),
 
