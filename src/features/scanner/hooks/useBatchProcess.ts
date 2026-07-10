@@ -68,6 +68,18 @@ export interface RunBatchResult {
   readonly addedCount: number;
   /** True when `cancel()` (or unmount) aborted the run before it finished naturally. */
   readonly cancelled: boolean;
+  /**
+   * How many raw captures this run ATTEMPTED to process (`sorted.length` at
+   * the time the run actually started; `0` on a run-once no-op). Review fix:
+   * `ProcessingScreen` used to compare `addedCount` against its own `total`
+   * REACT STATE, read inside a mount-only effect's closure — that closure
+   * captured `total` at its initial render value (`0`), before `run()` ever
+   * updated it, so the "all pages failed" toast condition (`addedCount === 0
+   * && total > 0`) could never be true. Returning the attempted count
+   * directly from `run()` lets the caller check it without relying on a
+   * stale closure.
+   */
+  readonly total: number;
 }
 
 export interface UseBatchProcessResult {
@@ -293,10 +305,31 @@ async function processOneRawCapture(raw: RawCapture, deps: ProcessOneRawCaptureD
     const recipe = createInitialRecipe(corners, aspectRatioName);
 
     // ── f. thumbnail + compress ──
-    const [thumbnail, warpedBlob] = await Promise.all([
+    // Review fix: `Promise.all` would leak the RESOLVED side's bitmap
+    // (`makeThumbnail`'s result is a live `ImageBitmap`) whenever the OTHER
+    // promise rejected — `Promise.all` rejects as soon as either settles
+    // rejected, discarding the fulfilled value with nobody left to close it.
+    // `Promise.allSettled` lets both settle, so the fulfilled bitmap (if any)
+    // can be closed explicitly before rethrowing.
+    const [thumbnailSettled, warpedBlobSettled] = await Promise.allSettled([
       makeThumbnail(warpedBase, FILTER.THUMBNAIL_MAX_EDGE),
       compressBitmapToJpeg(warpedBase, FILTER.JPEG_QUALITY),
     ]);
+
+    if (thumbnailSettled.status === 'rejected') {
+      // `compressBitmapToJpeg`'s own settlement (fulfilled or rejected) needs
+      // no cleanup either way — its result is a plain `Blob`, never a bitmap.
+      throw thumbnailSettled.reason;
+    }
+    if (warpedBlobSettled.status === 'rejected') {
+      // `thumbnailSettled` is narrowed to 'fulfilled' here (the branch above
+      // already returned on 'rejected') — its resolved bitmap must not leak.
+      thumbnailSettled.value.close();
+      throw warpedBlobSettled.reason;
+    }
+
+    const thumbnail = thumbnailSettled.value;
+    const warpedBlob = warpedBlobSettled.value;
 
     if (deps.isCancelled()) {
       // `thumbnail` was never tracked (only `originalBitmap`/`warpedBase`
@@ -362,11 +395,26 @@ export function useBatchProcess({ ensureOpenCvInit, workerClient }: UseBatchProc
   }, []);
 
   const run = useCallback(async (): Promise<RunBatchResult> => {
+    // Review fix (StrictMode deadlock): reset the shared cancel flag on
+    // EVERY invocation, BEFORE the run-once guard below. Under React 18
+    // StrictMode's dev-only double-invoke, this hook's own unmount-cleanup
+    // effect (below) sets `cancelledRef.current = true` on the SIMULATED
+    // unmount between this effect's first call (still pending on an early
+    // `await`, e.g. `ensureOpenCvInit()`) and its second, surviving call.
+    // Since `ranRef.current` is already `true` by the second call, it
+    // short-circuits right below — but if that short-circuiting call left the
+    // SHARED `cancelledRef` at `true`, the FIRST call's `await` would resume,
+    // see `cancelledRef.current === true`, and abort the whole batch —
+    // stranding `phase` at `'processing'` forever. Resetting here means the
+    // second (surviving) call always un-cancels the first call before
+    // returning. The explicit Cancel button (`cancel()` below) is unaffected:
+    // it does not call `run()` again, so this reset never fires on its behalf.
+    cancelledRef.current = false;
+
     if (ranRef.current) {
-      return { addedCount: 0, cancelled: false }; // Run-once guard: StrictMode double-invoke / re-entry never re-runs the batch.
+      return { addedCount: 0, cancelled: false, total: 0 }; // Run-once guard: StrictMode double-invoke / re-entry never re-runs the batch.
     }
     ranRef.current = true;
-    cancelledRef.current = false;
 
     const sorted = [...useScannerStore.getState().rawCaptures].sort((a, b) => a.order - b.order);
     setTotal(sorted.length);
@@ -382,7 +430,7 @@ export function useBatchProcess({ ensureOpenCvInit, workerClient }: UseBatchProc
     }
 
     if (cancelledRef.current) {
-      return { addedCount: 0, cancelled: true }; // cancel() already reset processing/phase while INIT was in flight.
+      return { addedCount: 0, cancelled: true, total: sorted.length }; // cancel() already reset processing/phase while INIT was in flight.
     }
 
     let addedCount = 0;
@@ -415,7 +463,7 @@ export function useBatchProcess({ ensureOpenCvInit, workerClient }: UseBatchProc
     }
 
     if (cancelledRef.current) {
-      return { addedCount, cancelled: true };
+      return { addedCount, cancelled: true, total: sorted.length };
     }
 
     // Defensive cleanup (mirrors any raw the loop above could not convert,
@@ -423,7 +471,7 @@ export function useBatchProcess({ ensureOpenCvInit, workerClient }: UseBatchProc
     useScannerStore.getState().clearRawCaptures();
     setProcessing(false);
     useScannerStore.getState().setPhase(addedCount > 0 ? 'grid' : 'capturing');
-    return { addedCount, cancelled: false };
+    return { addedCount, cancelled: false, total: sorted.length };
   }, [ensureOpenCvInit, workerClient]);
 
   return { processing, done, total, run, cancel };

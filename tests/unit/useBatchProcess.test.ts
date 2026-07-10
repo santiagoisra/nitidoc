@@ -240,7 +240,7 @@ describe('useBatchProcess — per-page WARP failure -> degraded page (NEVER drop
 
     await act(async () => {
       const outcome = await result.current.run();
-      expect(outcome).toEqual({ addedCount: 1, cancelled: false });
+      expect(outcome).toEqual({ addedCount: 1, cancelled: false, total: 1 });
     });
 
     expect(useScannerStore.getState().pages).toHaveLength(1);
@@ -251,6 +251,45 @@ describe('useBatchProcess — per-page WARP failure -> degraded page (NEVER drop
     expect(page?.recipe.corners).toEqual(frameCorners(1000, 1400));
     // The raw capture must be gone from rawCaptures (converted, not dropped).
     expect(useScannerStore.getState().rawCaptures).toHaveLength(0);
+  });
+});
+
+describe('useBatchProcess — partial thumbnail/compress failure does not leak the resolved thumbnail (review fix)', () => {
+  it('closes the resolved thumbnail bitmap when compressBitmapToJpeg rejects, and still releases originalBitmap/warpedBase via the outer hygiene finally', async () => {
+    const raw = fakeRawCapture({ originalWidth: 1000, originalHeight: 1400 });
+    useScannerStore.setState({ rawCaptures: [raw] });
+
+    const originalBitmap = fakeBitmap(1000, 1400);
+    decodeBlobToBitmapMock.mockResolvedValueOnce(originalBitmap);
+
+    const warpedBitmap = fakeBitmap(500, 700);
+    const detectResult: DetectResponse = { id: 0, type: 'DETECT_RESULT', corners: null, quality: null };
+    const warpResult: WarpResponse = { id: 0, type: 'WARP_RESULT', bitmap: warpedBitmap, outWidth: 500, outHeight: 700 };
+    const workerClient = makeWorkerClient({
+      detect: vi.fn(async () => detectResult),
+      warp: vi.fn(async () => warpResult),
+    });
+
+    const thumbnail = fakeBitmap(150, 150);
+    makeThumbnailMock.mockResolvedValueOnce(thumbnail);
+    compressBitmapToJpegMock.mockRejectedValueOnce(new Error('compress failed'));
+
+    const ensureOpenCvInit = vi.fn(async () => {});
+    const { result } = renderHook(() => useBatchProcess({ ensureOpenCvInit, workerClient }));
+
+    await act(async () => {
+      await result.current.run();
+    });
+
+    // The raw failed to convert — skipped (never silently dropped as a
+    // committed page), and swept up by the end-of-run clearRawCaptures().
+    expect(useScannerStore.getState().pages).toHaveLength(0);
+    expect(useScannerStore.getState().rawCaptures).toHaveLength(0);
+    // The resolved thumbnail must never leak, even though the page was never committed.
+    expect(thumbnail.close).toHaveBeenCalledTimes(1);
+    // The outer per-page hygiene `finally` still released originalBitmap/warpedBase.
+    expect(originalBitmap.close).toHaveBeenCalledTimes(1);
+    expect(warpedBitmap.close).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -292,12 +331,69 @@ describe('useBatchProcess — run-once guard', () => {
 
     await act(async () => {
       const [first, second] = await Promise.all([result.current.run(), result.current.run()]);
-      expect(first).toEqual({ addedCount: 1, cancelled: false });
-      expect(second).toEqual({ addedCount: 0, cancelled: false });
+      expect(first).toEqual({ addedCount: 1, cancelled: false, total: 1 });
+      expect(second).toEqual({ addedCount: 0, cancelled: false, total: 0 });
     });
 
     expect(useScannerStore.getState().pages).toHaveLength(1);
     expect(decodeBlobToBitmapMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useBatchProcess — StrictMode deadlock regression (review fix)', () => {
+  it('a cleanup-then-reinvoke (mirroring StrictMode\'s simulated mount->cleanup->remount) still lets the ORIGINAL, still-pending run complete to "grid" instead of stranding "processing" forever', async () => {
+    const raw = fakeRawCapture();
+    useScannerStore.setState({ rawCaptures: [raw] });
+
+    let resolveInit: (() => void) | undefined;
+    const ensureOpenCvInit = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveInit = resolve;
+        }),
+    );
+    const workerClient = makeWorkerClient();
+    const { result } = renderHook(() => useBatchProcess({ ensureOpenCvInit, workerClient }));
+
+    // Call #1: the mount effect's original invocation. Pauses at `await
+    // ensureOpenCvInit()` inside `run()` — it never resolves until we call
+    // `resolveInit()` further below.
+    let firstRunPromise!: ReturnType<typeof result.current.run>;
+    act(() => {
+      firstRunPromise = result.current.run();
+    });
+
+    // Simulates the StrictMode SIMULATED-UNMOUNT cleanup that fires BETWEEN
+    // call #1 (still pending above) and call #2 (the surviving remount's
+    // re-invocation): `cancel()` sets the SAME shared `cancelledRef` this
+    // hook's own unmount-cleanup effect sets, without needing a real
+    // unmount/remount render cycle.
+    act(() => {
+      result.current.cancel();
+    });
+
+    // Call #2: the "remount" re-invocation. The run-once guard makes this a
+    // same-tick no-op (`ranRef` is already `true` from call #1) — but the fix
+    // under test requires it to ALSO un-cancel the shared flag first, so
+    // call #1 can still complete once its own `await` resolves.
+    let secondRunPromise!: ReturnType<typeof result.current.run>;
+    act(() => {
+      secondRunPromise = result.current.run();
+    });
+
+    resolveInit?.();
+
+    await act(async () => {
+      const [firstOutcome, secondOutcome] = await Promise.all([firstRunPromise, secondRunPromise]);
+      expect(secondOutcome).toEqual({ addedCount: 0, cancelled: false, total: 0 });
+      expect(firstOutcome).toEqual({ addedCount: 1, cancelled: false, total: 1 });
+    });
+
+    // The ORIGINAL call ran the full batch to completion — phase is NOT
+    // stranded at 'processing' (the bug this regression test guards against).
+    expect(useScannerStore.getState().phase).toBe('grid');
+    expect(useScannerStore.getState().pages).toHaveLength(1);
+    expect(useScannerStore.getState().rawCaptures).toHaveLength(0);
   });
 });
 
@@ -329,7 +425,7 @@ describe('useBatchProcess — clearRawCaptures + setPhase("grid") after a succes
 
     await act(async () => {
       const outcome = await result.current.run();
-      expect(outcome).toEqual({ addedCount: 0, cancelled: false });
+      expect(outcome).toEqual({ addedCount: 0, cancelled: false, total: 0 });
     });
 
     expect(useScannerStore.getState().phase).toBe('capturing');

@@ -53,7 +53,12 @@ export function ProcessingScreen({
 
   useEffect(() => {
     void run().then((result) => {
-      if (!result.cancelled && result.addedCount === 0 && total > 0) {
+      // Review fix: use `result.total` (the attempted count `run()` itself
+      // observed) rather than this hook's own `total` REACT STATE — that
+      // state is captured by this mount-only effect's closure at its INITIAL
+      // value (`0`, before `run()` ever set it), so `total > 0` here could
+      // never be true and this toast was dead code.
+      if (!result.cancelled && result.addedCount === 0 && result.total > 0) {
         showToast({ message: t('processing.failedPages'), variant: 'danger' });
       }
     });
