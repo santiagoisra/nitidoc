@@ -1,24 +1,65 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { createElement, forwardRef } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Quad } from '@/shared/types/geometry';
 
 /**
- * Regression: `workerClient.detect` TRANSFERS (detaches) the downscaled
- * detection bitmap to the worker, after which `detectionBitmap.width` reads 0.
- * The import path used to read that width AFTER the detect() call and feed the
- * 0 to `scaleCornersToFullRes`, which threw — so a perfectly good detection was
- * swallowed and the editor fell back to frame-complete corners. The fix captures
- * the width BEFORE the transfer. This test simulates the detach (detect sets the
- * bitmap width to 0) and asserts the editor still receives the SCALED detected
- * corners rather than a null pre-seed.
+ * Fase 2.3 (capture-ux-redesign.md, Unit 3) REWRITE.
+ *
+ * Previously (F1/Fase 2) this test covered a bitmap-transfer regression in
+ * the OLD `decode -> one-shot DETECT -> CornerEditor` import pipeline (task
+ * 6.3.2 / ADR-006): `workerClient.detect` TRANSFERS (detaches) the
+ * downscaled detection bitmap, and a prior bug read its `width` AFTER the
+ * transfer (reading 0), swallowing a perfectly good detection.
+ *
+ * That whole pipeline no longer exists. Unit 3 replaced ScannerScreen's
+ * permission-denied/no-camera/camera-error early-return branches with
+ * `CaptureScreen`'s own no-camera variant, which imports via the
+ * LIGHTWEIGHT `materializeRawCapture` path — no DETECT, no `CornerEditor` at
+ * all; per-image corner detection is deferred to Unit 4's batch
+ * `'processing'` step. This rewrite preserves the suite's INTENT (importing
+ * an image still works when the camera is unusable — permission denied)
+ * while dropping the now-inapplicable DETECT-transfer regression, and
+ * additionally asserts the new pipeline never touches DETECT/`CornerEditor`
+ * at all.
  */
 
-// ensureOpenCvInit resolves immediately so the import path reaches DETECT.
-const ensureOpenCvInitMock = vi.fn(async () => {});
+const detectMock = vi.fn();
 
-// Capture the corners the editor is seeded with.
-let capturedInitialCorners: Quad | null | undefined;
+const materializeRawCaptureMock = vi.fn(
+  async ({
+    id,
+    originalBitmap,
+  }: {
+    id: string;
+    originalBitmap: { width: number; height: number; close: () => void };
+  }) => {
+    originalBitmap.close();
+    useScannerStore.getState().addRawCapture({
+      id,
+      order: useScannerStore.getState().rawCaptures.length,
+      originalBlob: {} as Blob,
+      thumbnail: { width: 100, height: 100, close: vi.fn() } as unknown as ImageBitmap,
+      originalWidth: originalBitmap.width,
+      originalHeight: originalBitmap.height,
+    });
+    return { status: 'added' as const };
+  },
+);
+
+vi.mock('@/features/scanner/hooks/useActivePage', () => ({
+  useActivePage: () => ({
+    materializeRawCapture: materializeRawCaptureMock,
+    materializeCapture: vi.fn(),
+    isAtCap: false,
+    canAddPage: true,
+    activeWorking: null,
+    activePageId: null,
+    activeDirty: false,
+    activatePage: vi.fn(),
+    deactivateActivePage: vi.fn(),
+    rewarpActivePage: vi.fn(),
+  }),
+}));
 
 vi.mock('@/features/scanner/hooks/useCamera', () => ({
   useCamera: () => ({
@@ -27,23 +68,6 @@ vi.mock('@/features/scanner/hooks/useCamera', () => ({
     setTorch: vi.fn(async () => {}),
   }),
 }));
-
-// DETECT returns real corners AND detaches the bitmap (width -> 0), exactly like
-// a real transferring postMessage would.
-const detectMock = vi.fn(async (bitmap: { width: number }) => {
-  bitmap.width = 0;
-  return {
-    id: 1,
-    type: 'DETECT_RESULT' as const,
-    corners: [
-      { x: 85, y: 107 },
-      { x: 554, y: 107 },
-      { x: 554, y: 746 },
-      { x: 85, y: 746 },
-    ] as Quad,
-    quality: null,
-  };
-});
 
 vi.mock('@/features/scanner/hooks/useDocumentDetection', () => ({
   useDocumentDetection: () => ({
@@ -59,22 +83,14 @@ vi.mock('@/features/scanner/hooks/useDocumentDetection', () => ({
     },
     initState: { status: 'ready', progress: 1 },
     retryManualInit: vi.fn(),
-    ensureOpenCvInit: ensureOpenCvInitMock,
+    ensureOpenCvInit: vi.fn(async () => {}),
   }),
 }));
 
 vi.mock('@/features/scanner/components/CameraView', () => ({
-  CameraView: forwardRef<HTMLVideoElement, { overlay?: unknown }>((_props, ref) =>
+  CameraView: forwardRef<HTMLVideoElement, { overlay?: unknown; fill?: boolean }>((_props, ref) =>
     createElement('video', { ref, 'data-testid': 'camera-view-video' }),
   ),
-}));
-
-// Stub the editor and record the `initialCorners` prop it is handed.
-vi.mock('@/features/scanner/components/CornerEditor', () => ({
-  CornerEditor: (props: { initialCorners: Quad | null }) => {
-    capturedInitialCorners = props.initialCorners;
-    return createElement('div', { 'data-testid': 'corner-editor' });
-  },
 }));
 
 vi.mock('@/features/scanner/lib/captureFallback', async () => {
@@ -84,7 +100,7 @@ vi.mock('@/features/scanner/lib/captureFallback', async () => {
   return {
     ...actual,
     decodeImportedFile: vi.fn(async () => ({
-      bitmap: { close: vi.fn() } as unknown as ImageBitmap,
+      bitmap: { width: 1200, height: 900, close: vi.fn() } as unknown as ImageBitmap,
       width: 1200,
       height: 900,
     })),
@@ -95,29 +111,17 @@ import { ScannerScreen } from '@/features/scanner/components/ScannerScreen';
 import { ToastHost } from '@/shared/ui';
 import { useScannerStore, scannerStoreInitialState } from '@/features/scanner/store/scannerStore';
 
-describe('ScannerScreen import DETECT survives the bitmap being detached on transfer', () => {
+describe('ScannerScreen import fallback (no-camera variant, Fase 2.3 Unit 3): permission denied', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    capturedInitialCorners = undefined;
-    useScannerStore.setState({
-      ...scannerStoreInitialState,
-      permission: 'denied',
-      offscreenSupported: true,
-    });
-    // The downscaled detection bitmap: width 640 UNTIL detect() detaches it.
-    vi.stubGlobal(
-      'createImageBitmap',
-      vi.fn(async () => ({ width: 640, height: 480, close: vi.fn() }) as unknown as ImageBitmap),
-    );
+    useScannerStore.setState({ ...scannerStoreInitialState, permission: 'denied' });
   });
 
   afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
     cleanup();
   });
 
-  it('seeds the editor with the SCALED detected corners, not a frame-complete fallback', async () => {
+  it('decodes the imported file and adds a raw capture, WITHOUT running DETECT or opening a corner editor', async () => {
     render(
       <ToastHost>
         <ScannerScreen />
@@ -125,7 +129,7 @@ describe('ScannerScreen import DETECT survives the bitmap being detached on tran
     );
     fireEvent.click(screen.getByTestId('open-scanner'));
 
-    const input = screen.getByTestId('import-fallback-input') as HTMLInputElement;
+    const input = await screen.findByTestId('import-fallback-input');
     const file = new File([new Uint8Array([1, 2, 3])], 'doc.png', { type: 'image/png' });
 
     await act(async () => {
@@ -133,16 +137,16 @@ describe('ScannerScreen import DETECT survives the bitmap being detached on tran
       for (let i = 0; i < 8; i += 1) await Promise.resolve();
     });
 
-    expect(useScannerStore.getState().phase).toBe('editing-corners');
-    expect(detectMock).toHaveBeenCalledTimes(1);
+    expect(materializeRawCaptureMock).toHaveBeenCalledTimes(1);
+    expect(useScannerStore.getState().rawCaptures).toHaveLength(1);
+    expect(useScannerStore.getState().phase).toBe('capturing');
 
-    // The editor was seeded with a real convex quad (scaled to full-res), NOT
-    // null. Against the pre-fix code (reading the detached width = 0), the scale
-    // helper threw and this would be null. Scaled by 1200/640 = 1.875.
-    expect(capturedInitialCorners).not.toBeNull();
-    expect(capturedInitialCorners).toHaveLength(4);
-    const tl = capturedInitialCorners?.[0];
-    expect(tl?.x).toBeCloseTo(85 * (1200 / 640), 0);
-    expect(tl?.y).toBeCloseTo(107 * (1200 / 640), 0);
+    // The OLD pipeline's DETECT/CornerEditor step is gone from this path —
+    // this is the direct replacement for the old regression assertion.
+    expect(detectMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('corner-editor')).toBeNull();
+
+    // "Siguiente" becomes available once at least one raw capture exists.
+    expect(screen.getByTestId('capture-next')).toBeTruthy();
   });
 });
