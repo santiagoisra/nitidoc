@@ -85,4 +85,21 @@ describe('cropToVisibleRect (design D-4 "WYSIWYG")', () => {
     // = round(1280 * 0.75) = 960, y = round((1280-960)/2) = 160.
     expect(createImageBitmapMock).toHaveBeenCalledWith(bitmap, 0, 160, 960, 960);
   });
+
+  it('returns the bitmap UNCHANGED (skips cropping, no close) when the captured bitmap\'s own aspect does not match nativeWidth/nativeHeight (review fix: e.g. a takePhoto() full-sensor capture with a different aspect than the preview track)', async () => {
+    // Native/preview reports 1200x1600 (0.75 aspect, portrait), but the
+    // captured bitmap is 1600x1200 (1.333 aspect, landscape) — a differently
+    // shaped source than what the crop fractions below would be computed
+    // against. Skipping the crop here is the fix; cropping anyway would cut
+    // the wrong region out of the page.
+    const bitmap = fakeBitmap(1600, 1200);
+    const createImageBitmapMock = vi.fn(async () => fakeBitmap(1, 1));
+    vi.stubGlobal('createImageBitmap', createImageBitmapMock);
+
+    const result = await cropToVisibleRect(bitmap, 1200, 1600, { width: 390, height: 693 });
+
+    expect(result).toBe(bitmap);
+    expect(bitmap.close).not.toHaveBeenCalled();
+    expect(createImageBitmapMock).not.toHaveBeenCalled();
+  });
 });
