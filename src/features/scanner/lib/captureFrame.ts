@@ -92,16 +92,30 @@ async function captureViaImageCapture(track: MediaStreamTrack): Promise<Captured
 
   try {
     try {
+      // Review fix (WYSIWYG crop aspect mismatch): `grabFrame()` is preferred
+      // here — it grabs a frame from the LIVE preview track, sharing that
+      // track's own negotiated resolution/aspect ratio, i.e. the SAME one
+      // `video.videoWidth`/`videoHeight` reports and `cropToVisibleRect`
+      // (D-4) assumes this captured bitmap matches. `takePhoto()` can instead
+      // return the camera's full-SENSOR photo resolution, whose aspect ratio
+      // may differ from the preview track's — silently corrupting
+      // `cropToVisibleRect`'s crop fractions (derived by comparing the
+      // preview's aspect against the displayed box's aspect, then applied to
+      // a bitmap of a DIFFERENT aspect). `cropToVisibleRect` also carries its
+      // own defensive guard for the `takePhoto()` fallback below (skips
+      // cropping instead of corrupting the region when aspects disagree).
+      rawBitmap = await capturer.grabFrame();
+    } catch {
+      // grabFrame() is not implemented/supported everywhere ImageCapture
+      // itself is; takePhoto() is the documented fallback within the same
+      // API — accepting the WYSIWYG-crop risk only in this fallback case,
+      // mitigated by `cropToVisibleRect`'s own aspect-mismatch guard.
       const blob = await capturer.takePhoto();
       objectUrl = URL.createObjectURL(blob);
       const img = new Image();
       img.src = objectUrl;
       await img.decode();
       rawBitmap = await createImageBitmap(img);
-    } catch {
-      // takePhoto() is not implemented/supported everywhere that ImageCapture
-      // itself is; grabFrame() is the documented fallback within the same API.
-      rawBitmap = await capturer.grabFrame();
     }
 
     const target = capCaptureDimensions(rawBitmap.width, rawBitmap.height);
@@ -197,6 +211,19 @@ const ASPECT_EPSILON = 0.01;
  * (aspect ratio already matches the box, or the box/native dimensions are
  * not yet usable — e.g. before layout, or a non-browser test environment —
  * in which case guessing a crop would be worse than not cropping at all).
+ *
+ * Review fix (WYSIWYG crop aspect mismatch): the crop fractions below are
+ * derived by comparing `sourceAspect` (`nativeWidth`/`nativeHeight`, the live
+ * PREVIEW's aspect) against `boxAspect`, then applied to `bitmap`'s own
+ * pixel dimensions — which is only correct when `bitmap` actually HAS that
+ * same aspect ratio. `captureFullResFrame` now prefers `grabFrame()` (shares
+ * the preview track's aspect) precisely so this holds, but its `takePhoto()`
+ * fallback can still return a differently-aspected full-sensor photo. Rather
+ * than trust that assumption blindly, this function now verifies `bitmap`'s
+ * OWN aspect against `sourceAspect` first and returns it UNCHANGED (skips
+ * cropping) when they disagree — an uncropped capture that includes a bit
+ * more than the preview showed is safer than corrupting the captured region
+ * with fractions computed against the wrong shape.
  */
 export async function cropToVisibleRect(
   bitmap: ImageBitmap,
@@ -210,6 +237,16 @@ export async function cropToVisibleRect(
 
   const sourceAspect = nativeWidth / nativeHeight;
   const boxAspect = box.width / box.height;
+
+  if (bitmap.height > 0) {
+    const bitmapAspect = bitmap.width / bitmap.height;
+    if (Math.abs(bitmapAspect - sourceAspect) >= ASPECT_EPSILON) {
+      // `bitmap`'s actual aspect doesn't match the preview's — e.g. a
+      // `takePhoto()` full-sensor capture. Cropping under that false
+      // assumption would cut the wrong region out of the page; skip it.
+      return bitmap;
+    }
+  }
 
   if (Math.abs(sourceAspect - boxAspect) < ASPECT_EPSILON) {
     return bitmap;
