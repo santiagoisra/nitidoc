@@ -109,6 +109,7 @@ export type DocumentPhase =
   | 'idle'
   | 'capturing'
   | 'processing'
+  | 'adjust' // per-page review carousel: filter strip + retake/rotate/crop toolbar + "add more"
   | 'editing-corners'
   | 'grid' // reorder / delete / per-page filter
   | 'done';

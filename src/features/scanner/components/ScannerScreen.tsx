@@ -59,6 +59,14 @@ import { useScannerStore } from '@/features/scanner/store/scannerStore';
  */
 const PageGrid = lazy(() => import('@/features/scanner/components/PageGrid'));
 
+/**
+ * Per-page CamScanner-style review screen (filter strip + crop/rotate/retake
+ * toolbar + "add more"), shown for `phase === 'adjust'` between `processing`
+ * and `grid`. Lazy-loaded like `PageGrid` so its lucide icons + preview code
+ * stay out of the initial bundle (only reached after the capture flow).
+ */
+const AdjustScreen = lazy(() => import('@/features/scanner/components/AdjustScreen'));
+
 export function ScannerScreen(): ReactNode {
   const { t } = useTranslation();
   const { openCamera, switchCamera, setTorch } = useCamera();
@@ -79,6 +87,15 @@ export function ScannerScreen(): ReactNode {
   const { activeWorking, activePageId, activatePage, deactivateActivePage, rewarpActivePage } = useActivePage();
 
   const [started, setStarted] = useState(false);
+
+  // Where the corner editor (`editing-corners`) should return on Confirm/
+  // Cancel — the grid re-entry returns to `'grid'`, but the new `'adjust'`
+  // screen's "Recortar" returns to `'adjust'` (on the same page). Tracked here
+  // since a single CornerEditor instance serves both callers.
+  const [editReturnPhase, setEditReturnPhase] = useState<'grid' | 'adjust'>('grid');
+  // The page currently shown in `'adjust'`, so a crop round-trip re-enters the
+  // SAME page instead of snapping back to the first.
+  const [adjustPageId, setAdjustPageId] = useState<string | null>(null);
 
   // Fase 2.3 "Unit 2"/"Unit 6": the OpenCV INIT/backoff/`OpenCvSlice`-
   // mirroring machinery lives in `useOpenCvInit`, called EXACTLY ONCE here —
@@ -132,10 +149,10 @@ export function ScannerScreen(): ReactNode {
     (result: CornerEditorConfirmResult) => {
       if (!activePageId) return;
       rewarpActivePage({ pageId: activePageId, freshWarpedBase: result.warpedBase, recipe: result.recipe });
-      setPhase('grid');
+      setPhase(editReturnPhase);
       void deactivateActivePage();
     },
-    [activePageId, rewarpActivePage, deactivateActivePage, setPhase],
+    [activePageId, rewarpActivePage, deactivateActivePage, setPhase, editReturnPhase],
   );
 
   /**
@@ -145,17 +162,38 @@ export function ScannerScreen(): ReactNode {
    * to the grid.
    */
   const handleActivePageCancel = useCallback(() => {
-    setPhase('grid');
+    setPhase(editReturnPhase);
     void deactivateActivePage();
-  }, [deactivateActivePage, setPhase]);
+  }, [deactivateActivePage, setPhase, editReturnPhase]);
 
-  /** Grid tile tap -> activatePage -> open the corner editor for that page (design section 5.3). */
+  /** Grid tile tap -> activatePage -> open the corner editor for that page (design section 5.3). Returns to the grid on confirm/cancel. */
   const handleActivatePageTap = useCallback(
     (pageId: string) => {
+      setEditReturnPhase('grid');
       void activatePage(pageId).then(() => setPhase('editing-corners'));
     },
     [activatePage, setPhase],
   );
+
+  // ── Adjust screen (phase 'adjust') wiring ──────────────────────────────
+  /** "Recortar" in the adjust screen: open the corner editor for this page, returning to 'adjust' on confirm/cancel. */
+  const handleAdjustCrop = useCallback(
+    (pageId: string) => {
+      setEditReturnPhase('adjust');
+      setAdjustPageId(pageId);
+      void activatePage(pageId).then(() => setPhase('editing-corners'));
+    },
+    [activatePage, setPhase],
+  );
+
+  const handleAdjustNext = useCallback(() => {
+    setPhase('grid');
+  }, [setPhase]);
+
+  const handleAdjustAddMore = useCallback(() => {
+    // Same transition as the grid's "Capturar más" — re-arm the camera.
+    setPhase('capturing');
+  }, [setPhase]);
 
   const handleGridCaptureMore = useCallback(() => {
     // Design "Phase model": grid "Capturar más" -> 'capturing'.
@@ -209,6 +247,23 @@ export function ScannerScreen(): ReactNode {
         workerClient={workerClient}
         retryManualInit={retryManualInit}
       />
+    );
+  }
+
+  // Per-page CamScanner-style review (Task 2): filter strip + crop/rotate/
+  // retake toolbar + "add more", reached from `processing` and leading into
+  // the overview `grid`. Lazy-loaded (its own chunk).
+  if (phase === 'adjust') {
+    return (
+      <Suspense fallback={<p data-testid="adjust-loading">{t('scanner.loading')}</p>}>
+        <AdjustScreen
+          initialPageId={adjustPageId}
+          onPageChange={setAdjustPageId}
+          onCrop={handleAdjustCrop}
+          onNext={handleAdjustNext}
+          onAddMore={handleAdjustAddMore}
+        />
+      </Suspense>
     );
   }
 

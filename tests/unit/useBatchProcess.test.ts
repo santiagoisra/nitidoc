@@ -391,14 +391,14 @@ describe('useBatchProcess — StrictMode deadlock regression (review fix)', () =
 
     // The ORIGINAL call ran the full batch to completion — phase is NOT
     // stranded at 'processing' (the bug this regression test guards against).
-    expect(useScannerStore.getState().phase).toBe('grid');
+    expect(useScannerStore.getState().phase).toBe('adjust');
     expect(useScannerStore.getState().pages).toHaveLength(1);
     expect(useScannerStore.getState().rawCaptures).toHaveLength(0);
   });
 });
 
-describe('useBatchProcess — clearRawCaptures + setPhase("grid") after a successful run', () => {
-  it('empties rawCaptures and routes to grid once every page is committed', async () => {
+describe('useBatchProcess — clearRawCaptures + setPhase("adjust") after a successful run', () => {
+  it('empties rawCaptures and routes to adjust once every page is committed', async () => {
     const raws = [fakeRawCapture({ order: 0 }), fakeRawCapture({ order: 1 })];
     useScannerStore.setState({ rawCaptures: raws });
 
@@ -412,7 +412,7 @@ describe('useBatchProcess — clearRawCaptures + setPhase("grid") after a succes
 
     expect(useScannerStore.getState().rawCaptures).toHaveLength(0);
     expect(useScannerStore.getState().pages).toHaveLength(2);
-    expect(useScannerStore.getState().phase).toBe('grid');
+    expect(useScannerStore.getState().phase).toBe('adjust');
   });
 
   it('routes to "capturing" instead of an empty grid when zero pages were created', async () => {

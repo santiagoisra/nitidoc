@@ -40,7 +40,7 @@ describe('App shell (Fase 2.3, capture-ux-redesign.md, Unit 5, D-3 "No-scroll sc
     expect(main.className).toContain('justify-[safe_center]');
   });
 
-  it.each(['capturing', 'processing'] as const)(
+  it.each(['capturing', 'processing', 'adjust'] as const)(
     'immersive phase "%s" hides the header and renders a full-bleed, non-scrolling main',
     (phase) => {
       useScannerStore.setState({ phase });
