@@ -42,6 +42,14 @@ export const es = {
   'editor.aspectTicket': 'Ticket',
   'editor.aspectOriginal': 'Original',
 
+  'adjust.retake': 'Volver a tomar',
+  'adjust.rotateLeft': 'Izquierda',
+  'adjust.crop': 'Recortar',
+  'adjust.next': 'Siguiente',
+  'adjust.addMore': 'Agregar más',
+  'adjust.prevPage': 'Página anterior',
+  'adjust.nextPage': 'Página siguiente',
+
   'filter.title': 'Filtros',
   'filter.presetOriginal': 'Original',
   'filter.presetEnhanced': 'Mejorado',

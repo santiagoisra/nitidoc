@@ -6,7 +6,9 @@ import {
   frameCorners,
   magnifierSampleRect,
   nextRotation,
+  prevRotation,
   recipeToCssTransform,
+  rotateLeftRecipe,
   rotateRecipe,
   withFilter,
 } from '@/features/scanner/lib/editRecipe';
@@ -179,6 +181,32 @@ describe('nextRotation / rotateRecipe (task 5.4.1 — cycle 0 -> 90 -> 180 -> 27
       recipe = rotateRecipe(recipe);
     }
     expect(recipe.rotation).toBe(0);
+  });
+});
+
+describe('prevRotation / rotateLeftRecipe (adjust screen — counter-clockwise cycle 0 -> 270 -> 180 -> 90 -> 0)', () => {
+  it('steps backwards through all four rotation values', () => {
+    expect(prevRotation(0)).toBe(270);
+    expect(prevRotation(270)).toBe(180);
+    expect(prevRotation(180)).toBe(90);
+    expect(prevRotation(90)).toBe(0);
+  });
+
+  it('rotateLeftRecipe steps rotation back without mutating the input recipe', () => {
+    const corners = frameCorners(800, 1000);
+    const recipe = createInitialRecipe(corners, 'a4');
+    const rotated = rotateLeftRecipe(recipe);
+
+    expect(rotated.rotation).toBe(270);
+    expect(recipe.rotation).toBe(0); // original untouched
+    expect(rotated).not.toBe(recipe); // new object, not a mutation
+    expect(rotated.corners).toBe(recipe.corners); // corners unchanged by rotation
+  });
+
+  it('rotate-left then rotate-right returns to the original rotation', () => {
+    const corners = frameCorners(800, 1000);
+    const recipe = createInitialRecipe(corners, 'a4');
+    expect(rotateRecipe(rotateLeftRecipe(recipe)).rotation).toBe(0);
   });
 });
 

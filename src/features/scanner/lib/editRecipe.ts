@@ -74,6 +74,22 @@ export function rotateRecipe(recipe: EditRecipe): EditRecipe {
   return { ...recipe, rotation: nextRotation(recipe.rotation) };
 }
 
+/** Steps the rotation one 90-degree step BACKWARDS in the cycle 0 -> 270 -> 180 -> 90 -> 0 (counter-clockwise). */
+export function prevRotation(current: EditRecipe['rotation']): EditRecipe['rotation'] {
+  const index = ROTATION_CYCLE.indexOf(current);
+  const prevIndex = (index - 1 + ROTATION_CYCLE.length) % ROTATION_CYCLE.length;
+  return ROTATION_CYCLE[prevIndex] as EditRecipe['rotation'];
+}
+
+/**
+ * Returns a new recipe with rotation stepped one 90-degree step
+ * counter-clockwise ("rotate left" — the adjust screen's toolbar action).
+ * Non-destructive counterpart to `rotateRecipe`.
+ */
+export function rotateLeftRecipe(recipe: EditRecipe): EditRecipe {
+  return { ...recipe, rotation: prevRotation(recipe.rotation) };
+}
+
 /** Returns a new recipe with `flipH` toggled (perspective spec "Volteo horizontal"). */
 export function flipHorizontalRecipe(recipe: EditRecipe): EditRecipe {
   return { ...recipe, flipH: !recipe.flipH };

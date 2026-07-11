@@ -51,7 +51,10 @@ import { useScannerStore } from '@/features/scanner/store/scannerStore';
  */
 export function App(): ReactNode {
   const phase = useScannerStore((state) => state.phase);
-  const immersive = phase === 'capturing' || phase === 'processing';
+  // `adjust` joins `capturing`/`processing` as a full-bleed no-scroll screen:
+  // it is a CamScanner-style page-preview + fixed filter strip + toolbar that
+  // manages its own internal layout (the page itself must not scroll).
+  const immersive = phase === 'capturing' || phase === 'processing' || phase === 'adjust';
 
   return (
     <LocaleProvider>

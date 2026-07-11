@@ -467,10 +467,12 @@ export function useBatchProcess({ ensureOpenCvInit, workerClient }: UseBatchProc
     }
 
     // Defensive cleanup (mirrors any raw the loop above could not convert,
-    // e.g. an undecodable blob) + route per outcome.
+    // e.g. an undecodable blob) + route per outcome. On success the batch
+    // lands on the per-page `'adjust'` review screen (filter strip + crop/
+    // rotate/retake toolbar + "add more"); the grid is reached from there.
     useScannerStore.getState().clearRawCaptures();
     setProcessing(false);
-    useScannerStore.getState().setPhase(addedCount > 0 ? 'grid' : 'capturing');
+    useScannerStore.getState().setPhase(addedCount > 0 ? 'adjust' : 'capturing');
     return { addedCount, cancelled: false, total: sorted.length };
   }, [ensureOpenCvInit, workerClient]);
 
