@@ -52,3 +52,6 @@ pnpm-debug.log*
 .firebase/
 firebase-debug.log
 firestore-debug.log
+
+# Engram (cloud sync active; local export chunks not tracked)
+.engram/
