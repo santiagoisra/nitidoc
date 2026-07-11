@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "engram sync --cloud --project nitidoc",
+            "shell": "bash",
+            "timeout": 60,
+            "statusMessage": "Syncing engram memories to cloud..."
+          }
+        ]
+      }
+    ]
+  }
+}
