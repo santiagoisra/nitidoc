@@ -30,7 +30,7 @@ import type { ReactNode } from 'react';
 import { useCallback } from 'react';
 import { Trash2 } from 'lucide-react';
 import type { DragEndEvent } from '@dnd-kit/core';
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import { DndContext, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, rectSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Button } from '@/shared/ui';
@@ -82,7 +82,19 @@ export function PageGrid({
   onFinish,
 }: PageGridProps): ReactNode {
   const { t } = useTranslation();
-  const sensors = useSensors(useSensor(PointerSensor));
+  // A bare `PointerSensor` with no activation constraint starts a drag on the
+  // very first pointerdown anywhere on the tile — which captures the pointer
+  // and SWALLOWS the `click` on the inner "tap-to-review" and trash buttons
+  // (the reported "'Revisar' only tapped 1-in-100" + "delete never works"
+  // bugs). Splitting into a MouseSensor with an 8px distance threshold (a tap
+  // that never moves 8px is a click, not a drag) and a TouchSensor with a
+  // 200ms long-press delay (a quick tap is a click; a short swipe scrolls the
+  // grid; only a deliberate press-and-hold starts a reorder drag) makes both
+  // inner buttons reliably tappable while keeping drag-to-reorder.
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+  );
   const { exporting, exportPdf } = useExportPdf();
 
   const handleExportPdf = useCallback(() => {
@@ -199,7 +211,7 @@ function SortableGridItem({ page, onActivate, onDelete }: SortableGridItemProps)
       </button>
       {page.needsReview && (
         <span
-          className="absolute left-1 top-1 rounded-full bg-warning/90 px-1.5 py-0.5 text-[10px] font-semibold text-bg"
+          className="pointer-events-none absolute left-1 top-1 rounded-full bg-warning/90 px-1.5 py-0.5 text-[10px] font-semibold text-bg"
           data-testid={`page-grid-review-badge-${page.id}`}
         >
           {t('grid.needsReview')}
@@ -207,15 +219,24 @@ function SortableGridItem({ page, onActivate, onDelete }: SortableGridItemProps)
       )}
       <button
         type="button"
+        // Stop the sensor activation events from reaching the sortable drag
+        // listeners spread on the <li>, so a press on the trash icon can never
+        // start a reorder drag — the click then fires cleanly (belt-and-
+        // suspenders alongside the sensor activation constraints above).
+        // dnd-kit's MouseSensor activates on `mousedown` and TouchSensor on
+        // `touchstart`, so those are the events to stop — a `pointerdown`
+        // handler would NOT block them (pointer events dispatch separately).
+        onMouseDown={(event) => event.stopPropagation()}
+        onTouchStart={(event) => event.stopPropagation()}
         onClick={(event) => {
           event.stopPropagation();
           onDelete();
         }}
         aria-label={t('grid.deletePage')}
-        className="absolute right-1 top-1 rounded-full bg-bg/80 p-1 text-danger"
+        className="absolute right-1 top-1 flex h-9 w-9 items-center justify-center rounded-full bg-bg/80 text-danger shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
         data-testid={`page-grid-delete-${page.id}`}
       >
-        <Trash2 size={16} strokeWidth={1.5} aria-hidden="true" />
+        <Trash2 size={18} strokeWidth={1.5} aria-hidden="true" />
       </button>
     </li>
   );
