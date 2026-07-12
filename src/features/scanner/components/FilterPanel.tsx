@@ -55,6 +55,17 @@ export interface FilterPanelProps {
   readonly onChange: (filter: FilterParams) => void;
   /** Document-wide bulk rewrite (D7/ADR-011). Omit to hide the "Apply to all" action entirely. */
   readonly onApplyToAll?: (filter: FilterParams) => void;
+  /**
+   * `'grid'` (default): the full editor panel — 3-column preset grid +
+   * brightness/contrast/sharpness sliders + optional "Apply to all"
+   * (`CornerEditor`'s inline adjust step). `'row'`: a compact,
+   * horizontally-scrollable strip of ONLY the preset tiles (the `AdjustScreen`
+   * CamScanner-style filter bar) — title, sliders and "Apply to all" are
+   * hidden so the strip stays a thin, swipeable row over the page preview.
+   * Both variants share the exact same preset-preview pipeline (CSS-routable
+   * tiles instant; adaptive tiles via the same debounced worker batch).
+   */
+  readonly orientation?: 'grid' | 'row';
 }
 
 /**
@@ -77,7 +88,13 @@ function extractImageData(bitmap: ImageBitmap): ImageDataLike {
   return { width: imageData.width, height: imageData.height, data: imageData.data };
 }
 
-export function FilterPanel({ baseBitmap, filter, onChange, onApplyToAll }: FilterPanelProps): ReactNode {
+export function FilterPanel({
+  baseBitmap,
+  filter,
+  onChange,
+  onApplyToAll,
+  orientation = 'grid',
+}: FilterPanelProps): ReactNode {
   const { t } = useTranslation();
   const PRESET_LABELS: Record<FilterPreset, string> = {
     original: t('filter.presetOriginal'),
@@ -284,27 +301,44 @@ export function FilterPanel({ baseBitmap, filter, onChange, onApplyToAll }: Filt
   void adaptiveVersion;
   const thumbnail = thumbnailRef.current;
 
+  const presetTiles = ALL_PRESETS.map((preset) => {
+    const isAdaptive = ADAPTIVE_PRESETS.includes(preset);
+    const cssFilter = isAdaptive ? 'none' : buildCssFilter({ ...filter, preset });
+    const adaptiveResult = adaptiveResultsRef.current[preset];
+    return (
+      <PresetTile
+        key={preset}
+        preset={preset}
+        label={PRESET_LABELS[preset]}
+        active={filter.preset === preset}
+        thumbnail={thumbnail}
+        cssFilter={isAdaptive ? null : cssFilter}
+        adaptiveResult={isAdaptive ? adaptiveResult : undefined}
+        onSelect={() => handleSelectPreset(preset)}
+        sizeClass={orientation === 'row' ? 'w-[4.5rem] shrink-0' : undefined}
+      />
+    );
+  });
+
+  if (orientation === 'row') {
+    // CamScanner-style filter strip (AdjustScreen): a thin, horizontally
+    // scrollable row of just the preset tiles — no title/sliders/apply-to-all.
+    return (
+      <div
+        className="flex w-full gap-2 overflow-x-auto pb-1"
+        data-testid="filter-preset-row"
+        aria-label={t('filter.title')}
+      >
+        {presetTiles}
+      </div>
+    );
+  }
+
   return (
     <div className="flex w-full flex-col gap-4" data-testid="filter-panel">
       <h3 className="text-sm font-medium text-text">{t('filter.title')}</h3>
       <div className="grid grid-cols-3 gap-2" data-testid="filter-preset-grid">
-        {ALL_PRESETS.map((preset) => {
-          const isAdaptive = ADAPTIVE_PRESETS.includes(preset);
-          const cssFilter = isAdaptive ? 'none' : buildCssFilter({ ...filter, preset });
-          const adaptiveResult = adaptiveResultsRef.current[preset];
-          return (
-            <PresetTile
-              key={preset}
-              preset={preset}
-              label={PRESET_LABELS[preset]}
-              active={filter.preset === preset}
-              thumbnail={thumbnail}
-              cssFilter={isAdaptive ? null : cssFilter}
-              adaptiveResult={isAdaptive ? adaptiveResult : undefined}
-              onSelect={() => handleSelectPreset(preset)}
-            />
-          );
-        })}
+        {presetTiles}
       </div>
 
       <label className="flex flex-col gap-1 text-sm text-text-muted" data-testid="filter-slider-brightness">
@@ -397,6 +431,8 @@ interface PresetTileProps {
   readonly cssFilter: string | null;
   readonly adaptiveResult: FilteredResult | undefined;
   readonly onSelect: () => void;
+  /** Extra width/shrink classes for the horizontal-strip variant (default lets the grid size the tile). */
+  readonly sizeClass?: string;
 }
 
 /**
@@ -407,7 +443,7 @@ interface PresetTileProps {
  * section 8 parity, mirrors `CornerEditor`'s WARP_RESULT/WARP_RESULT_IMAGEDATA
  * handling).
  */
-function PresetTile({ preset, label, active, thumbnail, cssFilter, adaptiveResult, onSelect }: PresetTileProps): ReactNode {
+function PresetTile({ preset, label, active, thumbnail, cssFilter, adaptiveResult, onSelect, sizeClass }: PresetTileProps): ReactNode {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -449,7 +485,7 @@ function PresetTile({ preset, label, active, thumbnail, cssFilter, adaptiveResul
       aria-pressed={active}
       data-testid={`filter-preset-${preset}`}
       className={`flex flex-col items-center gap-1 rounded-lg border-2 p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light
-        ${active ? 'border-primary-light' : 'border-text-muted/20'}`}
+        ${sizeClass ?? ''} ${active ? 'border-primary-light' : 'border-text-muted/20'}`}
     >
       <canvas ref={canvasRef} className="aspect-[3/4] w-full rounded bg-surface object-cover" aria-hidden="true" />
       <span className="text-xs text-text-muted">{label}</span>
