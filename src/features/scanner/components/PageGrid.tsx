@@ -219,11 +219,15 @@ function SortableGridItem({ page, onActivate, onDelete }: SortableGridItemProps)
       )}
       <button
         type="button"
-        // Stop the pointerdown from reaching the sortable drag listeners on the
-        // <li> so a tap on the trash icon can never be interpreted as the start
-        // of a reorder drag — the click then fires cleanly (belt-and-suspenders
-        // alongside the sensor activation constraints above).
-        onPointerDown={(event) => event.stopPropagation()}
+        // Stop the sensor activation events from reaching the sortable drag
+        // listeners spread on the <li>, so a press on the trash icon can never
+        // start a reorder drag — the click then fires cleanly (belt-and-
+        // suspenders alongside the sensor activation constraints above).
+        // dnd-kit's MouseSensor activates on `mousedown` and TouchSensor on
+        // `touchstart`, so those are the events to stop — a `pointerdown`
+        // handler would NOT block them (pointer events dispatch separately).
+        onMouseDown={(event) => event.stopPropagation()}
+        onTouchStart={(event) => event.stopPropagation()}
         onClick={(event) => {
           event.stopPropagation();
           onDelete();
