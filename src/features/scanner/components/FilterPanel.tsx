@@ -46,6 +46,14 @@ import type { FilterParams, FilterPreset } from '@/shared/types/scanner';
 const CSS_PRESETS: readonly FilterPreset[] = ['original', 'enhanced', 'grayscale'];
 const ADAPTIVE_PRESETS: readonly FilterPreset[] = ['bw', 'bw-high-contrast', 'eco'];
 const ALL_PRESETS: readonly FilterPreset[] = [...CSS_PRESETS, ...ADAPTIVE_PRESETS];
+/**
+ * Presets rendered by the OpenCV worker (baked pixels) — everything except
+ * `original`. Mirrors `filterPipeline.needsWorker`: `enhanced`/`grayscale` are
+ * here (not the CSS `ctx.filter` path) because that path is a silent no-op on
+ * WebKit/iOS before Safari 17. Order matches the batched `APPLY_FILTER`
+ * request/response indexing below.
+ */
+const WORKER_PRESETS: readonly FilterPreset[] = ALL_PRESETS.filter((preset) => preset !== 'original');
 
 export interface FilterPanelProps {
   /** UNFILTERED warp base (design section 3, ADR-009) — a small thumbnail is derived from this for previews. */
@@ -127,7 +135,7 @@ export function FilterPanel({
 
   const applyAdaptiveResults = useCallback((next: Partial<Record<FilterPreset, FilteredResult>>) => {
     const prev = adaptiveResultsRef.current;
-    for (const preset of ADAPTIVE_PRESETS) {
+    for (const preset of WORKER_PRESETS) {
       const oldResult = prev[preset];
       const nextResult = next[preset];
       if (oldResult && oldResult.kind === 'bitmap') {
@@ -182,7 +190,7 @@ export function FilterPanel({
     () => () => {
       thumbnailRef.current?.close();
       thumbnailRef.current = null;
-      for (const preset of ADAPTIVE_PRESETS) {
+      for (const preset of WORKER_PRESETS) {
         const result = adaptiveResultsRef.current[preset];
         if (result?.kind === 'bitmap') {
           result.bitmap.close();
@@ -207,7 +215,7 @@ export function FilterPanel({
     const timer = setTimeout(() => {
       const seq = (previewSeqRef.current += 1);
       const image = extractImageData(thumbnail);
-      const variants: FilterVariant[] = ADAPTIVE_PRESETS.map((preset) => ({
+      const variants: FilterVariant[] = WORKER_PRESETS.map((preset) => ({
         preset,
         brightness: filter.brightness,
         contrast: filter.contrast,
@@ -229,7 +237,7 @@ export function FilterPanel({
             return;
           }
           const next: Partial<Record<FilterPreset, FilteredResult>> = {};
-          ADAPTIVE_PRESETS.forEach((preset, index) => {
+          WORKER_PRESETS.forEach((preset, index) => {
             const result = response.results[index];
             if (result) {
               next[preset] = result;
@@ -302,8 +310,8 @@ export function FilterPanel({
   const thumbnail = thumbnailRef.current;
 
   const presetTiles = ALL_PRESETS.map((preset) => {
-    const isAdaptive = ADAPTIVE_PRESETS.includes(preset);
-    const cssFilter = isAdaptive ? 'none' : buildCssFilter({ ...filter, preset });
+    const isWorkerRendered = WORKER_PRESETS.includes(preset);
+    const cssFilter = isWorkerRendered ? 'none' : buildCssFilter({ ...filter, preset });
     const adaptiveResult = adaptiveResultsRef.current[preset];
     return (
       <PresetTile
@@ -312,8 +320,8 @@ export function FilterPanel({
         label={PRESET_LABELS[preset]}
         active={filter.preset === preset}
         thumbnail={thumbnail}
-        cssFilter={isAdaptive ? null : cssFilter}
-        adaptiveResult={isAdaptive ? adaptiveResult : undefined}
+        cssFilter={isWorkerRendered ? null : cssFilter}
+        adaptiveResult={isWorkerRendered ? adaptiveResult : undefined}
         onSelect={() => handleSelectPreset(preset)}
         sizeClass={orientation === 'row' ? 'w-[4.5rem] shrink-0' : undefined}
       />

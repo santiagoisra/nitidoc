@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildCssFilter,
   buildThumbnailCssFilter,
+  cssPresetRealce,
   filterSignature,
   needsWorker,
 } from '@/features/scanner/lib/filterPipeline';
@@ -28,17 +29,28 @@ const ALL_PRESETS: readonly FilterPreset[] = [
 ];
 
 describe('needsWorker — routing truth table (design section 3.1)', () => {
-  it.each(ALL_PRESETS)('preset=%s, sharpness=0 -> worker only for adaptive presets', (preset) => {
-    const isAdaptive = preset === 'bw' || preset === 'bw-high-contrast' || preset === 'eco';
-    expect(needsWorker(filter(preset))).toBe(isAdaptive);
+  it.each(ALL_PRESETS)('preset=%s, sharpness=0 -> worker for every preset EXCEPT original', (preset) => {
+    // iOS/WebKit ctx.filter fix: enhanced/grayscale now bake their realce in
+    // the worker too (the CSS path was a silent no-op on WebKit < Safari 17).
+    // Only `original` (filter "none") stays off the worker.
+    const cssOnly = preset === 'original';
+    expect(needsWorker(filter(preset))).toBe(!cssOnly);
   });
 
   it.each(ALL_PRESETS)('preset=%s, sharpness=40 -> ALWAYS routes to the worker', (preset) => {
     expect(needsWorker(filter(preset, { sharpness: 40 }))).toBe(true);
   });
 
-  it('spec scenario "Preset Canvas2D no toca el worker": enhanced + sharpness 0 stays off the worker', () => {
-    expect(needsWorker(filter('enhanced', { sharpness: 0 }))).toBe(false);
+  it('iOS/WebKit fix: enhanced + sharpness 0 now routes to the worker (CSS ctx.filter was a no-op there)', () => {
+    expect(needsWorker(filter('enhanced', { sharpness: 0 }))).toBe(true);
+  });
+
+  it('grayscale + sharpness 0 now routes to the worker (same ctx.filter fix)', () => {
+    expect(needsWorker(filter('grayscale', { sharpness: 0 }))).toBe(true);
+  });
+
+  it('original is the ONLY preset that stays off the worker (drawn raw, filter "none")', () => {
+    expect(needsWorker(filter('original', { sharpness: 0 }))).toBe(false);
   });
 
   it('spec scenario "Preset adaptativo enruta al worker": bw always routes to the worker', () => {
@@ -120,6 +132,52 @@ describe('buildThumbnailCssFilter — thumbnail-only CSS approximation (Fase 2.1
     const extractContrast = (css: string): number => Number(/contrast\(([\d.]+)\)/.exec(css)?.[1]);
     expect(extractContrast(bwHc)).toBeGreaterThan(extractContrast(bw));
   });
+});
+
+describe('cssPresetRealce — worker-BAKED pixel realce (iOS/WebKit ctx.filter fix)', () => {
+  // Reproduces OpenCV's `convertScaleAbs(src, dst, alpha, beta)` exactly:
+  // dst = clamp(round(|src * alpha + beta|)) into [0, 255]. This is what the
+  // worker runs on real pixels — so asserting on THIS is asserting on the
+  // actual render transform, NOT a ctx.filter string (the Slice B blind spot).
+  const convertScaleAbs = (v: number, { alpha, beta }: { alpha: number; beta: number }): number =>
+    Math.min(255, Math.max(0, Math.round(Math.abs(v * alpha + beta))));
+
+  it('original -> identity {1,0}: every pixel value is left untouched', () => {
+    const p = cssPresetRealce('original', 40, -20);
+    expect(p).toEqual({ alpha: 1, beta: 0 });
+    for (const v of [0, 64, 128, 200, 255]) {
+      expect(convertScaleAbs(v, p)).toBe(v);
+    }
+  });
+
+  it('enhanced (neutral sliders) -> WIDENS the light/dark gap (real contrast boost, not a no-op)', () => {
+    const p = cssPresetRealce('enhanced', 0, 0);
+    expect(p.alpha).toBeGreaterThan(1);
+    const dark = convertScaleAbs(80, p);
+    const light = convertScaleAbs(200, p);
+    // The bug: on WebKit the CSS path left these identical to the input (gap
+    // 120). Baked in the worker, the gap must actually widen.
+    expect(light - dark).toBeGreaterThan(200 - 80);
+  });
+
+  it('grayscale (neutral sliders) -> also boosts contrast on the desaturated channel', () => {
+    const p = cssPresetRealce('grayscale', 0, 0);
+    expect(p.alpha).toBeGreaterThan(1);
+    const dark = convertScaleAbs(90, p);
+    const light = convertScaleAbs(180, p);
+    expect(light - dark).toBeGreaterThan(180 - 90);
+  });
+
+  it('a positive brightness slider raises alpha (brighter) for enhanced', () => {
+    expect(cssPresetRealce('enhanced', 50, 0).alpha).toBeGreaterThan(cssPresetRealce('enhanced', 0, 0).alpha);
+  });
+
+  it.each(['bw', 'bw-high-contrast', 'eco'] as const)(
+    'adaptive preset %s -> identity {1,0} (its realce is folded into the adaptiveThreshold pre-gain, not here)',
+    (preset) => {
+      expect(cssPresetRealce(preset, 10, 10)).toEqual({ alpha: 1, beta: 0 });
+    },
+  );
 });
 
 describe('filterSignature — stable memoization key (design section 3.4)', () => {

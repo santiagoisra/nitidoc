@@ -9,21 +9,32 @@ import { FILTER } from '@/features/scanner/lib/filterConstants';
 import type { FilterParams, FilterPreset } from '@/shared/types/scanner';
 
 /**
- * Presets that render via the OpenCV worker's `APPLY_FILTER` RPC
- * (adaptiveThreshold + morphology, design section 4.4) rather than
- * Canvas2D `ctx.filter` (design section 3.1, ADR-008).
+ * Presets rendered by the OpenCV worker's `APPLY_FILTER` RPC (real pixel
+ * manipulation) rather than Canvas2D `ctx.filter` (design section 3.1,
+ * ADR-008). Includes the 3 `adaptiveThreshold` presets (`bw`/`bw-high-contrast`
+ * /`eco`) AND `enhanced`/`grayscale`: their CSS `ctx.filter` realce was a
+ * SILENT no-op on WebKit/iOS before Safari 17 (Canvas2D `ctx.filter` was
+ * unsupported there), so their brightness/contrast realce is baked into pixels
+ * in the worker instead. Only `original` (a true no-op, filter `'none'`) stays
+ * on the Canvas2D/raw path.
  */
-const ADAPTIVE_PRESETS: ReadonlySet<FilterPreset> = new Set(['bw', 'bw-high-contrast', 'eco']);
+const WORKER_PRESETS: ReadonlySet<FilterPreset> = new Set([
+  'bw',
+  'bw-high-contrast',
+  'eco',
+  'enhanced',
+  'grayscale',
+]);
 
 /**
- * Routing decision (design section 3.1): adaptive presets always need the
- * worker; any preset with `sharpness > 0` (a neighborhood convolution) also
- * needs the worker, regardless of which preset is active — sharpness
- * overrides an otherwise Canvas2D-only preset (spec `filters` scenario
- * "Nitidez fuerza ruta de worker sobre preset Canvas2D").
+ * Routing decision (design section 3.1): worker-rendered presets always need
+ * the worker; any preset with `sharpness > 0` (a neighborhood convolution)
+ * also needs the worker, regardless of which preset is active — sharpness
+ * overrides an otherwise raw `original` (spec `filters` scenario "Nitidez
+ * fuerza ruta de worker sobre preset Canvas2D").
  */
 export function needsWorker(filter: FilterParams): boolean {
-  return ADAPTIVE_PRESETS.has(filter.preset) || filter.sharpness > 0;
+  return WORKER_PRESETS.has(filter.preset) || filter.sharpness > 0;
 }
 
 /**
@@ -98,6 +109,47 @@ export function buildThumbnailCssFilter(filter: FilterParams): string {
       return `grayscale(1) contrast(${1.3 * contrastValue}) brightness(${1.1 * brightnessValue})`;
     default:
       return buildCssFilter(filter);
+  }
+}
+
+/**
+ * `convertScaleAbs(src, dst, alpha, beta)` params for the worker-BAKED realce
+ * of the CSS presets `enhanced`/`grayscale` — the iOS/WebKit fix. These presets
+ * used to render via Canvas2D `ctx.filter`, a silent no-op on WebKit before
+ * Safari 17; they are now baked into pixels in the worker instead.
+ *
+ * Mapping: CSS `brightness(b) contrast(c)` == `pixel*(b*c) + 128*(1 - c)`
+ * (contrast pivots around mid-gray 128). OpenCV's `convertScaleAbs` computes
+ * `|src*alpha + beta|`, so `alpha = b*c` and `beta = 128*(1 - c)`, where
+ * `b`/`c` fold the base FILTER.* multiplier with the neutral-at-0 slider.
+ * `original` (and anything else) is an identity copy `{ alpha: 1, beta: 0 }`.
+ *
+ * Pure and OpenCV-free ON PURPOSE: it makes the realce unit-testable at the
+ * PIXEL level — the gap that let the Slice B CSS-string fix ship broken, since
+ * a test can only assert a `ctx.filter` string, never that it actually renders.
+ */
+export interface RealceParams {
+  readonly alpha: number;
+  readonly beta: number;
+}
+
+export function cssPresetRealce(preset: FilterPreset, brightness: number, contrast: number): RealceParams {
+  const brightnessSlider = 1 + brightness / 100;
+  const contrastSlider = 1 + contrast / 100;
+
+  switch (preset) {
+    case 'enhanced': {
+      const c = FILTER.ENHANCED_CONTRAST * contrastSlider;
+      const b = FILTER.ENHANCED_BRIGHTNESS * brightnessSlider;
+      return { alpha: b * c, beta: 128 * (1 - c) };
+    }
+    case 'grayscale': {
+      const c = FILTER.GRAYSCALE_CONTRAST * contrastSlider;
+      const b = FILTER.GRAYSCALE_BRIGHTNESS * brightnessSlider;
+      return { alpha: b * c, beta: 128 * (1 - c) };
+    }
+    default:
+      return { alpha: 1, beta: 0 };
   }
 }
 
