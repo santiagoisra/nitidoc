@@ -28,6 +28,7 @@
 import { isConvex, orderCorners, outputSize, reduceToQuad } from '@/features/scanner/lib/geometry';
 import { DETECTION } from '@/features/scanner/lib/detectionConstants';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
+import { cssPresetRealce } from '@/features/scanner/lib/filterPipeline';
 import { loadOpenCv } from '@/features/scanner/lib/opencvLoader';
 import type { CvBindings, CvMat, CvMatVector } from './cvBindings';
 import type {
@@ -548,14 +549,23 @@ function applyVariant(cvBindings: CvBindings, srcMat: CvMat, grayMat: CvMat, var
           throw new Error(`Unhandled adaptive preset: ${String(variant.preset)}`);
       }
     } else {
-      // original | enhanced | grayscale — the worker is only reached here
-      // when sharpness > 0 (routing: design section 3.1/`filterPipeline.needsWorker`).
-      // convertScaleAbs(src, dst, 1, 0) is used as a plain copy into a
-      // DEDICATED Mat so the subsequent in-place `filter2D` sharpen never
-      // mutates the shared `srcMat`/`grayMat`.
+      // original | enhanced | grayscale. `enhanced`/`grayscale` are now
+      // rendered HERE (not via Canvas2D `ctx.filter`) so their realce works on
+      // engines without Canvas2D `ctx.filter` — WebKit/iOS before Safari 17,
+      // where the CSS path was a silent no-op. `cssPresetRealce` (pure, unit-
+      // tested at the pixel level) returns the `convertScaleAbs` alpha/beta
+      // that bake CSS `brightness(b) contrast(c)` into pixels; `original` maps
+      // to an identity {1,0} copy. grayscale realces the desaturated `grayMat`;
+      // enhanced/original the color `srcMat`. Writes into a DEDICATED `stage1`
+      // so the later in-place `filter2D` sharpen never mutates the shared base.
+      // NOTE (calibration): `convertScaleAbs` takes the absolute value, so a
+      // negative `beta` lifts pure blacks slightly. The FILTER.* multipliers are
+      // STARTING VALUES pending on-device calibration; enhanced's `saturate()`
+      // is intentionally not baked here yet (marginal on achromatic documents).
       const source = variant.preset === 'grayscale' ? grayMat : srcMat;
+      const { alpha, beta } = cssPresetRealce(variant.preset, variant.brightness, variant.contrast);
       stage1 = new cvBindings.Mat();
-      cvBindings.convertScaleAbs(source, stage1, 1, 0);
+      cvBindings.convertScaleAbs(source, stage1, alpha, beta);
     }
 
     // Sharpness (any preset, design section 3.3/4.4): 3x3 unsharp kernel blended by alpha.

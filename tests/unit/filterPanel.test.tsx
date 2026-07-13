@@ -189,7 +189,10 @@ describe('FilterPanel (Group 4 / PR7, design section 3.4/5.4)', () => {
     // Exactly ONE batched call for the 3 rapid changes, using the FINAL value.
     expect(applyFilterMock).toHaveBeenCalledTimes(1);
     const [, variants] = applyFilterMock.mock.calls[0] as [unknown, Array<{ brightness: number }>];
-    expect(variants).toHaveLength(3);
+    // 5 worker-rendered presets batched in one round-trip: enhanced + grayscale
+    // (iOS/WebKit ctx.filter fix) plus the 3 adaptive presets. Only `original`
+    // is excluded (drawn raw).
+    expect(variants).toHaveLength(5);
     expect(variants.every((v) => v.brightness === 30)).toBe(true);
   });
 

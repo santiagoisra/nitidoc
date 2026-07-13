@@ -193,29 +193,30 @@ describe('exportPagesToPdf (Fase 2.1 punch-list item 4)', () => {
     expect(saveMock).toHaveBeenCalledTimes(1);
   });
 
-  it('routes adaptive-preset pages through workerClient.applyFilter, while CSS-routable presets never call it', async () => {
-    const cssBitmap = makeBitmap(100, 140);
-    const adaptiveBitmap = makeBitmap(100, 140);
+  it('routes worker-rendered-preset pages (e.g. enhanced) through workerClient.applyFilter, while `original` is drawn raw', async () => {
+    const originalBitmap = makeBitmap(100, 140);
+    const enhancedBitmap = makeBitmap(100, 140);
     const filteredBitmap = makeBitmap(100, 140);
-    decodeBlobToBitmapMock.mockResolvedValueOnce(cssBitmap);
-    decodeBlobToBitmapMock.mockResolvedValueOnce(adaptiveBitmap);
+    decodeBlobToBitmapMock.mockResolvedValueOnce(originalBitmap);
+    decodeBlobToBitmapMock.mockResolvedValueOnce(enhancedBitmap);
     applyFilterMock.mockResolvedValueOnce(fakeApplyFilterResponse(filteredBitmap));
 
-    const cssPage = makePage('p-css', 0, makeRecipe({ filter: { ...NEUTRAL_FILTER, preset: 'enhanced' } }));
-    const adaptivePage = makePage('p-adaptive', 1, makeRecipe({ filter: { ...NEUTRAL_FILTER, preset: 'bw' } }));
+    const originalPage = makePage('p-original', 0, makeRecipe({ filter: { ...NEUTRAL_FILTER, preset: 'original' } }));
+    const enhancedPage = makePage('p-enhanced', 1, makeRecipe({ filter: { ...NEUTRAL_FILTER, preset: 'enhanced' } }));
 
-    await exportPagesToPdf([cssPage, adaptivePage]);
+    await exportPagesToPdf([originalPage, enhancedPage]);
 
-    // Only the adaptive-preset page triggers a worker round-trip.
+    // iOS/WebKit fix: `enhanced` now bakes its realce in the worker (the CSS
+    // ctx.filter path was a silent no-op on WebKit). `original` stays raw.
     expect(applyFilterMock).toHaveBeenCalledTimes(1);
     const [, variants] = applyFilterMock.mock.calls[0] as [unknown, readonly { preset: string }[]];
-    expect(variants).toEqual([{ preset: 'bw', brightness: 0, contrast: 0, sharpness: 0 }]);
+    expect(variants).toEqual([{ preset: 'enhanced', brightness: 0, contrast: 0, sharpness: 0 }]);
 
-    // The CSS-route bitmap is drawn directly and closed; the adaptive-route
-    // bitmap is closed once its pixels are extracted for the worker RPC, and
-    // the worker's returned bitmap is closed after being drawn.
-    expect(cssBitmap.close).toHaveBeenCalledTimes(1);
-    expect(adaptiveBitmap.close).toHaveBeenCalledTimes(1);
+    // The raw-route bitmap is drawn directly and closed; the worker-route
+    // bitmap is closed once its pixels are extracted for the RPC, and the
+    // worker's returned bitmap is closed after being drawn.
+    expect(originalBitmap.close).toHaveBeenCalledTimes(1);
+    expect(enhancedBitmap.close).toHaveBeenCalledTimes(1);
     expect(filteredBitmap.close).toHaveBeenCalledTimes(1);
   });
 
