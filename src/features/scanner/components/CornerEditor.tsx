@@ -73,19 +73,14 @@
  * component never closes it (fresh-capture cancel closes it in
  * `ScannerScreen`; re-entry closes it via `deactivateActivePage`).
  *
- * Fase 2.2 punch-list item 2 (corner-handle coordinate mapping): the source
- * `<canvas>` and the corner overlay `<svg>` both render the frame in
- * LETTERBOX ("contain") mode — `object-contain` / `preserveAspectRatio="xMidYMid meet"`
- * — so no document corner is ever cropped out of view when the frame's
- * aspect ratio differs from the container's fixed `aspect-[3/4]` box (a
- * `slice`/`object-cover` crop would disagree with a naive linear
- * percentage-based handle position, landing handles on the sides instead of
- * the true corners). The draggable handle `<button>`s and `toSourcePoint`
- * both use the SAME `computeLetterboxMapping`/`sourceToDisplay`/
- * `displayToSource` helpers (`geometry.ts`) against the container's
- * LIVE measured box (`ResizeObserver`, see `setContainerRef` below) instead
- * of a stretch-mapping percentage, so the handles and the pointer-to-source
- * conversion always agree with what is actually drawn.
+ * Fase 2.2 punch-list item 2 (corner-handle coordinate mapping): the
+ * letterbox ("contain") mapping between the source frame and its displayed
+ * box — so no document corner is ever cropped out of view when the frame's
+ * aspect ratio differs from the container's fixed `aspect-[3/4]` box — now
+ * lives entirely in `CropOverlay` (see the "Inline auto-crop Work Unit 1"
+ * paragraph below). That file's module doc comment has the full rationale;
+ * `geometry.ts`'s `computeLetterboxMapping`/`sourceToDisplay`/
+ * `displayToSource` remain the single source of truth either way.
  *
  * Fase 2.2 punch-list item 3 (filter not visible in the big preview):
  * `WarpedPreview` now consumes `recipe.filter` directly — CSS-routable
@@ -95,43 +90,45 @@
  * downscaled preview-sized copy of the warp base, mirroring `FilterPanel`'s
  * own debounce + monotonic-sequence guard. Filter changes still never
  * re-invoke `runWarp` (D4 unchanged).
+ *
+ * Inline auto-crop Work Unit 1 (bitmap-agnostic `CropOverlay` extraction):
+ * the 'corners' step's source `<canvas>`, letterbox mapping, corner `<svg>`/
+ * `<button>` handles, pointer-drag handling, and `Magnifier` loupe now live
+ * in `CropOverlay` (`components/CropOverlay.tsx`) — a CONTROLLED,
+ * bitmap-agnostic component with no knowledge of `originalBitmap`'s
+ * ownership, `EditRecipe`, the worker, or the store, so a future inline crop
+ * mode (Work Unit 2, a different screen) can reuse it over any bitmap. This
+ * component still owns EVERYTHING about WHEN to warp: `corners` stays local
+ * state here (`CropOverlay` only reports changes via `onCornersChange`), and
+ * the "warp only on release, only if moved, only if convex" invariant (fix
+ * L2, tasks 5.1.3/5.1.4) is reconstructed from `CropOverlay`'s
+ * `onDragStateChange(dragging)` callback paired with `movedDuringDragRef`
+ * (see `handleDragStateChange` below) instead of the inline pointer handlers
+ * this file used to define directly.
  */
 
-import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlipHorizontal, RotateCw } from 'lucide-react';
 import { Button } from '@/shared/ui';
 import { useTranslation } from '@/shared/i18n';
+import { CropOverlay } from '@/features/scanner/components/CropOverlay';
 import { FilterPanel } from '@/features/scanner/components/FilterPanel';
 import { WarpedPreview } from '@/features/scanner/components/WarpedPreview';
-import {
-  isConvex,
-  inferAspectRatio,
-  outputSize,
-  computeLetterboxMapping,
-  sourceToDisplay,
-  displayToSource,
-  type LetterboxMapping,
-} from '@/features/scanner/lib/geometry';
+import { isConvex, inferAspectRatio, outputSize } from '@/features/scanner/lib/geometry';
 import {
   createInitialRecipe,
   frameCorners,
-  magnifierSampleRect,
   recipeToCssTransform,
   rotateRecipe,
   flipHorizontalRecipe,
   withFilter,
 } from '@/features/scanner/lib/editRecipe';
 import { getSharedWorkerClient } from '@/features/scanner/lib/workerClient';
-import type { AspectRatioName, Point, Quad } from '@/shared/types/geometry';
+import type { AspectRatioName, Quad } from '@/shared/types/geometry';
 import type { EditRecipe, FilterParams } from '@/shared/types/scanner';
 
 const ASPECT_RATIO_OPTIONS: readonly AspectRatioName[] = ['a4', 'letter', 'ticket', 'unknown'];
-
-/** Magnifier canvas size (CSS px) and zoom factor (task 5.1.2, "lupa 2-3x"). */
-const MAGNIFIER_SIZE = 120;
-const MAGNIFIER_ZOOM = 2.5;
-const HANDLE_HIT_SIZE = 44; // touch target >= 44px
 
 export interface CornerEditorConfirmResult {
   /** Fresh, UNFILTERED warp base. Ownership transfers to the caller (`rewarpActivePage` owns closing it). */
@@ -245,55 +242,17 @@ export function CornerEditor({
   const [warpError, setWarpError] = useState(false);
   /** Fase 2.1 item 2: internal two-step flow, presentation-only (see module doc comment). */
   const [step, setStep] = useState<'corners' | 'adjust'>('corners');
-  const [draggingIndex, setDraggingIndex] = useState<0 | 1 | 2 | 3 | null>(null);
-  const [dragPoint, setDragPoint] = useState<Point | null>(null);
 
-  const containerRef = useRef<HTMLDivElement | null>(null);
   /**
-   * Fase 2.2 item 2: the container's LIVE measured CSS box, used to compute
-   * the letterbox mapping the handles are positioned with. A `ResizeObserver`
-   * (attached via the `setContainerRef` callback ref below, not a mount-only
-   * `useEffect`) keeps this correct across viewport/orientation changes while
-   * the 'corners' step is mounted, and re-measures on every remount (the
-   * step's own container div unmounts/remounts across the 'corners' <->
-   * 'adjust' switch — same reasoning as `drawSourceCanvas` above).
+   * Tracks whether `CropOverlay` reported at least one `onCornersChange`
+   * during the CURRENT drag gesture — reset on `onDragStateChange(true)`,
+   * checked (and reset) on `onDragStateChange(false)`. Reconstructs the
+   * original "skip a redundant warp on a bare tap" guard (fix L2) now that
+   * corner dragging itself lives in `CropOverlay` and this component only
+   * observes the two callbacks. See `handleCornersChange`/
+   * `handleDragStateChange` below.
    */
-  const [containerSize, setContainerSize] = useState<{ readonly width: number; readonly height: number } | null>(
-    null,
-  );
-  const resizeObserverRef = useRef<ResizeObserver | null>(null);
-
-  const setContainerRef = useCallback((node: HTMLDivElement | null) => {
-    containerRef.current = node;
-    resizeObserverRef.current?.disconnect();
-    resizeObserverRef.current = null;
-    if (!node) {
-      setContainerSize(null);
-      return;
-    }
-    const measure = (): void => {
-      const rect = node.getBoundingClientRect();
-      setContainerSize({ width: rect.width, height: rect.height });
-    };
-    measure();
-    if (typeof ResizeObserver !== 'undefined') {
-      const observer = new ResizeObserver(measure);
-      observer.observe(node);
-      resizeObserverRef.current = observer;
-    }
-  }, []);
-
-  useEffect(() => () => resizeObserverRef.current?.disconnect(), []);
-
-  const letterboxMapping = useMemo<LetterboxMapping | null>(
-    () =>
-      containerSize ? computeLetterboxMapping(width, height, containerSize.width, containerSize.height) : null,
-    [containerSize, width, height],
-  );
-
-  const activePointerIdRef = useRef<number | null>(null);
-  /** Tracks whether the active drag actually moved, to skip a redundant warp on a bare tap (fix L2). */
-  const movedRef = useRef(false);
+  const movedDuringDragRef = useRef(false);
   /** Guards the one-shot initial warp so it runs exactly once per mounted session. */
   const initialWarpDoneRef = useRef(false);
 
@@ -312,29 +271,6 @@ export function CornerEditor({
       warpSeqRef.current += 1;
     };
   }, []);
-
-  // Draw the source document into the backing canvas so the user can SEE the
-  // page while adjusting the corner handles (the overlay/handles alone would
-  // float over an empty surface otherwise). `originalBitmap` is immutable and
-  // not closed by the memoized ImageData extraction, so it stays drawable here.
-  // A CALLBACK ref (not a `useEffect` keyed on the canvas) since the 'corners'
-  // step's canvas can unmount/remount across a 'corners' <-> 'adjust' step
-  // switch (Fase 2.1 item 2) — an effect keyed on `[originalBitmap, width,
-  // height]` would NOT re-fire on a bare remount with unchanged deps and the
-  // canvas would come back blank. A callback ref fires on every mount,
-  // mirroring the pattern `Magnifier`/`WarpedPreview` already use below.
-  const drawSourceCanvas = useCallback(
-    (canvas: HTMLCanvasElement | null) => {
-      if (!canvas) return;
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(originalBitmap, 0, 0);
-      }
-    },
-    [originalBitmap, width, height],
-  );
 
   // Fix H2: `originalBitmap` is immutable, so extract the full-res ImageData
   // ONCE per session instead of allocating a full-res canvas (~48MB for a
@@ -362,25 +298,6 @@ export function CornerEditor({
   const valid = isConvex(corners);
   const inferred = useMemo(() => inferAspectRatio(corners), [corners]);
   const effectiveAspect = aspectOverride ?? inferred.name;
-
-  /**
-   * Converts a pointer event's client coordinates into the frame's source
-   * pixel space, using the SAME letterbox mapping the handles are drawn
-   * with (Fase 2.2 item 2) — reads the container's LIVE rect on every call
-   * rather than the (possibly one-frame-stale) `containerSize` state, so a
-   * drag mid-resize never disagrees with what is currently on screen.
-   */
-  const toSourcePoint = useCallback(
-    (clientX: number, clientY: number): Point | null => {
-      const container = containerRef.current;
-      if (!container) return null;
-      const rect = container.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return null;
-      const mapping = computeLetterboxMapping(width, height, rect.width, rect.height);
-      return displayToSource({ x: clientX - rect.left, y: clientY - rect.top }, mapping, width, height);
-    },
-    [width, height],
-  );
 
   const runWarp = useCallback(
     async (finalCorners: Quad, aspectOverrideArg?: AspectRatioName) => {
@@ -502,70 +419,44 @@ export function CornerEditor({
     void runWarp(seedCorners);
   }, [sourceImageData, seedCorners, runWarp]);
 
-  const handlePointerDown = useCallback(
-    (index: 0 | 1 | 2 | 3) => (event: ReactPointerEvent<HTMLButtonElement>) => {
-      event.currentTarget.setPointerCapture(event.pointerId);
-      activePointerIdRef.current = event.pointerId;
-      movedRef.current = false;
-      setDraggingIndex(index);
-      const point = toSourcePoint(event.clientX, event.clientY);
-      if (point) setDragPoint(point);
-    },
-    [toSourcePoint],
-  );
+  /**
+   * `CropOverlay.onCornersChange` — fired continuously while a handle is
+   * being dragged. Also marks the current drag gesture as "moved" so
+   * `handleDragStateChange` below knows whether to warp when the drag ends
+   * (fix L2's bare-tap guard, reconstructed across the two callbacks now
+   * that `CropOverlay` owns the drag itself).
+   */
+  const handleCornersChange = useCallback((next: Quad) => {
+    movedDuringDragRef.current = true;
+    setCornersState(next);
+  }, []);
 
-  const handlePointerMove = useCallback(
-    (index: 0 | 1 | 2 | 3) => (event: ReactPointerEvent<HTMLButtonElement>) => {
-      if (draggingIndex !== index || activePointerIdRef.current !== event.pointerId) {
+  /**
+   * `CropOverlay.onDragStateChange` — `true` on pointerdown, `false` on
+   * pointerup/pointercancel. Reconstructs the original `handlePointerUp`
+   * logic verbatim (tasks 5.1.3/5.1.4, fix L2): resets the "moved" guard
+   * when a new drag starts, and on release, re-warps ONLY if the drag
+   * actually moved a corner (a bare tap is a no-op) and the LATEST
+   * committed corners are convex — read via the `setCornersState`
+   * functional-updater form so this always sees the truly latest corners
+   * regardless of when this callback itself was last recreated (same
+   * reasoning as the original `handlePointerUp`'s
+   * `setCornersState((latest) => ...)`).
+   */
+  const handleDragStateChange = useCallback(
+    (dragging: boolean) => {
+      if (dragging) {
+        movedDuringDragRef.current = false;
         return;
       }
-      const point = toSourcePoint(event.clientX, event.clientY);
-      if (!point) return;
-      movedRef.current = true;
-      setDragPoint(point);
-      // Task 5.1.4: update the visual quad on every move (so the handle
-      // tracks the pointer), but this is a pure local state update — it
-      // does NOT call workerClient.warp. The warp only fires in
-      // handlePointerUp below.
-      setCornersState((prev) => {
-        const next = [...prev] as [Point, Point, Point, Point];
-        next[index] = point;
-        return next as Quad;
-      });
-    },
-    [draggingIndex, toSourcePoint],
-  );
-
-  const handlePointerUp = useCallback(
-    (index: 0 | 1 | 2 | 3) => (event: ReactPointerEvent<HTMLButtonElement>) => {
-      if (activePointerIdRef.current === event.pointerId) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
-      activePointerIdRef.current = null;
-      setDraggingIndex(null);
-      setDragPoint(null);
-
-      // Fix L2: a bare tap (pointerdown + pointerup with no pointermove) leaves
-      // the quad unchanged, so re-warping would be redundant — the initial warp
-      // (on editor entry) or the last drag's warp already reflects these
-      // corners. Only re-warp when the handle actually moved.
-      const moved = movedRef.current;
-      movedRef.current = false;
-      if (!moved) {
-        void index;
-        return;
-      }
-
-      // Task 5.1.3 / 5.1.4: validate convexity and recalc the warp ONLY on
-      // release, using the latest committed corners (functional read avoids
-      // relying on a possibly-stale `corners` closure).
+      if (!movedDuringDragRef.current) return;
+      movedDuringDragRef.current = false;
       setCornersState((latest) => {
         if (isConvex(latest)) {
           void runWarp(latest);
         }
         return latest;
       });
-      void index;
     },
     [runWarp],
   );
@@ -632,78 +523,19 @@ export function CornerEditor({
 
   const transform = recipe ? recipeToCssTransform(recipe) : 'none';
 
-  const magnifierRect =
-    draggingIndex !== null && dragPoint
-      ? magnifierSampleRect(dragPoint.x, dragPoint.y, MAGNIFIER_SIZE, MAGNIFIER_ZOOM, width, height)
-      : null;
-
   return (
     <div className="flex w-full max-w-md flex-col items-center gap-4" data-testid="corner-editor">
       {step === 'corners' && (
         <>
-          <div
-            ref={setContainerRef}
-            className="relative aspect-[3/4] w-full max-w-md overflow-hidden rounded-2xl bg-surface"
-            data-testid="corner-editor-canvas"
-          >
-            <canvas ref={drawSourceCanvas} className="absolute inset-0 h-full w-full object-contain" aria-hidden="true" />
-            <svg
-              viewBox={`0 0 ${width} ${height}`}
-              preserveAspectRatio="xMidYMid meet"
-              className="pointer-events-none absolute inset-0 h-full w-full"
-              aria-hidden="true"
-            >
-              <polygon
-                points={corners.map((p) => `${p.x},${p.y}`).join(' ')}
-                fill="rgba(94, 234, 212, 0.15)"
-                stroke={valid ? 'var(--color-primary-light)' : 'var(--color-danger)'}
-                strokeWidth={4}
-                strokeLinejoin="round"
-              />
-            </svg>
-
-            {corners.map((point, index) => {
-              // Fase 2.2 item 2: the handle's DISPLAY position uses the SAME
-              // letterbox mapping as the canvas/SVG (falls back to the
-              // identity mapping for the brief window before the container
-              // is measured), positioned in PX (not %) relative to this
-              // container — `sourceToDisplay` already accounts for the
-              // letterbox offset, which a percentage of container size alone
-              // cannot express.
-              const display = sourceToDisplay(point, letterboxMapping ?? { scale: 1, offsetX: 0, offsetY: 0 });
-              return (
-                <button
-                  key={index}
-                  type="button"
-                  aria-label={t('editor.cornerHandle', { n: index + 1 })}
-                  data-testid={`corner-handle-${index}`}
-                  onPointerDown={handlePointerDown(index as 0 | 1 | 2 | 3)}
-                  onPointerMove={handlePointerMove(index as 0 | 1 | 2 | 3)}
-                  onPointerUp={handlePointerUp(index as 0 | 1 | 2 | 3)}
-                  onPointerCancel={handlePointerUp(index as 0 | 1 | 2 | 3)}
-                  style={{
-                    left: `${display.x}px`,
-                    top: `${display.y}px`,
-                    width: HANDLE_HIT_SIZE,
-                    height: HANDLE_HIT_SIZE,
-                    touchAction: 'none',
-                  }}
-                  className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 bg-surface/80
-                    shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light
-                    ${valid ? 'border-primary-light' : 'border-danger'}`}
-                />
-              );
-            })}
-
-            {magnifierRect && dragPoint && (
-              <Magnifier
-                source={originalBitmap}
-                rect={magnifierRect}
-                size={MAGNIFIER_SIZE}
-                anchor={sourceToDisplay(dragPoint, letterboxMapping ?? { scale: 1, offsetX: 0, offsetY: 0 })}
-              />
-            )}
-          </div>
+          <CropOverlay
+            bitmap={originalBitmap}
+            width={width}
+            height={height}
+            corners={corners}
+            onCornersChange={handleCornersChange}
+            onDragStateChange={handleDragStateChange}
+            valid={valid}
+          />
 
           {!valid && (
             <p role="alert" className="text-sm text-danger" data-testid="corner-editor-invalid">
@@ -816,52 +648,5 @@ export function CornerEditor({
         )}
       </div>
     </div>
-  );
-}
-
-interface MagnifierProps {
-  readonly source: ImageBitmap;
-  readonly rect: { readonly sx: number; readonly sy: number; readonly sWidth: number; readonly sHeight: number };
-  readonly size: number;
-  /**
-   * Anchor in DISPLAY (letterboxed container) px space — already converted
-   * via `sourceToDisplay` at the call site (Fase 2.2 item 2), since the
-   * container is no longer a naive stretch-mapping of the source frame.
-   */
-  readonly anchor: Point;
-}
-
-/**
- * Floating circular magnifier canvas, drawn via `drawImage` cropping a
- * 2-3x region under the drag point (task 5.1.2). Purely presentational and
- * DOM-driven — this is intentionally not unit-tested (real drag + canvas
- * pixel output is out of scope per the verification plan); the pure
- * coordinate math it depends on (`magnifierSampleRect`) is unit-tested.
- */
-function Magnifier({ source, rect, size, anchor }: MagnifierProps): ReactNode {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  const draw = useCallback(
-    (canvas: HTMLCanvasElement | null) => {
-      canvasRef.current = canvas;
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      ctx.clearRect(0, 0, size, size);
-      ctx.drawImage(source, rect.sx, rect.sy, rect.sWidth, rect.sHeight, 0, 0, size, size);
-    },
-    [rect, size, source],
-  );
-
-  return (
-    <canvas
-      ref={draw}
-      width={size}
-      height={size}
-      data-testid="corner-editor-magnifier"
-      className="pointer-events-none absolute -translate-x-1/2 -translate-y-[calc(100%+24px)] rounded-full border-2
-        border-primary-light shadow-lg"
-      style={{ left: `${anchor.x}px`, top: `${anchor.y}px` }}
-    />
   );
 }
