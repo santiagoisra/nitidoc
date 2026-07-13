@@ -46,7 +46,7 @@ import { useActivePage } from '@/features/scanner/hooks/useActivePage';
 import { decodeImportedFile } from '@/features/scanner/lib/captureFallback';
 import { captureFullResFrame, cropToVisibleRect } from '@/features/scanner/lib/captureFrame';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
-import type { RawCapture } from '@/features/scanner/store/documentSlice';
+import type { DocumentPage, RawCapture } from '@/features/scanner/store/documentSlice';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
 
 /** Duration of the post-capture screen-flash feedback (design "Feedback"). */
@@ -95,6 +95,7 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
   const torchSupported = useScannerStore((s) => s.torchSupported);
   const torchOn = useScannerStore((s) => s.torchOn);
   const rawCaptures = useScannerStore((s) => s.rawCaptures);
+  const pages = useScannerStore((s) => s.pages);
   const setPhase = useScannerStore((s) => s.setPhase);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -230,8 +231,20 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
     [isAtCap, materializeRawCapture, t],
   );
 
-  const displayCount = rawCaptures.length + pendingBumps;
-  const lastThumbnail = rawCaptures.length > 0 ? (rawCaptures[rawCaptures.length - 1] as RawCapture).thumbnail : null;
+  // Bug 5 fix: by the time the user re-enters 'capturing' via grid/adjust
+  // "Capturar más", `rawCaptures` has already been cleared into `pages` by
+  // `useBatchProcess.run()` — counting `rawCaptures.length` alone made the
+  // camera counter drop to 0 even though the document already has pages.
+  // Summing both collections reflects the whole document-in-progress; this
+  // degrades to the original `rawCaptures.length` math whenever `pages` is
+  // empty, so the very first capture flow is unchanged.
+  const displayCount = pages.length + rawCaptures.length + pendingBumps;
+  const lastThumbnail =
+    rawCaptures.length > 0
+      ? (rawCaptures[rawCaptures.length - 1] as RawCapture).thumbnail
+      : pages.length > 0
+        ? (pages[pages.length - 1] as DocumentPage).thumbnail
+        : null;
 
   if (!cameraUsable) {
     // No-camera variant (design "Phase-gating decouple"): NEVER mounts a
