@@ -22,8 +22,26 @@ export const FILTER = {
   WARPED_PREVIEW_MAX_EDGE: 500,
   /** Hard cap on document length (design section 2.3 / D-MEM). STARTING VALUE. */
   PAGE_CAP: 30,
+  /**
+   * Base CSS realce for the `enhanced` preset (design section 3.2), applied as
+   * a MULTIPLIER on top of the (neutral-by-default) slider-driven brightness/
+   * contrast — so "Mejorado" visibly lifts a document even when the user never
+   * touches a slider. The previous `brightness(1) contrast(1)` was an identity
+   * no-op on achromatic pages (white paper / black text), which is exactly why
+   * the preset "did nothing". STARTING VALUES, pending on-device calibration.
+   */
+  ENHANCED_BRIGHTNESS: 1.08,
+  ENHANCED_CONTRAST: 1.35,
   /** `saturate()` multiplier for the `enhanced` preset (design section 3.2). STARTING VALUE. */
-  ENHANCED_SATURATION: 1.3,
+  ENHANCED_SATURATION: 1.2,
+  /**
+   * Base CSS realce for the `grayscale` preset: `grayscale(1)` alone reads as
+   * near-original on an already-achromatic document, so a base contrast boost
+   * (plus a touch of brightness) gives it a distinct, legible B&W-ish look.
+   * Slider values modulate these multiplicatively. STARTING VALUES.
+   */
+  GRAYSCALE_BRIGHTNESS: 1.04,
+  GRAYSCALE_CONTRAST: 1.3,
   /** Brightness-slider-to-`convertScaleAbs` beta scale for adaptive presets (design section 3.3). STARTING VALUE. */
   BETA_SCALE: 0.5,
   /** Debounce for slider-driven worker calls, ms (design section 3.4). STARTING VALUE. */
