@@ -299,7 +299,7 @@ describe('PageGrid (Group 5 / PR8, design section 5.3)', () => {
     expect(onFinish).not.toHaveBeenCalled();
   });
 
-  it('shows a needsReview badge only on tiles whose page has needsReview set (Fase 2.3, Unit 5)', () => {
+  it('shows a needsReview alert dot on the edit button only for tiles whose page has needsReview (bug 4b, replaces the old text badge)', () => {
     installCanvasShims();
     const pages = [
       { ...makePage('p1', 0), needsReview: true },
@@ -319,7 +319,37 @@ describe('PageGrid (Group 5 / PR8, design section 5.3)', () => {
       </ToastHost>,
     );
 
-    expect(screen.getByTestId('page-grid-review-badge-p1')).toBeTruthy();
-    expect(screen.queryByTestId('page-grid-review-badge-p2')).toBeNull();
+    // Every tile has an explicit edit button; the old illegible "Revisar" text
+    // badge is gone entirely.
+    expect(screen.getByTestId('page-grid-edit-p1')).toBeTruthy();
+    expect(screen.getByTestId('page-grid-edit-p2')).toBeTruthy();
+    expect(screen.queryByTestId('page-grid-review-badge-p1')).toBeNull();
+    // The needsReview signal is now the alert dot on that tile's edit button.
+    expect(screen.getByTestId('page-grid-review-dot-p1')).toBeTruthy();
+    expect(screen.queryByTestId('page-grid-review-dot-p2')).toBeNull();
+  });
+
+  it('the edit button activates the page and does not delete it (bug 4b: explicit edit affordance beside the trash)', () => {
+    installCanvasShims();
+    const pages = [makePage('p1', 0)];
+    const onActivatePage = vi.fn();
+    const onDeletePage = vi.fn();
+
+    render(
+      <ToastHost>
+        <PageGrid
+          pages={pages}
+          onActivatePage={onActivatePage}
+          onDeletePage={onDeletePage}
+          onReorder={vi.fn()}
+          onCaptureMore={vi.fn()}
+          onFinish={vi.fn()}
+        />
+      </ToastHost>,
+    );
+
+    fireEvent.click(screen.getByTestId('page-grid-edit-p1'));
+    expect(onActivatePage).toHaveBeenCalledWith('p1');
+    expect(onDeletePage).not.toHaveBeenCalled();
   });
 });

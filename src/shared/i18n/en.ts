@@ -85,6 +85,7 @@ export const en = {
   'grid.finish': 'Finish',
   'grid.deletePage': 'Delete page',
   'grid.needsReview': 'Review',
+  'grid.editPage': 'Edit page',
   'grid.emptyCta': 'Capture',
 
   'import.instructionsFirefox':
