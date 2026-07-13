@@ -49,6 +49,9 @@ export const en = {
   'adjust.addMore': 'Add more',
   'adjust.prevPage': 'Previous page',
   'adjust.nextPage': 'Next page',
+  'adjust.cropChip': 'Adjust edges',
+  'adjust.cropDone': 'Done',
+  'adjust.cropCancel': 'Cancel',
 
   'filter.title': 'Filters',
   'filter.presetOriginal': 'Original',
