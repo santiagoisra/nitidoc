@@ -28,7 +28,7 @@
 
 import type { ReactNode } from 'react';
 import { useCallback } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Pencil, Trash2 } from 'lucide-react';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { DndContext, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, rectSortingStrategy, useSortable } from '@dnd-kit/sortable';
@@ -209,35 +209,59 @@ function SortableGridItem({ page, onActivate, onDelete }: SortableGridItemProps)
           testId={`page-grid-thumb-${page.id}`}
         />
       </button>
-      {page.needsReview && (
-        <span
-          className="pointer-events-none absolute left-1 top-1 rounded-full bg-warning/90 px-1.5 py-0.5 text-[10px] font-semibold text-bg"
-          data-testid={`page-grid-review-badge-${page.id}`}
+      {/* Action buttons, stacked in the top-right corner: edit above trash
+          (bug 4b). The old illegible "Revisar" text-over-image badge is gone —
+          a page that needs review now shows an AMBER edit button + alert dot,
+          so the SAME control both signals "check this one" and opens the
+          editor (the whole-tile tap still works as a shortcut). Both buttons
+          stop the sensor activation events so a press never starts a reorder
+          drag (same belt-and-suspenders as the trash button always had). */}
+      <div className="absolute right-1 top-1 flex flex-col gap-1">
+        <button
+          type="button"
+          onMouseDown={(event) => event.stopPropagation()}
+          onTouchStart={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onActivate();
+          }}
+          aria-label={page.needsReview ? t('grid.needsReview') : t('grid.editPage')}
+          className={`relative flex h-9 w-9 items-center justify-center rounded-full bg-bg/80 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light ${
+            page.needsReview ? 'text-warning' : 'text-primary-light'
+          }`}
+          data-testid={`page-grid-edit-${page.id}`}
         >
-          {t('grid.needsReview')}
-        </span>
-      )}
-      <button
-        type="button"
-        // Stop the sensor activation events from reaching the sortable drag
-        // listeners spread on the <li>, so a press on the trash icon can never
-        // start a reorder drag — the click then fires cleanly (belt-and-
-        // suspenders alongside the sensor activation constraints above).
-        // dnd-kit's MouseSensor activates on `mousedown` and TouchSensor on
-        // `touchstart`, so those are the events to stop — a `pointerdown`
-        // handler would NOT block them (pointer events dispatch separately).
-        onMouseDown={(event) => event.stopPropagation()}
-        onTouchStart={(event) => event.stopPropagation()}
-        onClick={(event) => {
-          event.stopPropagation();
-          onDelete();
-        }}
-        aria-label={t('grid.deletePage')}
-        className="absolute right-1 top-1 flex h-9 w-9 items-center justify-center rounded-full bg-bg/80 text-danger shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
-        data-testid={`page-grid-delete-${page.id}`}
-      >
-        <Trash2 size={18} strokeWidth={1.5} aria-hidden="true" />
-      </button>
+          <Pencil size={17} strokeWidth={1.5} aria-hidden="true" />
+          {page.needsReview && (
+            <span
+              className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-warning ring-2 ring-bg"
+              data-testid={`page-grid-review-dot-${page.id}`}
+              aria-hidden="true"
+            />
+          )}
+        </button>
+        <button
+          type="button"
+          // Stop the sensor activation events from reaching the sortable drag
+          // listeners spread on the <li>, so a press on the trash icon can never
+          // start a reorder drag — the click then fires cleanly (belt-and-
+          // suspenders alongside the sensor activation constraints above).
+          // dnd-kit's MouseSensor activates on `mousedown` and TouchSensor on
+          // `touchstart`, so those are the events to stop — a `pointerdown`
+          // handler would NOT block them (pointer events dispatch separately).
+          onMouseDown={(event) => event.stopPropagation()}
+          onTouchStart={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete();
+          }}
+          aria-label={t('grid.deletePage')}
+          className="flex h-9 w-9 items-center justify-center rounded-full bg-bg/80 text-danger shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
+          data-testid={`page-grid-delete-${page.id}`}
+        >
+          <Trash2 size={18} strokeWidth={1.5} aria-hidden="true" />
+        </button>
+      </div>
     </li>
   );
 }
