@@ -1,14 +1,23 @@
 /**
  * Bottom-bar capture-count tile (Fase 2.3, capture-ux-redesign.md, Unit 3).
- * Draws the LAST raw capture's cached ~150px thumbnail on a ~56px rounded
+ * Draws the newest available cached ~150px thumbnail on a ~56px rounded
  * canvas, overlaid with a count badge (`aria-live="polite"`, D-badge state
  * always visible to assistive tech) and a small "x" retake-last control.
  *
- * NEVER decodes a full-res blob — the bitmap it receives IS the already
+ * NEVER decodes a full-res blob — the bitmap it receives IS an already
  * cached thumbnail (mirrors `PageThumbnail`'s own "never full-res" contract,
  * `CaptureTray.tsx`). Renders nothing at `count <= 0` (nothing captured yet
- * this session, and no optimistic bump pending either — see `CaptureScreen`'s
- * own doc comment on the "optimistic count bump" feedback rule).
+ * for this document, and no optimistic bump pending either — see
+ * `CaptureScreen`'s own doc comment on the "optimistic count bump" feedback
+ * rule).
+ *
+ * Bug 5 fix (capture-ux-redesign.md punch-list): both `count` and
+ * `lastThumbnail` now reflect the WHOLE document-in-progress
+ * (`pages.length + rawCaptures.length`), not just the current batch's
+ * `rawCaptures` — otherwise returning here via grid/adjust "Capturar más"
+ * (which already cleared `rawCaptures` into `pages`) showed an empty tile
+ * even though the document already has pages. See `CaptureScreen`'s
+ * `displayCount`/`lastThumbnail` derivation for the actual sourcing.
  */
 
 import type { ReactNode } from 'react';
@@ -19,9 +28,9 @@ import { useTranslation } from '@/shared/i18n';
 const TILE_SIZE = 56;
 
 export interface CaptureCountThumbnailProps {
-  /** `rawCaptures.length` plus any in-flight optimistic bump (design "Feedback"). */
+  /** `pages.length + rawCaptures.length` plus any in-flight optimistic bump (design "Feedback"; bug 5 fix — reflects the whole document-in-progress, not just this batch). */
   readonly count: number;
-  /** The last raw capture's cached thumbnail, or `null` while the very first capture is still in flight. */
+  /** The last raw capture's cached thumbnail if this batch has any, else the last confirmed page's thumbnail (bug 5 fix), or `null` before anything has ever been captured for this document. */
   readonly lastThumbnail: ImageBitmap | null;
   /** Retake-last (removes the last raw capture). Not inert — the tile is interactive per the design brief. */
   readonly onRetakeLast: () => void;
