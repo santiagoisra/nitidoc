@@ -184,6 +184,40 @@ describe('AdjustScreen preview strip (bug 6: real N-page carousel, bug 3: swipe 
     expect(screen.getByTestId('adjust-page-counter').textContent).toBe('2 / 2');
   });
 
+  it('page-switch decode gap: the active slide shows its own thumbnail, never the previous page\'s stale base, until the new decode resolves', async () => {
+    const baseP1 = fakeBitmap(800, 1200);
+    const baseP2 = fakeBitmap(800, 1200);
+    let resolveP2!: (bitmap: ImageBitmap) => void;
+    decodeBlobToBitmapMock
+      .mockResolvedValueOnce(baseP1)
+      .mockImplementationOnce(
+        () =>
+          new Promise<ImageBitmap>((resolve) => {
+            resolveP2 = resolve;
+          }),
+      );
+
+    useScannerStore.setState({
+      pages: [fakePage({ id: 'p1', order: 0 }), fakePage({ id: 'p2', order: 1 })],
+    });
+    renderAdjustScreen();
+    await waitFor(() => expect(screen.getByTestId('adjust-warped-preview')).toBeTruthy());
+
+    // Switch to p2 — its decode is still pending (never resolved yet).
+    fireEvent.click(screen.getByTestId('adjust-next-page'));
+    await waitFor(() => expect(decodeBlobToBitmapMock).toHaveBeenCalledTimes(2));
+
+    // The base is tagged with the page it belongs to, so during the decode gap
+    // the now-active p2 slide must fall back to its OWN thumbnail rather than
+    // drawing p1's still-live bitmap stretched into p2's box (HIGH review find).
+    expect(screen.queryByTestId('adjust-warped-preview')).toBeNull();
+    expect(screen.getByTestId('adjust-page-slide-thumb-p2')).toBeTruthy();
+
+    // Once p2's own decode lands, the full-res preview takes over.
+    resolveP2(baseP2);
+    await waitFor(() => expect(screen.getByTestId('adjust-warped-preview')).toBeTruthy());
+  });
+
   it('D-MEM: unmounting closes whatever base is currently live', async () => {
     const baseP1 = fakeBitmap(800, 1200);
     decodeBlobToBitmapMock.mockResolvedValue(baseP1);

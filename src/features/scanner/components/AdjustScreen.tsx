@@ -117,13 +117,20 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
   const slideRefs = useRef<Array<HTMLElement | null>>([]);
 
   // ── One live decoded warp base for the current page (close-before-overwrite) ──
-  const baseRef = useRef<ImageBitmap | null>(null);
+  // Tagged with the page id its bitmap belongs to: on a page switch the active
+  // index updates synchronously while the new page's decode is still async, so
+  // an untagged base would let the PREVIOUS page's pixels render into the new
+  // page's box (wrong content, stretched to the new dimensions). Tagging lets
+  // the render fall back to the page's thumbnail until the right base lands.
+  const baseRef = useRef<{ pageId: string; bitmap: ImageBitmap } | null>(null);
   const [baseVersion, setBaseVersion] = useState(0);
   const decodeSeqRef = useRef(0);
   const currentWarpedBlob = currentPage?.warpedBlob ?? null;
+  const currentPageId = currentPage?.id ?? null;
 
   useEffect(() => {
-    if (!currentWarpedBlob) return;
+    if (!currentWarpedBlob || !currentPageId) return;
+    const pageId = currentPageId;
     const seq = (decodeSeqRef.current += 1);
     let cancelled = false;
     void decodeBlobToBitmap(currentWarpedBlob)
@@ -132,8 +139,8 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
           bitmap.close();
           return;
         }
-        baseRef.current?.close();
-        baseRef.current = bitmap;
+        baseRef.current?.bitmap.close();
+        baseRef.current = { pageId, bitmap };
         setBaseVersion((v) => v + 1);
       })
       .catch(() => {
@@ -143,19 +150,18 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
     return () => {
       cancelled = true;
     };
-  }, [currentWarpedBlob]);
+  }, [currentWarpedBlob, currentPageId]);
 
   // Release the live base on unmount (F1 hygiene: never leak a decoded bitmap).
   useEffect(
     () => () => {
-      baseRef.current?.close();
+      baseRef.current?.bitmap.close();
       baseRef.current = null;
     },
     [],
   );
 
   // Keep the caller's "return to this page after a crop" target in sync.
-  const currentPageId = currentPage?.id ?? null;
   useEffect(() => {
     if (currentPageId) onPageChange(currentPageId);
   }, [currentPageId, onPageChange]);
@@ -304,7 +310,12 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
     onAddMore();
   }, [currentPage, deletePage, onAddMore]);
 
-  const base = baseRef.current;
+  // Only surface the live base when it actually belongs to the ACTIVE page.
+  // During the decode gap right after a page switch, `baseRef` still holds the
+  // previous page's bitmap — drawing it here would stretch the wrong page's
+  // pixels into the new page's box (HIGH-severity review finding), so fall back
+  // to null (→ the page's thumbnail) until the matching decode resolves.
+  const base = baseRef.current?.pageId === currentPageId ? baseRef.current.bitmap : null;
   void baseVersion; // re-render trigger off the ref mutation
 
   if (!currentPage) {
@@ -343,22 +354,21 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
                     isActive ? 'scale-100 opacity-100' : 'scale-[0.92] opacity-55'
                   }`}
                 >
-                  {isActive ? (
-                    base ? (
-                      <WarpedPreview
-                        bitmap={base}
-                        filter={recipe.filter}
-                        transform={recipeToCssTransform(recipe)}
-                        outSize={{ outW: warpedWidth, outH: warpedHeight }}
-                        rotation={recipe.rotation}
-                        testId="adjust-warped-preview"
-                      />
-                    ) : (
-                      <div className="flex aspect-[3/4] w-full items-center justify-center">
-                        <p className="text-sm text-white/60">{t('common.processing')}</p>
-                      </div>
-                    )
+                  {isActive && base ? (
+                    <WarpedPreview
+                      bitmap={base}
+                      filter={recipe.filter}
+                      transform={recipeToCssTransform(recipe)}
+                      outSize={{ outW: warpedWidth, outH: warpedHeight }}
+                      rotation={recipe.rotation}
+                      testId="adjust-warped-preview"
+                    />
                   ) : (
+                    // Non-active slides — and the active slide during its decode
+                    // gap — both show the page's resident thumbnail. The active
+                    // one is un-attenuated (see the wrapper), so a page switch
+                    // reads as a progressive low-res → full-res load rather than
+                    // a "processing" flash or (worse) the wrong page's pixels.
                     <PageSlideThumbnail page={page} testId={`adjust-page-slide-thumb-${page.id}`} />
                   )}
                 </div>
