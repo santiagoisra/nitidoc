@@ -86,6 +86,7 @@ export const es = {
   'grid.finish': 'Finalizar',
   'grid.deletePage': 'Eliminar página',
   'grid.needsReview': 'Revisar',
+  'grid.editPage': 'Editar página',
   'grid.emptyCta': 'Capturar',
 
   'import.instructionsFirefox':
