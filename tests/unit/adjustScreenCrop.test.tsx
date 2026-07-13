@@ -288,4 +288,45 @@ describe('AdjustScreen inline crop mode (Work Unit 2)', () => {
     expect((screen.getByTestId('adjust-crop-done') as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId('corner-handle-0')).toHaveClass('border-danger');
   });
+
+  it('finding H1: a warp still in flight from a CANCELLED session does not persist after re-entering crop on the same page', async () => {
+    useScannerStore.setState({ pages: [fakePage({ id: 'p1' })] });
+
+    // Hold session 1's warp open so we can Cancel + re-enter before it resolves.
+    let resolveWarp1!: (r: WarpResponse) => void;
+    const freshWarped1 = fakeBitmap(700, 1000);
+    warpMock.mockImplementationOnce(
+      () =>
+        new Promise<WarpResponse>((resolve) => {
+          resolveWarp1 = resolve;
+        }),
+    );
+
+    renderAdjustScreen();
+    await waitFor(() => expect(screen.getByTestId('adjust-warped-preview')).toBeTruthy());
+
+    // Session 1: enter crop, tap Listo → warp1 goes in flight (unresolved).
+    fireEvent.click(screen.getByTestId('adjust-crop'));
+    await waitFor(() => expect(screen.getByTestId('corner-editor-canvas')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('adjust-crop-done'));
+    await waitFor(() => expect(warpMock).toHaveBeenCalledTimes(1));
+
+    // Cancel (explicit discard), then re-enter crop on the SAME page (session 2).
+    fireEvent.click(screen.getByTestId('adjust-crop-cancel'));
+    await waitFor(() => expect(useScannerStore.getState().activeWorking).toBeNull());
+    fireEvent.click(screen.getByTestId('adjust-crop'));
+    await waitFor(() => expect(screen.getByTestId('corner-editor-canvas')).toBeTruthy());
+    expect(useScannerStore.getState().activeWorking?.pageId).toBe('p1');
+
+    // Now the stale session-1 warp resolves — the crop-session token must make
+    // it DISCARD itself (close the bitmap, no persist), NOT hijack session 2.
+    resolveWarp1(fakeWarpResult(freshWarped1));
+
+    await waitFor(() => expect(freshWarped1.close).toHaveBeenCalled());
+    expect(compressBitmapToJpegMock).not.toHaveBeenCalled(); // never persisted the cancelled crop
+    // The user stays in the re-entered (session 2) crop — not bounced to filter.
+    expect(screen.getByTestId('adjust-crop-toolbar')).toBeTruthy();
+    expect(screen.queryByTestId('adjust-toolbar')).toBeNull();
+    expect(useScannerStore.getState().activeWorking?.pageId).toBe('p1');
+  });
 });
