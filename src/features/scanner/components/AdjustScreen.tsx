@@ -31,10 +31,11 @@
  *    via `scrollToIndex`) AND re-decodes the new page's warp base (memory
  *    stays bounded to ONE live decoded base — close-before-overwrite, mirrors
  *    the layered-memory discipline). The strip also scrolls to
- *    `initialPageId`'s slide on mount — which doubles as the crop round-trip
- *    re-center, since a confirm/cancel remounts this screen with a fresh
- *    `initialPageId` (`onPageChange`/`initialPageId` wiring, owned by the
- *    caller).
+ *    `initialPageId`'s slide on mount. (Inline crop — Work Unit 2 — does NOT
+ *    remount this screen: a crop session is a local `mode` flip, reset by the
+ *    `currentPageId` safety-net effect, not a phase change. The mount scroll
+ *    still matters for the standalone grid → `CornerEditor` re-entry, which
+ *    does remount with a fresh `initialPageId`.)
  *  - **Filter strip**: `FilterPanel orientation="row"` — the same preset
  *    preview pipeline as the editor, laid out as a thin horizontal scroll bar.
  *    A tap writes the preset into the page recipe (`updateRecipe`, never a
@@ -123,7 +124,14 @@ function extractImageData(bitmap: ImageBitmap): ImageData {
     throw new Error('AdjustScreen: failed to acquire 2d context to extract full-res ImageData.');
   }
   ctx.drawImage(bitmap, 0, 0);
-  return ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+  const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+  // Release the full-res (~48MB @12MP) backing store immediately — this helper
+  // runs fresh on every "Listo" tap (unlike CornerEditor's once-per-session
+  // memoized copy), so leaving it for GC risks iOS canvas-cap pressure (the
+  // same reason the WARP_RESULT_IMAGEDATA branch below zeroes its canvas).
+  canvas.width = 0;
+  canvas.height = 0;
+  return imageData;
 }
 
 export interface AdjustScreenProps {
@@ -216,6 +224,17 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
   const pendingActivationRef = useRef<Promise<void> | null>(null);
   /** Synchronous re-entrancy guard for "Listo" — `isWarping` state alone is not enough, since a double-tap can fire before React re-renders with the disabled button. */
   const warpInFlightRef = useRef(false);
+  /**
+   * Monotonic crop-session token (mirrors `CornerEditor`'s `warpSeqRef`, which
+   * `AdjustScreen` can't get "for free" because — unlike CornerEditor — it is
+   * NOT remounted per crop session). Bumped on every crop entry/cancel/page
+   * change, so a warp still in flight from a PREVIOUS session (e.g.
+   * Cancel-then-Recortar on the SAME page, where the `activeWorking.pageId`
+   * guard alone can't tell the two activations apart) is discarded on resolve
+   * instead of persisting a cancelled crop over a freshly re-entered one
+   * (review finding H1).
+   */
+  const cropSessionRef = useRef(0);
 
   const cleanupCropActivation = useCallback((): void => {
     const pending = pendingActivationRef.current;
@@ -243,6 +262,11 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
   // `cleanupCropActivation` are no-ops when there was nothing to clean up.
   useEffect(() => {
     setMode('filter');
+    // A page change ends any crop session (finding H1): invalidate an in-flight
+    // warp and clear its UI flags so a stale resolve can't touch the new page.
+    cropSessionRef.current += 1;
+    warpInFlightRef.current = false;
+    setIsWarping(false);
     cleanupCropActivation();
   }, [currentPageId, cleanupCropActivation]);
 
@@ -349,9 +373,10 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
 
   // On mount, land on `initialPageId`'s slide instantly (no animation) —
   // `useLayoutEffect` so this resolves before the browser paints, avoiding a
-  // scrollLeft-0-then-jump flash. Mount-only by design: a crop round-trip
-  // remounts this whole screen with a fresh `initialPageId` (the caller swaps
-  // to `CornerEditor` and back), so "on mount" already covers "after crop".
+  // scrollLeft-0-then-jump flash. Mount-only by design. Inline crop (Work Unit
+  // 2) never remounts this screen (it's a local `mode` flip), so it needs no
+  // re-center here; the standalone grid → `CornerEditor` path DOES remount with
+  // a fresh `initialPageId`, which this covers.
   useLayoutEffect(() => {
     scrollToIndex(initialIndex, 'auto');
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -455,6 +480,12 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
 
   const handleEnterCrop = useCallback(() => {
     if (!currentPage) return;
+    // New crop session (finding H1): invalidate any warp still in flight from a
+    // previous session on this same page and clear its lingering UI flags, so
+    // this session starts clean and that stale warp is discarded on resolve.
+    cropSessionRef.current += 1;
+    warpInFlightRef.current = false;
+    setIsWarping(false);
     releaseFilterBase();
     setDraftCorners(currentPage.recipe.corners);
     setWarpError(false);
@@ -463,6 +494,11 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
   }, [currentPage, activatePage, releaseFilterBase]);
 
   const handleCropCancel = useCallback(() => {
+    // Invalidate this session's in-flight warp so an explicitly-discarded crop
+    // can never persist, and clear the warp UI flags (finding H1).
+    cropSessionRef.current += 1;
+    warpInFlightRef.current = false;
+    setIsWarping(false);
     setMode('filter');
     cleanupCropActivation();
   }, [cleanupCropActivation]);
@@ -486,6 +522,10 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
     if (!draftCorners || !isConvex(draftCorners)) return;
 
     const pageId = currentPage.id;
+    // Capture the session that started this warp, so a Cancel/re-enter/page
+    // change that bumps `cropSessionRef` while the worker is busy makes this
+    // warp discard itself on resolve (finding H1).
+    const session = cropSessionRef.current;
     const aspectRatio = currentPage.recipe.aspectRatio;
     const corners = draftCorners;
     const baseRecipe = currentPage.recipe;
@@ -537,7 +577,10 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
         // this fresh bitmap anymore. Close it rather than leak it or
         // resurrect a stale `activeWorking` (mirrors CornerEditor.runWarp's
         // own "close a superseded result" discipline).
-        if (useScannerStore.getState().activeWorking?.pageId !== pageId) {
+        // Discard if superseded: the crop session changed (Cancel, or
+        // Cancel-then-Recortar on the SAME page — finding H1), or the active
+        // page is no longer the one we cropped.
+        if (cropSessionRef.current !== session || useScannerStore.getState().activeWorking?.pageId !== pageId) {
           freshWarpedBase.close();
           return;
         }
@@ -549,13 +592,20 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
         await deactivateActivePage();
         setMode('filter');
       } catch {
-        // Only reachable when we did NOT already return above, so the
-        // session is still live — keep the user in crop to retry, matching
-        // CornerEditor's own warp-error UX.
-        setWarpError(true);
+        // Surface the error only if this warp's session is still current — a
+        // superseded session (Cancel/re-enter) must not paint its error onto
+        // the session that replaced it (finding H1).
+        if (cropSessionRef.current === session) {
+          setWarpError(true);
+        }
       } finally {
-        warpInFlightRef.current = false;
-        setIsWarping(false);
+        // Clear the in-flight/warping flags only for the current session — a
+        // stale warp resolving must not reset flags a newer session now owns.
+        // (Cancel/enter/page-change already cleared them for their own session.)
+        if (cropSessionRef.current === session) {
+          warpInFlightRef.current = false;
+          setIsWarping(false);
+        }
       }
     };
 
