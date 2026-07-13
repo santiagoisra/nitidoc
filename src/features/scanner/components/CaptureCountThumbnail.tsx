@@ -34,6 +34,8 @@ export function CaptureCountThumbnail({
 }: CaptureCountThumbnailProps): ReactNode {
   const { t } = useTranslation();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const prevCountRef = useRef(count);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -57,12 +59,27 @@ export function CaptureCountThumbnail({
     ctx.drawImage(lastThumbnail, dx, dy, drawWidth, drawHeight);
   }, [lastThumbnail]);
 
+  // Pop the tile whenever the count grows (a capture just landed in the tray) —
+  // the "fly-to-tray" polish, simplified to an attention pop. Imperative class
+  // toggle + reflow so consecutive captures each re-play the one-shot animation
+  // without remounting the canvas (which would flash a redraw). Disabled under
+  // prefers-reduced-motion by the keyframe's own media query (tokens.css).
+  useEffect(() => {
+    if (count > prevCountRef.current && rootRef.current) {
+      const el = rootRef.current;
+      el.classList.remove('animate-count-pop');
+      void el.offsetWidth; // force reflow so the animation restarts
+      el.classList.add('animate-count-pop');
+    }
+    prevCountRef.current = count;
+  }, [count]);
+
   if (count <= 0) {
     return null;
   }
 
   return (
-    <div className="relative" data-testid="capture-count-thumbnail">
+    <div ref={rootRef} className="relative" data-testid="capture-count-thumbnail">
       <div
         className="h-14 w-14 overflow-hidden rounded-xl bg-surface/80 ring-1 ring-white/20"
         aria-hidden="true"

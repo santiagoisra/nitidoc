@@ -102,6 +102,8 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
   const [isCapturing, setIsCapturing] = useState(false);
   const [flash, setFlash] = useState(false);
   const [pendingBumps, setPendingBumps] = useState(0);
+  // Bumped once per capture to re-play the CaptureButton shutter-ring animation.
+  const [shutterKey, setShutterKey] = useState(0);
 
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -162,6 +164,7 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
     inFlightRef.current = true;
     setIsCapturing(true);
     setPendingBumps((n) => n + 1);
+    setShutterKey((k) => k + 1);
     setFlash(true);
     // Guarded — `navigator.vibrate` is absent on desktop/many browsers;
     // optional chaining makes this a silent no-op there (design "Feedback").
@@ -327,7 +330,7 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
           <CaptureCountThumbnail count={displayCount} lastThumbnail={lastThumbnail} onRetakeLast={handleRetakeLast} />
         </div>
         <div className="flex justify-center">
-          <CaptureButton onCapture={() => void handleCapture()} disabled={isCapturing || isAtCap} />
+          <CaptureButton onCapture={() => void handleCapture()} disabled={isCapturing || isAtCap} shutterKey={shutterKey} />
         </div>
         <div className="flex justify-end">
           {rawCaptures.length > 0 && (
