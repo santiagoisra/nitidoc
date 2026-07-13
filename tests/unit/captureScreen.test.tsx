@@ -57,7 +57,9 @@ import { CaptureScreen } from '@/features/scanner/components/CaptureScreen';
 import { ToastHost } from '@/shared/ui';
 import { useScannerStore, scannerStoreInitialState } from '@/features/scanner/store/scannerStore';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
-import type { RawCapture } from '@/features/scanner/store/documentSlice';
+import { createInitialRecipe } from '@/features/scanner/lib/editRecipe';
+import type { DocumentPage, RawCapture } from '@/features/scanner/store/documentSlice';
+import type { Quad } from '@/shared/types/geometry';
 
 function fakeBitmap(width = 3000, height = 4000): ImageBitmap & { close: ReturnType<typeof vi.fn> } {
   return { width, height, close: vi.fn() } as unknown as ImageBitmap & { close: ReturnType<typeof vi.fn> };
@@ -71,6 +73,29 @@ function fakeRaw(id: string, order: number): RawCapture {
     thumbnail: fakeBitmap(150, 200),
     originalWidth: 1000,
     originalHeight: 1400,
+  };
+}
+
+const PAGE_CORNERS: Quad = [
+  { x: 0, y: 0 },
+  { x: 100, y: 0 },
+  { x: 100, y: 100 },
+  { x: 0, y: 100 },
+];
+
+/** Confirmed-page fixture for the bug 5 regression tests below (mirrors `documentSlice.test.ts`/`useActivePage.test.ts`'s own `fakePage` convention). */
+function fakePage(overrides: Partial<DocumentPage> = {}): DocumentPage {
+  return {
+    id: overrides.id ?? 'page-1',
+    order: overrides.order ?? 0,
+    recipe: overrides.recipe ?? createInitialRecipe(PAGE_CORNERS, 'a4'),
+    thumbnail: overrides.thumbnail ?? fakeBitmap(150, 200),
+    originalBlob: overrides.originalBlob ?? ({} as Blob),
+    warpedBlob: overrides.warpedBlob ?? ({} as Blob),
+    originalWidth: overrides.originalWidth ?? 1000,
+    originalHeight: overrides.originalHeight ?? 1400,
+    warpedWidth: overrides.warpedWidth ?? 800,
+    warpedHeight: overrides.warpedHeight ?? 1200,
   };
 }
 
@@ -270,6 +295,69 @@ describe('CaptureScreen (Fase 2.3, capture-ux-redesign.md, Unit 3)', () => {
     fireEvent.click(screen.getByTestId('capture-count-retake-last'));
     expect(useScannerStore.getState().rawCaptures).toHaveLength(1);
     expect(useScannerStore.getState().rawCaptures[0]?.id).toBe('r1');
+  });
+
+  describe('bug 5 fix: camera count reflects existing pages on "Capturar más" re-entry', () => {
+    it('counts already-confirmed pages even though rawCaptures was cleared by the batch step', () => {
+      // Mirrors `useBatchProcess.run()`'s end state: `rawCaptures` is empty
+      // again (cleared into `pages`) once the user re-enters 'capturing' via
+      // grid/adjust "Capturar más" — the counter must not drop to 0.
+      useScannerStore.setState({ pages: [fakePage({ id: 'p1' })], rawCaptures: [] });
+      renderCaptureScreen();
+
+      expect(screen.getByTestId('capture-count-badge').textContent).toBe('1');
+      expect(screen.getByTestId('capture-count-thumbnail')).toBeTruthy();
+    });
+
+    it('sums pages.length + rawCaptures.length once new shots accumulate on top of existing pages', () => {
+      useScannerStore.setState({
+        pages: [fakePage({ id: 'p1' }), fakePage({ id: 'p2', order: 1 })],
+        rawCaptures: [fakeRaw('r1', 0)],
+      });
+      renderCaptureScreen();
+
+      expect(screen.getByTestId('capture-count-badge').textContent).toBe('3');
+    });
+
+    it('prefers the newest raw-capture thumbnail over the last page thumbnail when both exist', () => {
+      const drawImageSpy = vi.fn();
+      const getContextSpy = vi
+        .spyOn(HTMLCanvasElement.prototype, 'getContext')
+        .mockReturnValue({ drawImage: drawImageSpy, clearRect: vi.fn() } as unknown as CanvasRenderingContext2D);
+
+      const pageThumb = fakeBitmap(150, 200);
+      const rawThumb = fakeBitmap(150, 200);
+      useScannerStore.setState({
+        pages: [fakePage({ id: 'p1', thumbnail: pageThumb })],
+        rawCaptures: [{ ...fakeRaw('r1', 0), thumbnail: rawThumb }],
+      });
+
+      renderCaptureScreen();
+
+      expect(screen.getByTestId('capture-count-badge').textContent).toBe('2');
+      expect(drawImageSpy.mock.calls[0]?.[0]).toBe(rawThumb);
+
+      getContextSpy.mockRestore();
+    });
+
+    it('falls back to the last page thumbnail when rawCaptures is empty', () => {
+      const drawImageSpy = vi.fn();
+      const getContextSpy = vi
+        .spyOn(HTMLCanvasElement.prototype, 'getContext')
+        .mockReturnValue({ drawImage: drawImageSpy, clearRect: vi.fn() } as unknown as CanvasRenderingContext2D);
+
+      const lastPageThumb = fakeBitmap(150, 200);
+      useScannerStore.setState({
+        pages: [fakePage({ id: 'p1' }), fakePage({ id: 'p2', order: 1, thumbnail: lastPageThumb })],
+        rawCaptures: [],
+      });
+
+      renderCaptureScreen();
+
+      expect(drawImageSpy.mock.calls[0]?.[0]).toBe(lastPageThumb);
+
+      getContextSpy.mockRestore();
+    });
   });
 
   describe('no-camera variant (phase-gating decouple)', () => {

@@ -6,15 +6,35 @@
  * visible and a working crop tool, exactly like CamScanner's adjust page.
  *
  * Layout (top → bottom, full-height immersive shell):
- *  - **Preview strip** (`flex-1`, horizontal scroll-snap): slide 0 shows the
- *    CURRENT page crisply (`WarpedPreview` over its decoded, UNFILTERED warp
- *    base, reflecting the live filter + rotation/flip); slide 1 is the
- *    "Agregar más" panel — scrolling the preview LEFT reveals it (design ask),
- *    and it does exactly what the capture screen's "Capturar más" does
- *    (`onAddMore` → `capturing`).
- *  - **Page nav** (`‹ n / N ›`): steps between pages; each step re-decodes the
- *    new page's warp base (memory stays bounded to ONE live decoded base —
- *    close-before-overwrite, mirrors the layered-memory discipline).
+ *  - **Preview strip** (`flex-1`, horizontal scroll-snap): a REAL N-page
+ *    carousel — one slide per page (index `0..pages.length-1`) plus the
+ *    "Agregar más" panel as the final slide (bug 6 fix: this used to be a
+ *    fixed 2-slide strip — current page / add-more — even though the page
+ *    counter already read `n / N`; swiping never actually paged through the
+ *    document). Slides are `w-[85%]` (not `w-full`) with matching scroller
+ *    padding so neighbors PEEK at both edges, and a right-edge dashed-line +
+ *    chevron hint shows whenever the user isn't already on the last slide
+ *    (bug 3 fix: the "swipe left for more" affordance was undiscoverable).
+ *    Only the ACTIVE (centered) slide renders the full-res, live-filtered
+ *    `WarpedPreview` over the single decoded `baseRef` bitmap; every other
+ *    page slide renders that page's already-resident `thumbnail` bitmap
+ *    (D-MEM — never decodes another blob) via `PageSlideThumbnail`, visually
+ *    attenuated (opacity/scale) to read as "not active". An
+ *    `IntersectionObserver` on the scroller keeps the active index in sync
+ *    with whatever slide the user actually scrolled to (highest intersection
+ *    ratio wins, clamped so the "Agregar más" slide never becomes a page
+ *    index), guarded by a `programmaticScrollRef` flag so a chevron/mount-
+ *    triggered smooth scroll doesn't fight its own resulting intersection
+ *    events mid-animation.
+ *  - **Page nav** (`‹ n / N ›`): steps between pages; each step
+ *    programmatically scrolls the strip to the target slide (`scrollIntoView`,
+ *    via `scrollToIndex`) AND re-decodes the new page's warp base (memory
+ *    stays bounded to ONE live decoded base — close-before-overwrite, mirrors
+ *    the layered-memory discipline). The strip also scrolls to
+ *    `initialPageId`'s slide on mount — which doubles as the crop round-trip
+ *    re-center, since a confirm/cancel remounts this screen with a fresh
+ *    `initialPageId` (`onPageChange`/`initialPageId` wiring, owned by the
+ *    caller).
  *  - **Filter strip**: `FilterPanel orientation="row"` — the same preset
  *    preview pipeline as the editor, laid out as a thin horizontal scroll bar.
  *    A tap writes the preset into the page recipe (`updateRecipe`, never a
@@ -32,7 +52,7 @@
  */
 
 import type { ReactNode } from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Camera, ChevronLeft, ChevronRight, Crop, Plus, RotateCcw } from 'lucide-react';
 import { Button } from '@/shared/ui';
 import { useTranslation } from '@/shared/i18n';
@@ -41,8 +61,22 @@ import { WarpedPreview } from '@/features/scanner/components/WarpedPreview';
 import { usePageDeletion } from '@/features/scanner/hooks/usePageDeletion';
 import { decodeBlobToBitmap } from '@/features/scanner/lib/pageResources';
 import { recipeToCssTransform, rotateLeftRecipe, withFilter } from '@/features/scanner/lib/editRecipe';
+import { buildThumbnailCssFilter } from '@/features/scanner/lib/filterPipeline';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
+import type { DocumentPage } from '@/features/scanner/store/documentSlice';
 import type { FilterParams } from '@/shared/types/scanner';
+
+/**
+ * How long a programmatic (`scrollIntoView`) scroll is assumed to still be
+ * animating — the `IntersectionObserver` sync ignores intersection updates
+ * while `programmaticScrollRef` is set, clearing it this long after the most
+ * recent `scrollToIndex` call (comfortably covers a `behavior: 'smooth'`
+ * single-slide scroll; an `'auto'` jump settles far sooner). Guards against
+ * the feedback loop where a chevron tap's own resulting scroll would
+ * otherwise immediately re-fire `setCurrentIndex` via the observer mid-
+ * animation.
+ */
+const PROGRAMMATIC_SCROLL_SETTLE_MS = 450;
 
 export interface AdjustScreenProps {
   /** Page to show first — the just-cropped page when returning from the corner editor, else the first page. */
@@ -76,15 +110,27 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
   const currentPage = pages[safeIndex];
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
+  // Per-slide DOM refs, indexed 0..pages.length-1 for page slides and
+  // `pages.length` for the trailing "Agregar más" slide — populated by each
+  // slide's own callback ref below. Used both to scroll a target slide into
+  // view (`scrollToIndex`) and as the `IntersectionObserver`'s observed set.
+  const slideRefs = useRef<Array<HTMLElement | null>>([]);
 
   // ── One live decoded warp base for the current page (close-before-overwrite) ──
-  const baseRef = useRef<ImageBitmap | null>(null);
+  // Tagged with the page id its bitmap belongs to: on a page switch the active
+  // index updates synchronously while the new page's decode is still async, so
+  // an untagged base would let the PREVIOUS page's pixels render into the new
+  // page's box (wrong content, stretched to the new dimensions). Tagging lets
+  // the render fall back to the page's thumbnail until the right base lands.
+  const baseRef = useRef<{ pageId: string; bitmap: ImageBitmap } | null>(null);
   const [baseVersion, setBaseVersion] = useState(0);
   const decodeSeqRef = useRef(0);
   const currentWarpedBlob = currentPage?.warpedBlob ?? null;
+  const currentPageId = currentPage?.id ?? null;
 
   useEffect(() => {
-    if (!currentWarpedBlob) return;
+    if (!currentWarpedBlob || !currentPageId) return;
+    const pageId = currentPageId;
     const seq = (decodeSeqRef.current += 1);
     let cancelled = false;
     void decodeBlobToBitmap(currentWarpedBlob)
@@ -93,8 +139,8 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
           bitmap.close();
           return;
         }
-        baseRef.current?.close();
-        baseRef.current = bitmap;
+        baseRef.current?.bitmap.close();
+        baseRef.current = { pageId, bitmap };
         setBaseVersion((v) => v + 1);
       })
       .catch(() => {
@@ -104,37 +150,140 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
     return () => {
       cancelled = true;
     };
-  }, [currentWarpedBlob]);
+  }, [currentWarpedBlob, currentPageId]);
 
   // Release the live base on unmount (F1 hygiene: never leak a decoded bitmap).
   useEffect(
     () => () => {
-      baseRef.current?.close();
+      baseRef.current?.bitmap.close();
       baseRef.current = null;
     },
     [],
   );
 
   // Keep the caller's "return to this page after a crop" target in sync.
-  const currentPageId = currentPage?.id ?? null;
   useEffect(() => {
     if (currentPageId) onPageChange(currentPageId);
   }, [currentPageId, onPageChange]);
 
-  const scrollToPage = useCallback(() => {
-    const el = scrollerRef.current;
-    if (el) el.scrollTo({ left: 0, behavior: 'smooth' });
+  // Guards the IntersectionObserver sync below from fighting a
+  // chevron/mount/crop-return-triggered programmatic scroll while its
+  // (possibly smooth) animation is still in flight — see the module doc
+  // comment's "Guard against feedback loops" note and
+  // `PROGRAMMATIC_SCROLL_SETTLE_MS`.
+  const programmaticScrollRef = useRef(false);
+  const programmaticScrollTimeoutRef = useRef<number | null>(null);
+
+  const scrollToIndex = useCallback((index: number, behavior: ScrollBehavior) => {
+    const target = slideRefs.current[index];
+    if (!target) return;
+    programmaticScrollRef.current = true;
+    if (programmaticScrollTimeoutRef.current !== null) {
+      window.clearTimeout(programmaticScrollTimeoutRef.current);
+    }
+    programmaticScrollTimeoutRef.current = window.setTimeout(() => {
+      programmaticScrollRef.current = false;
+    }, PROGRAMMATIC_SCROLL_SETTLE_MS);
+    target.scrollIntoView({ behavior, inline: 'center', block: 'nearest' });
   }, []);
 
+  // Clear any pending settle-timeout on unmount (hygiene; the ref flag itself
+  // needs no cleanup since the component is gone).
+  useEffect(
+    () => () => {
+      if (programmaticScrollTimeoutRef.current !== null) {
+        window.clearTimeout(programmaticScrollTimeoutRef.current);
+      }
+    },
+    [],
+  );
+
+  // On mount, land on `initialPageId`'s slide instantly (no animation) —
+  // `useLayoutEffect` so this resolves before the browser paints, avoiding a
+  // scrollLeft-0-then-jump flash. Mount-only by design: a crop round-trip
+  // remounts this whole screen with a fresh `initialPageId` (the caller swaps
+  // to `CornerEditor` and back), so "on mount" already covers "after crop".
+  useLayoutEffect(() => {
+    scrollToIndex(initialIndex, 'auto');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Whether the user has swiped past the last PAGE onto the trailing "Agregar
+  // más" slide — tracked separately from `currentIndex` (which only ever
+  // holds a valid PAGE index, see the observer callback below) so the bug 3
+  // "swipe for more" hint can hide once there is nothing further to reveal.
+  const [onLastSlide, setOnLastSlide] = useState(false);
+  const intersectionRatiosRef = useRef<Map<number, number>>(new Map());
+
+  // Sync scroll -> active index (bug 6): whichever slide has the highest
+  // intersection ratio against the scroller becomes the active page index.
+  // Re-observes whenever the slide count changes (page added/removed).
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller || typeof IntersectionObserver === 'undefined') {
+      // Feature-detect: IntersectionObserver is either absent, or (as in
+      // this project's happy-dom unit-test environment) present but its
+      // `observe()` never actually invokes the callback. Either way, chevron
+      // and mount navigation still work via `scrollToIndex` + direct
+      // `setCurrentIndex`; this only skips the SWIPE -> active-index sync,
+      // which real-browser/manual testing has to cover instead (see this
+      // component's test suite for the documented limitation).
+      return;
+    }
+
+    intersectionRatiosRef.current = new Map();
+    const totalSlides = pages.length + 1; // + the trailing "Agregar más" slide.
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const raw = (entry.target as HTMLElement).dataset.slideIndex;
+          if (raw === undefined) continue;
+          intersectionRatiosRef.current.set(Number(raw), entry.intersectionRatio);
+        }
+
+        // Ignore while a chevron/mount-triggered scroll is still animating —
+        // its OWN call site already set `currentIndex` optimistically.
+        if (programmaticScrollRef.current) return;
+
+        let bestIndex = -1;
+        let bestRatio = 0;
+        intersectionRatiosRef.current.forEach((ratio, index) => {
+          if (ratio > bestRatio) {
+            bestRatio = ratio;
+            bestIndex = index;
+          }
+        });
+        if (bestIndex < 0) return;
+
+        setOnLastSlide(bestIndex >= pages.length);
+        // Clamp: the "Agregar más" slide (index === pages.length) must never
+        // become a page index.
+        if (bestIndex < pages.length) {
+          setCurrentIndex(bestIndex);
+        }
+      },
+      { root: scroller, threshold: [0, 0.25, 0.5, 0.75, 1] },
+    );
+
+    slideRefs.current.slice(0, totalSlides).forEach((el) => {
+      if (el) observer.observe(el);
+    });
+
+    return () => observer.disconnect();
+  }, [pages.length]);
+
   const goPrev = useCallback(() => {
-    setCurrentIndex((i) => Math.max(0, i - 1));
-    scrollToPage();
-  }, [scrollToPage]);
+    const target = Math.max(0, safeIndex - 1);
+    setCurrentIndex(target);
+    scrollToIndex(target, 'smooth');
+  }, [safeIndex, scrollToIndex]);
 
   const goNext = useCallback(() => {
-    setCurrentIndex((i) => Math.min(pages.length - 1, i + 1));
-    scrollToPage();
-  }, [pages.length, scrollToPage]);
+    const target = Math.min(pages.length - 1, safeIndex + 1);
+    setCurrentIndex(target);
+    scrollToIndex(target, 'smooth');
+  }, [pages.length, safeIndex, scrollToIndex]);
 
   const handleFilterChange = useCallback(
     (filter: FilterParams) => {
@@ -161,7 +310,12 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
     onAddMore();
   }, [currentPage, deletePage, onAddMore]);
 
-  const base = baseRef.current;
+  // Only surface the live base when it actually belongs to the ACTIVE page.
+  // During the decode gap right after a page switch, `baseRef` still holds the
+  // previous page's bitmap — drawing it here would stretch the wrong page's
+  // pixels into the new page's box (HIGH-severity review finding), so fall back
+  // to null (→ the page's thumbnail) until the matching decode resolves.
+  const base = baseRef.current?.pageId === currentPageId ? baseRef.current.bitmap : null;
   void baseVersion; // re-render trigger off the ref mutation
 
   if (!currentPage) {
@@ -174,42 +328,85 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
 
   return (
     <div className="flex h-full w-full flex-col bg-black text-white" data-testid="adjust-screen">
-      {/* Preview strip: page 0, then the "add more" panel (reveal on scroll left). */}
-      <div
-        ref={scrollerRef}
-        className="flex flex-1 snap-x snap-mandatory overflow-x-auto overflow-y-hidden"
-        data-testid="adjust-preview-strip"
-      >
-        <section className="flex h-full w-full shrink-0 snap-center items-center justify-center p-4">
-          <div className="w-full max-w-xs overflow-hidden rounded-xl bg-neutral-900">
-            {base ? (
-              <WarpedPreview
-                bitmap={base}
-                filter={recipe.filter}
-                transform={recipeToCssTransform(recipe)}
-                outSize={{ outW: warpedWidth, outH: warpedHeight }}
-                rotation={recipe.rotation}
-                testId="adjust-warped-preview"
-              />
-            ) : (
-              <div className="flex aspect-[3/4] w-full items-center justify-center">
-                <p className="text-sm text-white/60">{t('common.processing')}</p>
-              </div>
-            )}
-          </div>
-        </section>
-
-        <button
-          type="button"
-          onClick={onAddMore}
-          className="flex h-full w-full shrink-0 snap-center flex-col items-center justify-center gap-3 p-4 text-white/80"
-          data-testid="adjust-add-more"
+      {/* Preview strip: a REAL slide per page + the "add more" panel (bug 6) —
+          slides are narrower than the strip (w-[85%]) with matching scroller
+          padding so neighbors peek at both edges (bug 3 discoverability). */}
+      <div className="relative flex-1">
+        <div
+          ref={scrollerRef}
+          className="flex h-full snap-x snap-mandatory gap-3 overflow-x-auto overflow-y-hidden px-[7.5%]"
+          data-testid="adjust-preview-strip"
         >
-          <span className="flex h-24 w-20 items-center justify-center rounded-xl border-2 border-dashed border-white/40">
-            <Plus size={32} strokeWidth={1.5} aria-hidden="true" />
-          </span>
-          <span className="text-sm font-medium">{t('adjust.addMore')}</span>
-        </button>
+          {pages.map((page, index) => {
+            const isActive = index === safeIndex;
+            return (
+              <section
+                key={page.id}
+                ref={(el) => {
+                  slideRefs.current[index] = el;
+                }}
+                data-slide-index={index}
+                data-testid={`adjust-page-slide-${page.id}`}
+                className="flex h-full w-[85%] shrink-0 snap-center items-center justify-center p-4"
+              >
+                <div
+                  className={`w-full max-w-xs overflow-hidden rounded-xl bg-neutral-900 transition-[opacity,transform] duration-200 ${
+                    isActive ? 'scale-100 opacity-100' : 'scale-[0.92] opacity-55'
+                  }`}
+                >
+                  {isActive && base ? (
+                    <WarpedPreview
+                      bitmap={base}
+                      filter={recipe.filter}
+                      transform={recipeToCssTransform(recipe)}
+                      outSize={{ outW: warpedWidth, outH: warpedHeight }}
+                      rotation={recipe.rotation}
+                      testId="adjust-warped-preview"
+                    />
+                  ) : (
+                    // Non-active slides — and the active slide during its decode
+                    // gap — both show the page's resident thumbnail. The active
+                    // one is un-attenuated (see the wrapper), so a page switch
+                    // reads as a progressive low-res → full-res load rather than
+                    // a "processing" flash or (worse) the wrong page's pixels.
+                    <PageSlideThumbnail page={page} testId={`adjust-page-slide-thumb-${page.id}`} />
+                  )}
+                </div>
+              </section>
+            );
+          })}
+
+          <button
+            type="button"
+            ref={(el) => {
+              slideRefs.current[pages.length] = el;
+            }}
+            data-slide-index={pages.length}
+            onClick={onAddMore}
+            className="flex h-full w-[85%] shrink-0 snap-center flex-col items-center justify-center gap-3 p-4 text-white/80"
+            data-testid="adjust-add-more"
+          >
+            <span className="flex h-24 w-20 items-center justify-center rounded-xl border-2 border-dashed border-white/40">
+              <Plus size={32} strokeWidth={1.5} aria-hidden="true" />
+            </span>
+            <span className="text-sm font-medium">{t('adjust.addMore')}</span>
+          </button>
+        </div>
+
+        {/* Bug 3 affordance: hints "swipe for more" (another page, or at
+            least the "Agregar más" panel) whenever the user isn't already on
+            the last slide. Purely visual — never blocks the scroll strip's
+            own pointer events. */}
+        {!onLastSlide && (
+          <div
+            className="pointer-events-none absolute inset-y-0 right-0 flex w-14 items-center justify-end bg-gradient-to-l from-black/40 to-transparent pr-2"
+            data-testid="adjust-more-hint"
+            aria-hidden="true"
+          >
+            <div className="mr-2 h-3/5 border-r-2 border-dashed border-white/50" />
+            <ChevronRight size={18} strokeWidth={1.5} className="animate-pulse text-white/70" />
+          </div>
+        )}
       </div>
 
       {/* Page navigation ‹ n / N › */}
@@ -291,6 +488,50 @@ function ToolbarButton({ icon, label, onClick, testId }: ToolbarButtonProps): Re
       <span aria-hidden="true">{icon}</span>
       <span className="text-[11px] leading-tight">{label}</span>
     </button>
+  );
+}
+
+interface PageSlideThumbnailProps {
+  readonly page: DocumentPage;
+  readonly testId?: string;
+}
+
+/**
+ * Non-active carousel slide preview (bug 6, N-page carousel). Draws the
+ * page's already-resident ~150px `thumbnail` `ImageBitmap` — NEVER decodes a
+ * blob, mirrors `PageThumbnail`'s own draw contract (D-MEM: inactive pages
+ * only ever carry a cached thumbnail, never a live full-res bitmap) —
+ * applying the same `buildThumbnailCssFilter` CSS approximation so a page's
+ * filter stays visually consistent with the active slide's accurate
+ * `WarpedPreview` render. Sized to roughly fill the slide's own box
+ * (`max-w-xs`, set by the caller) rather than `PageThumbnail`'s small
+ * fixed-height tray-tile size — the caller also applies the "not active"
+ * opacity/scale attenuation on the wrapping box, so this component only
+ * ever draws a plain, undimmed thumbnail.
+ */
+function PageSlideThumbnail({ page, testId }: PageSlideThumbnailProps): ReactNode {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    canvas.width = page.thumbnail.width;
+    canvas.height = page.thumbnail.height;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.filter = buildThumbnailCssFilter(page.recipe.filter);
+    ctx.drawImage(page.thumbnail, 0, 0);
+    ctx.filter = 'none';
+  }, [page.thumbnail, page.recipe.filter]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="aspect-[3/4] w-full rounded-xl bg-neutral-900 object-contain"
+      data-testid={testId}
+      aria-hidden="true"
+    />
   );
 }
 
