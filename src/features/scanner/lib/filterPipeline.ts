@@ -27,11 +27,22 @@ export function needsWorker(filter: FilterParams): boolean {
 }
 
 /**
+ * Trims floating-point noise (e.g. `1.08 * 1.1 = 1.1880000000000002`) from a
+ * base×slider product so the emitted CSS string stays clean and stable.
+ */
+function fmt(value: number): string {
+  return String(Math.round(value * 1000) / 1000);
+}
+
+/**
  * Maps `FilterParams` to a Canvas2D `ctx.filter` string (design section 3.2,
- * Stage 2 — presentation only). Adaptive presets return `'none'`: their
- * brightness/contrast are already folded into the worker's Stage 1
- * (`convertScaleAbs` pre-gain, design section 3.3/4.4), so Stage 2 must not
- * re-apply them on top.
+ * Stage 2 — presentation only). The CSS presets carry a BASE realce (see
+ * `FILTER.ENHANCED_*` / `FILTER.GRAYSCALE_*`) so "Mejorado" / "Escala de
+ * grises" visibly lift a document at neutral sliders — a plain `brightness(1)
+ * contrast(1)` was a no-op on achromatic pages. Slider values modulate that
+ * base multiplicatively. Adaptive presets return `'none'`: their brightness/
+ * contrast are already folded into the worker's Stage 1 (`convertScaleAbs`
+ * pre-gain, design section 3.3/4.4), so Stage 2 must not re-apply them on top.
  */
 export function buildCssFilter(filter: FilterParams): string {
   const brightnessValue = 1 + filter.brightness / 100;
@@ -41,9 +52,9 @@ export function buildCssFilter(filter: FilterParams): string {
     case 'original':
       return 'none';
     case 'enhanced':
-      return `brightness(${brightnessValue}) contrast(${contrastValue}) saturate(${FILTER.ENHANCED_SATURATION})`;
+      return `brightness(${fmt(FILTER.ENHANCED_BRIGHTNESS * brightnessValue)}) contrast(${fmt(FILTER.ENHANCED_CONTRAST * contrastValue)}) saturate(${FILTER.ENHANCED_SATURATION})`;
     case 'grayscale':
-      return `grayscale(1) brightness(${brightnessValue}) contrast(${contrastValue})`;
+      return `grayscale(1) brightness(${fmt(FILTER.GRAYSCALE_BRIGHTNESS * brightnessValue)}) contrast(${fmt(FILTER.GRAYSCALE_CONTRAST * contrastValue)})`;
     case 'bw':
     case 'bw-high-contrast':
     case 'eco':

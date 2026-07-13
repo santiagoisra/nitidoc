@@ -51,23 +51,38 @@ describe('needsWorker — routing truth table (design section 3.1)', () => {
 });
 
 describe('buildCssFilter — Stage 2 CSS mapping (design section 3.2)', () => {
+  // Assert the CONTRACT, not the exact calibratable multipliers — filterConstants
+  // marks the FILTER.* values as pending on-device calibration.
+  const extract = (css: string, fn: string): number => Number(new RegExp(`${fn}\\(([\\d.]+)\\)`).exec(css)?.[1]);
+
   it('original -> none, regardless of sliders', () => {
     expect(buildCssFilter(filter('original', { brightness: 20, contrast: -10 }))).toBe('none');
   });
 
-  it('enhanced -> brightness/contrast/saturate(SAT), neutral sliders map to 1', () => {
+  it('enhanced -> a visible BASE realce at neutral sliders (not the old brightness(1) contrast(1) no-op), plus saturate', () => {
     const result = buildCssFilter(filter('enhanced'));
-    expect(result).toBe(`brightness(1) contrast(1) saturate(${FILTER.ENHANCED_SATURATION})`);
+    expect(result).not.toBe('none');
+    expect(result).toContain(`saturate(${FILTER.ENHANCED_SATURATION})`);
+    // The bug 2 regression: neutral sliders must now carry the calibrated base
+    // boost (>1) so the preset actually changes achromatic pixels.
+    expect(extract(result, 'brightness')).toBeGreaterThan(1);
+    expect(extract(result, 'contrast')).toBeGreaterThan(1);
   });
 
-  it('enhanced -> non-neutral sliders map v = 1 + slider/100', () => {
-    const result = buildCssFilter(filter('enhanced', { brightness: 50, contrast: -20 }));
-    expect(result).toBe(`brightness(1.5) contrast(0.8) saturate(${FILTER.ENHANCED_SATURATION})`);
+  it('enhanced -> sliders modulate the base multiplicatively (a positive slider raises the value)', () => {
+    const neutral = buildCssFilter(filter('enhanced'));
+    const brighter = buildCssFilter(filter('enhanced', { brightness: 50 }));
+    expect(extract(brighter, 'brightness')).toBeGreaterThan(extract(neutral, 'brightness'));
   });
 
-  it('grayscale -> grayscale(1) always, plus brightness/contrast', () => {
-    const result = buildCssFilter(filter('grayscale', { brightness: 10, contrast: 0 }));
-    expect(result).toBe('grayscale(1) brightness(1.1) contrast(1)');
+  it('grayscale -> always grayscale(1), with a base contrast boost (>1) at neutral sliders', () => {
+    const result = buildCssFilter(filter('grayscale'));
+    expect(result.startsWith('grayscale(1)')).toBe(true);
+    expect(extract(result, 'contrast')).toBeGreaterThan(1);
+  });
+
+  it('grayscale -> keeps grayscale(1) regardless of sliders', () => {
+    expect(buildCssFilter(filter('grayscale', { brightness: 10, contrast: 20 }))).toContain('grayscale(1)');
   });
 
   it.each(['bw', 'bw-high-contrast', 'eco'] as const)(
