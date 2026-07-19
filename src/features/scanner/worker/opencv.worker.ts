@@ -74,6 +74,10 @@ function getDetectContext(width: number, height: number): OffscreenCanvasRenderi
     detectCanvas.height = height;
   }
   if (!detectCtx) {
+    // Reset the singleton so a LATER call retries a fresh canvas instead of
+    // being permanently stuck on this null context (iOS/WebKit can fail to hand
+    // out a worker 2D context transiently under memory pressure).
+    detectCanvas = null;
     throw new Error('Failed to acquire 2D context on the internal detection OffscreenCanvas.');
   }
   return detectCtx;
@@ -89,6 +93,7 @@ function getWarpContext(width: number, height: number): OffscreenCanvasRendering
     warpCanvas.height = height;
   }
   if (!warpCtx) {
+    warpCanvas = null; // allow a later call to retry (see getDetectContext).
     throw new Error('Failed to acquire 2D context on the internal warp OffscreenCanvas.');
   }
   return warpCtx;
@@ -104,6 +109,7 @@ function getFilterContext(width: number, height: number): OffscreenCanvasRenderi
     filterCanvas.height = height;
   }
   if (!filterCtx) {
+    filterCanvas = null; // allow a later call to retry (see getDetectContext).
     throw new Error('Failed to acquire 2D context on the internal filter OffscreenCanvas.');
   }
   return filterCtx;

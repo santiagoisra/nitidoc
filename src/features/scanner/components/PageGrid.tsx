@@ -28,7 +28,7 @@
 
 import type { ReactNode } from 'react';
 import { useCallback } from 'react';
-import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { GripHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { DndContext, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, rectSortingStrategy, useSortable } from '@dnd-kit/sortable';
@@ -205,7 +205,16 @@ interface SortableGridItemProps {
 
 function SortableGridItem({ page, index, onActivate, onDelete }: SortableGridItemProps): ReactNode {
   const { t } = useTranslation();
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: page.id });
+  // Drag handle pattern (dnd-kit): the reorder listeners live on a dedicated
+  // handle (`setActivatorNodeRef`), NOT the whole tile. On touch/iOS, dragging
+  // the entire tile fought the grid's own vertical scroll (and iOS fired the
+  // long-press image/callout menu over the thumbnail canvas) — so reorder was
+  // unreliable. A dedicated handle with `touch-action: none` (see the button
+  // below) makes reorder deterministic while the rest of the tile keeps normal
+  // touch scrolling AND tap-to-edit.
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition } = useSortable({
+    id: page.id,
+  });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -213,14 +222,7 @@ function SortableGridItem({ page, index, onActivate, onDelete }: SortableGridIte
   };
 
   return (
-    <li
-      ref={setNodeRef}
-      style={style}
-      {...attributes}
-      {...listeners}
-      className="relative"
-      data-testid={`page-grid-item-${page.id}`}
-    >
+    <li ref={setNodeRef} style={style} className="relative" data-testid={`page-grid-item-${page.id}`}>
       {/* Inner wrapper carries the staggered `rise` entrance (design 5.5) and
           the tile shadow. The dnd-kit reorder transform stays on the <li>
           above, so the entrance animation — which also drives `transform` —
@@ -315,6 +317,22 @@ function SortableGridItem({ page, index, onActivate, onDelete }: SortableGridIte
           <Trash2 size={18} strokeWidth={1.5} aria-hidden="true" />
         </button>
       </div>
+
+      {/* Drag handle — the ONLY reorder activator. `touch-action: none` (the
+          `touch-none` class) lets a touch-drag start here without the grid
+          scrolling underneath, while the rest of the tile keeps normal touch
+          scroll + tap-to-edit. Fixes unreliable reorder on iPhone. */}
+      <button
+        type="button"
+        ref={setActivatorNodeRef}
+        {...attributes}
+        {...listeners}
+        aria-label={t('grid.reorder')}
+        className="touch-none absolute bottom-1 left-1/2 flex h-7 w-11 -translate-x-1/2 cursor-grab items-center justify-center rounded-full bg-bg/70 text-text-muted backdrop-blur-sm active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light"
+        data-testid={`page-grid-drag-${page.id}`}
+      >
+        <GripHorizontal size={16} strokeWidth={2} aria-hidden="true" />
+      </button>
       </div>
     </li>
   );
