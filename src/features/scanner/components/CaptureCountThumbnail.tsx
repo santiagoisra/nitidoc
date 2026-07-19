@@ -25,7 +25,9 @@ import { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { useTranslation } from '@/shared/i18n';
 
-const TILE_SIZE = 56;
+// Portrait "mini-paper" tile (HANDOFF-UI.md section 5.2): 52×64.
+const TILE_W = 52;
+const TILE_H = 64;
 
 export interface CaptureCountThumbnailProps {
   /** `pages.length + rawCaptures.length` plus any in-flight optimistic bump (design "Feedback"; bug 5 fix — reflects the whole document-in-progress, not just this batch). */
@@ -55,16 +57,16 @@ export function CaptureCountThumbnail({
     if (!ctx) {
       return;
     }
-    canvas.width = TILE_SIZE;
-    canvas.height = TILE_SIZE;
-    ctx.clearRect(0, 0, TILE_SIZE, TILE_SIZE);
-    // Cover-fit the thumbnail into the square tile (same centered-crop intent
+    canvas.width = TILE_W;
+    canvas.height = TILE_H;
+    ctx.clearRect(0, 0, TILE_W, TILE_H);
+    // Cover-fit the thumbnail into the portrait tile (same centered-crop intent
     // as the video's own `object-cover`, just drawn manually on a canvas).
-    const scale = Math.max(TILE_SIZE / lastThumbnail.width, TILE_SIZE / lastThumbnail.height);
+    const scale = Math.max(TILE_W / lastThumbnail.width, TILE_H / lastThumbnail.height);
     const drawWidth = lastThumbnail.width * scale;
     const drawHeight = lastThumbnail.height * scale;
-    const dx = (TILE_SIZE - drawWidth) / 2;
-    const dy = (TILE_SIZE - drawHeight) / 2;
+    const dx = (TILE_W - drawWidth) / 2;
+    const dy = (TILE_H - drawHeight) / 2;
     ctx.drawImage(lastThumbnail, dx, dy, drawWidth, drawHeight);
   }, [lastThumbnail]);
 
@@ -90,7 +92,7 @@ export function CaptureCountThumbnail({
   return (
     <div ref={rootRef} className="relative" data-testid="capture-count-thumbnail">
       <div
-        className="h-14 w-14 overflow-hidden rounded-xl bg-surface/80 ring-1 ring-white/20"
+        className="h-16 w-[52px] overflow-hidden rounded-lg bg-surface/80 ring-1 ring-white/20"
         aria-hidden="true"
       >
         {lastThumbnail && (
@@ -102,7 +104,7 @@ export function CaptureCountThumbnail({
         role="status"
         aria-live="polite"
         data-testid="capture-count-badge"
-        className="absolute -right-1.5 -top-1.5 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1 text-[11px] font-semibold text-bg"
+        className="tabular-nums absolute -right-1.5 -top-1.5 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1 text-[11px] font-semibold text-bg"
       >
         {count}
       </span>

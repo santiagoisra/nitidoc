@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
-import { ScanLine } from 'lucide-react';
-import { LanguageToggle, ToastHost } from '@/shared/ui';
+import { BrandGlyph, LanguageToggle, ToastHost } from '@/shared/ui';
 import { LocaleProvider } from '@/shared/i18n';
 import { ScannerScreen } from '@/features/scanner/components/ScannerScreen';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
@@ -68,9 +67,9 @@ export function App(): ReactNode {
               className="flex items-center justify-between gap-3 border-b border-text-muted/10 px-4 py-4"
               data-testid="app-header"
             >
-              <div className="flex items-center gap-3">
-                <ScanLine size={24} strokeWidth={1.5} className="text-primary" aria-hidden="true" />
-                <span className="text-lg font-semibold tracking-tight">Nitidoc</span>
+              <div className="flex items-center gap-2.5">
+                <BrandGlyph size={28} />
+                <span className="text-lg font-extrabold lowercase tracking-tight">nitidoc</span>
               </div>
               <LanguageToggle />
             </header>

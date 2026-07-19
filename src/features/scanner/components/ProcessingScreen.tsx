@@ -25,7 +25,6 @@
 
 import type { ReactNode } from 'react';
 import { useCallback, useEffect } from 'react';
-import { Loader2 } from 'lucide-react';
 import { Button, useToast } from '@/shared/ui';
 import { useTranslation } from '@/shared/i18n';
 import { OpenCvDegradedBanner } from '@/features/scanner/components/OpenCvDegradedBanner';
@@ -81,15 +80,32 @@ export function ProcessingScreen({
     >
       {openCvDegraded && <OpenCvDegradedBanner lastError={opencvLastError} onRetry={retryManualInit} />}
 
-      <Loader2
-        className="animate-spin text-primary"
-        size={32}
-        strokeWidth={1.5}
-        aria-hidden="true"
-        data-testid="processing-spinner"
-      />
+      {/* "Developing" metaphor (design 5.3): a back page (rotated, stone) with a
+          front warm-paper page swept by a teal scan line — replaces the plain
+          spinner. Keeps `data-testid="processing-spinner"` so the loading state
+          is still selectable. */}
+      <div className="relative h-28 w-24" data-testid="processing-spinner" aria-hidden="true">
+        <div className="absolute inset-0 rotate-[4deg] rounded-lg bg-surface shadow-[0_10px_30px_rgba(0,0,0,0.4)]" />
+        <div className="absolute inset-0 overflow-hidden rounded-lg bg-surface-light shadow-[0_16px_40px_rgba(0,0,0,0.5)]">
+          <div className="flex h-full flex-col gap-2 p-3">
+            <span className="h-1.5 w-3/4 rounded-full bg-bg/15" />
+            <span className="h-1.5 w-full rounded-full bg-bg/10" />
+            <span className="h-1.5 w-5/6 rounded-full bg-bg/10" />
+            <span className="h-1.5 w-full rounded-full bg-bg/10" />
+            <span className="h-1.5 w-2/3 rounded-full bg-bg/10" />
+          </div>
+          <span
+            className="animate-scan-page absolute left-0 h-[3px] w-full"
+            style={{
+              top: '6%',
+              background: 'linear-gradient(90deg, transparent, #0F8A78, #8CEBD9, transparent)',
+              boxShadow: '0 0 12px rgba(46,196,173,0.8)',
+            }}
+          />
+        </div>
+      </div>
 
-      <p className="text-base font-medium text-text" data-testid="processing-title">
+      <p className="text-base font-semibold text-text" data-testid="processing-title">
         {t('processing.title')}
       </p>
 
@@ -98,11 +114,11 @@ export function ProcessingScreen({
         aria-valuemin={0}
         aria-valuemax={total}
         aria-valuenow={done}
-        className="h-2 w-full max-w-xs overflow-hidden rounded-full bg-surface"
+        className="h-2 w-full max-w-xs overflow-hidden rounded-full bg-surface-2"
         data-testid="processing-progress-bar"
       >
         <div
-          className="h-full bg-primary transition-[width] duration-200 ease-out"
+          className="h-full rounded-full bg-gradient-to-r from-primary-dark to-primary-light transition-[width] duration-200 ease-out"
           style={{ width: `${progressPercent}%` }}
         />
       </div>
@@ -110,11 +126,13 @@ export function ProcessingScreen({
       <p
         role="status"
         aria-live="polite"
-        className="text-sm text-text-muted"
+        className="tabular-nums text-sm text-text-muted"
         data-testid="processing-progress-text"
       >
         {t('processing.progress', { done, total })}
       </p>
+
+      <p className="max-w-xs text-center text-sm text-text-muted">{t('processing.subtitle')}</p>
 
       <Button
         type="button"

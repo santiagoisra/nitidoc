@@ -18,6 +18,9 @@ export const es = {
 
   'lang.toggle': 'Cambiar idioma',
 
+  'welcome.cta': 'Escanear documento',
+  'welcome.hint': 'Al tocar se abre la cámara directamente',
+
   'scanner.openScanner': 'Abrir escáner',
   'scanner.cameraError': 'No se pudo abrir la cámara. Probá de nuevo o importá una imagen.',
   'scanner.loading': 'Cargando…',
@@ -80,10 +83,14 @@ export const es = {
   'capture.importAnother': 'Importar otra',
 
   'processing.title': 'Procesando tus páginas…',
+  'processing.subtitle': 'Detectando bordes y corrigiendo perspectiva',
   'processing.progress': '{done} de {total}',
   'processing.failedPages': 'No se pudo procesar ninguna página. Probá de nuevo.',
   'processing.cancel': 'Cancelar',
 
+  'grid.title': 'Documento',
+  'grid.pageCount': { one: '{n} página', other: '{n} páginas' },
+  'grid.reorderHint': 'Mantené presionada una página para reordenar',
   'grid.pagesCaptured': { one: '{n} página capturada.', other: '{n} páginas capturadas.' },
   'grid.captureMore': 'Capturar más',
   'grid.finish': 'Finalizar',
@@ -91,6 +98,9 @@ export const es = {
   'grid.needsReview': 'Revisar',
   'grid.editPage': 'Editar página',
   'grid.emptyCta': 'Capturar',
+
+  'done.title': '¡Documento listo!',
+  'done.pagesScanned': { one: '{n} página escaneada', other: '{n} páginas escaneadas' },
 
   'import.instructionsFirefox':
     'Abrí el ícono de candado en la barra de direcciones, poné la Cámara en "Permitir" y volvé a cargar la página.',

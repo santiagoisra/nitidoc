@@ -29,7 +29,7 @@ describe('App shell (Fase 2.3, capture-ux-redesign.md, Unit 5, D-3 "No-scroll sc
     render(<App />);
 
     expect(screen.getByTestId('app-header')).toBeTruthy();
-    expect(screen.getByText('Nitidoc')).toBeTruthy();
+    expect(screen.getByText('nitidoc')).toBeTruthy();
 
     const main = screen.getByTestId('app-main');
     expect(main.className).toContain('overflow-y-auto');
