@@ -18,6 +18,9 @@ export const en = {
 
   'lang.toggle': 'Switch language',
 
+  'welcome.cta': 'Scan document',
+  'welcome.hint': 'Tapping opens the camera directly',
+
   'scanner.openScanner': 'Open scanner',
   'scanner.cameraError': 'Could not open the camera. Try again, or import an image instead.',
   'scanner.loading': 'Loading…',
@@ -79,10 +82,14 @@ export const en = {
   'capture.importAnother': 'Import another',
 
   'processing.title': 'Processing your pages…',
+  'processing.subtitle': 'Detecting edges and correcting perspective',
   'processing.progress': '{done} of {total}',
   'processing.failedPages': 'Could not process any page. Try again.',
   'processing.cancel': 'Cancel',
 
+  'grid.title': 'Document',
+  'grid.pageCount': { one: '{n} page', other: '{n} pages' },
+  'grid.reorderHint': 'Press and hold a page to reorder',
   'grid.pagesCaptured': { one: '{n} page captured.', other: '{n} pages captured.' },
   'grid.captureMore': 'Capture more',
   'grid.finish': 'Finish',
@@ -90,6 +97,9 @@ export const en = {
   'grid.needsReview': 'Review',
   'grid.editPage': 'Edit page',
   'grid.emptyCta': 'Capture',
+
+  'done.title': 'Document ready!',
+  'done.pagesScanned': { one: '{n} page scanned', other: '{n} pages scanned' },
 
   'import.instructionsFirefox':
     'Open the padlock icon in the address bar, set Camera to "Allow", then reload the page.',

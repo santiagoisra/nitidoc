@@ -668,8 +668,10 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
                 className="flex h-full w-[85%] shrink-0 snap-center items-center justify-center p-4"
               >
                 <div
-                  className={`relative w-full max-w-xs overflow-hidden rounded-xl bg-neutral-900 transition-[opacity,transform] duration-200 ${
-                    isActive ? 'scale-100 opacity-100' : 'scale-[0.92] opacity-55'
+                  className={`relative w-full max-w-xs overflow-hidden rounded-lg bg-neutral-900 transition-[opacity,transform] duration-200 ${
+                    isActive
+                      ? 'scale-100 opacity-100 shadow-[0_20px_50px_rgba(0,0,0,0.55)]'
+                      : 'scale-[0.92] opacity-55'
                   }`}
                 >
                   {isActive && mode === 'crop' ? (
@@ -777,12 +779,15 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
           onClick={goPrev}
           disabled={safeIndex === 0 || mode === 'crop'}
           aria-label={t('adjust.prevPage')}
-          className="rounded-full p-2 text-white disabled:opacity-30"
+          className="flex h-[38px] w-[38px] items-center justify-center rounded-full border border-white/10 bg-surface/90 text-white disabled:opacity-30"
           data-testid="adjust-prev-page"
         >
-          <ChevronLeft size={22} strokeWidth={1.5} aria-hidden="true" />
+          <ChevronLeft size={20} strokeWidth={1.5} aria-hidden="true" />
         </button>
-        <span className="min-w-[3rem] text-center text-sm tabular-nums text-white/90" data-testid="adjust-page-counter">
+        <span
+          className="min-w-[3rem] text-center text-sm font-semibold tabular-nums text-white/90"
+          data-testid="adjust-page-counter"
+        >
           {safeIndex + 1} / {pages.length}
         </span>
         <button
@@ -790,10 +795,10 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
           onClick={goNext}
           disabled={safeIndex >= pages.length - 1 || mode === 'crop'}
           aria-label={t('adjust.nextPage')}
-          className="rounded-full p-2 text-white disabled:opacity-30"
+          className="flex h-[38px] w-[38px] items-center justify-center rounded-full border border-white/10 bg-surface/90 text-white disabled:opacity-30"
           data-testid="adjust-next-page"
         >
-          <ChevronRight size={22} strokeWidth={1.5} aria-hidden="true" />
+          <ChevronRight size={20} strokeWidth={1.5} aria-hidden="true" />
         </button>
       </div>
 
