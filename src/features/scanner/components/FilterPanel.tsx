@@ -323,7 +323,7 @@ export function FilterPanel({
         cssFilter={isWorkerRendered ? null : cssFilter}
         adaptiveResult={isWorkerRendered ? adaptiveResult : undefined}
         onSelect={() => handleSelectPreset(preset)}
-        sizeClass={orientation === 'row' ? 'w-[4.5rem] shrink-0' : undefined}
+        sizeClass={orientation === 'row' ? 'w-14 shrink-0' : undefined}
       />
     );
   });
@@ -333,7 +333,7 @@ export function FilterPanel({
     // scrollable row of just the preset tiles — no title/sliders/apply-to-all.
     return (
       <div
-        className="flex w-full gap-2 overflow-x-auto pb-1"
+        className="flex w-full gap-2 overflow-x-auto px-1 pb-1 pt-2"
         data-testid="filter-preset-row"
         aria-label={t('filter.title')}
       >
@@ -492,11 +492,16 @@ function PresetTile({ preset, label, active, thumbnail, cssFilter, adaptiveResul
       onClick={onSelect}
       aria-pressed={active}
       data-testid={`filter-preset-${preset}`}
-      className={`flex flex-col items-center gap-1 rounded-lg border-2 p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light
-        ${sizeClass ?? ''} ${active ? 'border-primary-light' : 'border-text-muted/20'}`}
+      className={`flex flex-col items-center gap-1 rounded-lg p-1 transition-all duration-[250ms]
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light
+        ${sizeClass ?? ''} ${
+          active
+            ? '-translate-y-[5px] shadow-[0_8px_18px_rgba(46,196,173,0.35)] ring-2 ring-primary'
+            : 'ring-1 ring-text/10'
+        }`}
     >
       <canvas ref={canvasRef} className="aspect-[3/4] w-full rounded bg-surface object-cover" aria-hidden="true" />
-      <span className="text-xs text-text-muted">{label}</span>
+      <span className={`text-xs ${active ? 'font-semibold text-primary' : 'text-text-muted'}`}>{label}</span>
     </button>
   );
 }

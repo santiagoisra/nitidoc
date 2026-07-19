@@ -645,11 +645,20 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
   const { recipe, warpedWidth, warpedHeight } = currentPage;
 
   return (
-    <div className="flex h-full w-full flex-col bg-black text-white" data-testid="adjust-screen">
+    <div
+      className="flex h-full w-full flex-col bg-black text-white"
+      // PWA safe area (iOS standalone): the preview strip sits at the very top,
+      // so clear the notch inset (the bottom toolbar already insets itself).
+      style={{ paddingTop: 'env(safe-area-inset-top)' }}
+      data-testid="adjust-screen"
+    >
       {/* Preview strip: a REAL slide per page + the "add more" panel (bug 6) —
           slides are narrower than the strip (w-[85%]) with matching scroller
-          padding so neighbors peek at both edges (bug 3 discoverability). */}
-      <div className="relative flex-1">
+          padding so neighbors peek at both edges (bug 3 discoverability).
+          `min-h-0` lets this flex child SHRINK below its content's intrinsic
+          height — without it a very tall page preview would grow this strip and
+          push the page-nav / filter / toolbar off the bottom of the screen. */}
+      <div className="relative min-h-0 flex-1">
         <div
           ref={scrollerRef}
           className="flex h-full snap-x snap-mandatory gap-3 overflow-x-auto overflow-y-hidden px-[7.5%]"
@@ -657,6 +666,18 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
         >
           {pages.map((page, index) => {
             const isActive = index === safeIndex;
+            // Fit the preview by HEIGHT (user request): cap the card width to
+            // `availableHeight * aspect` via container-query height units
+            // (`100cqh` of the size-contained slide). A very tall page then
+            // shrinks to fit the strip's height instead of overflowing and
+            // pushing the page-nav / filter / toolbar off screen. `min(20rem, …)`
+            // keeps the original cap for short pages; if `cqh` is unsupported the
+            // whole `min()` is dropped and `max-w-xs` + `max-h-full` +
+            // `overflow-hidden` still keep the toolbar on screen (graceful
+            // degrade to clip-instead-of-scale). Rotation-aware.
+            const rotated = page.recipe.rotation === 90 || page.recipe.rotation === 270;
+            const dispW = rotated ? page.warpedHeight : page.warpedWidth;
+            const dispH = rotated ? page.warpedWidth : page.warpedHeight;
             return (
               <section
                 key={page.id}
@@ -666,11 +687,15 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
                 data-slide-index={index}
                 data-testid={`adjust-page-slide-${page.id}`}
                 className="flex h-full w-[85%] shrink-0 snap-center items-center justify-center p-4"
+                style={{ containerType: 'size' }}
               >
                 <div
-                  className={`relative w-full max-w-xs overflow-hidden rounded-xl bg-neutral-900 transition-[opacity,transform] duration-200 ${
-                    isActive ? 'scale-100 opacity-100' : 'scale-[0.92] opacity-55'
+                  className={`relative max-h-full w-full max-w-xs overflow-hidden rounded-lg bg-neutral-900 transition-[opacity,transform] duration-200 ${
+                    isActive
+                      ? 'scale-100 opacity-100 shadow-[0_20px_50px_rgba(0,0,0,0.55)]'
+                      : 'scale-[0.92] opacity-55'
                   }`}
+                  style={{ maxWidth: `min(20rem, calc(100cqh * ${dispW} / ${dispH}))` }}
                 >
                   {isActive && mode === 'crop' ? (
                     cropActiveWorking && draftCorners ? (
@@ -777,12 +802,15 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
           onClick={goPrev}
           disabled={safeIndex === 0 || mode === 'crop'}
           aria-label={t('adjust.prevPage')}
-          className="rounded-full p-2 text-white disabled:opacity-30"
+          className="flex h-[38px] w-[38px] items-center justify-center rounded-full border border-white/10 bg-surface/90 text-white disabled:opacity-30"
           data-testid="adjust-prev-page"
         >
-          <ChevronLeft size={22} strokeWidth={1.5} aria-hidden="true" />
+          <ChevronLeft size={20} strokeWidth={1.5} aria-hidden="true" />
         </button>
-        <span className="min-w-[3rem] text-center text-sm tabular-nums text-white/90" data-testid="adjust-page-counter">
+        <span
+          className="min-w-[3rem] text-center text-sm font-semibold tabular-nums text-white/90"
+          data-testid="adjust-page-counter"
+        >
           {safeIndex + 1} / {pages.length}
         </span>
         <button
@@ -790,10 +818,10 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
           onClick={goNext}
           disabled={safeIndex >= pages.length - 1 || mode === 'crop'}
           aria-label={t('adjust.nextPage')}
-          className="rounded-full p-2 text-white disabled:opacity-30"
+          className="flex h-[38px] w-[38px] items-center justify-center rounded-full border border-white/10 bg-surface/90 text-white disabled:opacity-30"
           data-testid="adjust-next-page"
         >
-          <ChevronRight size={22} strokeWidth={1.5} aria-hidden="true" />
+          <ChevronRight size={20} strokeWidth={1.5} aria-hidden="true" />
         </button>
       </div>
 

@@ -32,7 +32,7 @@
  * the screen stays put — capture failures must never strand the user.
  */
 
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Flashlight, FlashlightOff } from 'lucide-react';
 import { Button, useToast } from '@/shared/ui';
@@ -49,8 +49,22 @@ import { FILTER } from '@/features/scanner/lib/filterConstants';
 import type { DocumentPage, RawCapture } from '@/features/scanner/store/documentSlice';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
 
-/** Duration of the post-capture screen-flash feedback (design "Feedback"). */
-const FLASH_DURATION_MS = 180;
+/**
+ * Duration of the post-capture screen-flash feedback. Redesign (HANDOFF-UI.md
+ * section 5.2): the flash is now SECONDARY — the fly-to-tray animation is the
+ * primary capture feedback — so it is short and subtle (200ms, ~.75 opacity).
+ */
+const FLASH_DURATION_MS = 200;
+
+/** A white rect cloned from the crop, flying into the count tile (design 5.2). */
+interface FlyState {
+  readonly left: number;
+  readonly top: number;
+  readonly width: number;
+  readonly height: number;
+  /** The CSS `--fly-target` translate that lands the rect on the tile. */
+  readonly target: string;
+}
 
 export interface CaptureScreenProps {
   readonly openCamera: (deviceId?: string) => Promise<void>;
@@ -99,9 +113,17 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
   const setPhase = useScannerStore((s) => s.setPhase);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  // Wraps the count tile so `handleCapture` can read its screen position and
+  // aim the fly-to-tray animation at it (design 5.2).
+  const trayRef = useRef<HTMLDivElement | null>(null);
   const inFlightRef = useRef(false);
+  // Post-capture flash auto-off timer — tracked so it is cleared on unmount
+  // (a capture right before leaving `capturing` must not fire `setFlash` after
+  // the component is gone).
+  const flashTimerRef = useRef<number | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [flash, setFlash] = useState(false);
+  const [fly, setFly] = useState<FlyState | null>(null);
   const [pendingBumps, setPendingBumps] = useState(0);
   // Bumped once per capture to re-play the CaptureButton shutter-ring animation.
   const [shutterKey, setShutterKey] = useState(0);
@@ -126,6 +148,17 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Clear a pending flash-off timer on unmount (F1 hygiene: no state updates
+  // after the component leaves the tree — also silences a test-teardown warning).
+  useEffect(
+    () => () => {
+      if (flashTimerRef.current !== null) {
+        window.clearTimeout(flashTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const handleToggleTorch = useCallback(() => {
     void setTorch(!torchOn);
@@ -170,7 +203,34 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
     // Guarded — `navigator.vibrate` is absent on desktop/many browsers;
     // optional chaining makes this a silent no-op there (design "Feedback").
     navigator.vibrate?.(15);
-    window.setTimeout(() => setFlash(false), FLASH_DURATION_MS);
+    if (flashTimerRef.current !== null) {
+      window.clearTimeout(flashTimerRef.current);
+    }
+    flashTimerRef.current = window.setTimeout(() => {
+      flashTimerRef.current = null;
+      setFlash(false);
+    }, FLASH_DURATION_MS);
+
+    // Fly-to-tray (design 5.2): clone a white rect the size of the visible
+    // crop and send it toward the count tile — the primary capture feedback.
+    // Aimed here, on the tap, from the CURRENT on-screen geometry; the counter
+    // then pops (`count-pop`) when the rect lands. Skipped if the tile isn't
+    // laid out yet (defensive) — the flash + shutter ring still fire.
+    const videoRect = video.getBoundingClientRect();
+    const trayRect = trayRef.current?.getBoundingClientRect();
+    if (trayRect) {
+      const startCx = videoRect.left + videoRect.width / 2;
+      const startCy = videoRect.top + videoRect.height / 2;
+      const tileCx = trayRect.left + trayRect.width / 2;
+      const tileCy = trayRect.top + trayRect.height / 2;
+      setFly({
+        left: startCx,
+        top: startCy,
+        width: videoRect.width,
+        height: videoRect.height,
+        target: `translate(calc(-50% + ${tileCx - startCx}px), calc(-50% + ${tileCy - startCy}px))`,
+      });
+    }
 
     // Tracks the bitmap this call currently owns responsibility for closing.
     // Set to null the instant ownership is successfully handed off to
@@ -299,17 +359,40 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
         <CameraView ref={videoRef} fill />
       </div>
 
-      {/* Screen-flash feedback (design "Feedback") — always mounted so the opacity transition can animate; toggled true then false shortly after a capture. */}
+      {/* Screen-flash feedback (secondary now, design 5.2) — always mounted so the opacity transition can animate; toggled true then false shortly after a capture. */}
       <div
         aria-hidden="true"
         data-testid="capture-flash"
-        className={`pointer-events-none absolute inset-0 bg-white transition-opacity duration-300 ${
-          flash ? 'opacity-70' : 'opacity-0'
+        className={`pointer-events-none absolute inset-0 bg-white transition-opacity duration-200 ${
+          flash ? 'opacity-75' : 'opacity-0'
         }`}
       />
 
+      {/* Fly-to-tray rect (design 5.2) — the primary capture feedback. Keyed on
+          `shutterKey` so each shot remounts and re-plays the one-shot flight;
+          clears itself on animation end. Disabled motion (prefers-reduced-
+          motion) collapses the flight to ~0ms so it never lingers on screen. */}
+      {fly && (
+        <div
+          key={shutterKey}
+          aria-hidden="true"
+          data-testid="capture-fly"
+          onAnimationEnd={() => setFly(null)}
+          className="animate-fly-tray pointer-events-none fixed z-50 rounded-lg bg-white/85"
+          style={
+            {
+              left: fly.left,
+              top: fly.top,
+              width: fly.width,
+              height: fly.height,
+              '--fly-target': fly.target,
+            } as CSSProperties
+          }
+        />
+      )}
+
       <div
-        className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 bg-gradient-to-b from-black/60 to-transparent p-3"
+        className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 bg-gradient-to-b from-[rgba(10,8,6,0.72)] to-transparent p-3"
         style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)' }}
       >
         <div className="pointer-events-auto">
@@ -336,10 +419,10 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
       </div>
 
       <div
-        className="absolute inset-x-0 bottom-0 grid grid-cols-3 items-center gap-2 bg-gradient-to-t from-black/60 to-transparent p-4"
+        className="absolute inset-x-0 bottom-0 grid grid-cols-3 items-center gap-2 bg-gradient-to-t from-[rgba(10,8,6,0.8)] to-transparent p-4"
         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}
       >
-        <div className="flex justify-start">
+        <div className="flex justify-start" ref={trayRef}>
           <CaptureCountThumbnail count={displayCount} lastThumbnail={lastThumbnail} onRetakeLast={handleRetakeLast} />
         </div>
         <div className="flex justify-center">
