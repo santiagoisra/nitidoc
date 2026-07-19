@@ -76,6 +76,12 @@ export function ProcessingScreen({
   return (
     <div
       className="flex h-full w-full flex-col items-center justify-center gap-4 bg-bg p-6"
+      // PWA safe area (iOS standalone, full-bleed screen): keep content clear of
+      // the notch / home indicator.
+      style={{
+        paddingTop: 'calc(env(safe-area-inset-top) + 1.5rem)',
+        paddingBottom: 'calc(env(safe-area-inset-bottom) + 1.5rem)',
+      }}
       data-testid="processing-screen"
     >
       {openCvDegraded && <OpenCvDegradedBanner lastError={opencvLastError} onRetry={retryManualInit} />}

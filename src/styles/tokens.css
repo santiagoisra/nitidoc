@@ -238,6 +238,16 @@ body {
     opacity: 1;
   }
 }
+/* Gentle idle float for the welcome document illustration. */
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-9px);
+  }
+}
 
 /* ── Animation utility classes ──────────────────────────────────────────── */
 .animate-capture-ring {
@@ -275,6 +285,9 @@ body {
 }
 .animate-rise {
   animation: rise 500ms ease-out both;
+}
+.animate-float {
+  animation: float 4s ease-in-out infinite;
 }
 
 /**

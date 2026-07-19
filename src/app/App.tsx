@@ -64,7 +64,12 @@ export function App(): ReactNode {
         >
           {!immersive && (
             <header
-              className="flex items-center justify-between gap-3 border-b border-text-muted/10 px-4 py-4"
+              className="flex items-center justify-between gap-3 border-b border-text-muted/10 px-4 pb-4"
+              // PWA safe area (iOS standalone): with `viewport-fit=cover` the
+              // content starts under the status bar / notch, so the header must
+              // clear `env(safe-area-inset-top)` — otherwise the wordmark sits
+              // on top of the clock/battery (reported on installed iPhone PWA).
+              style={{ paddingTop: 'calc(env(safe-area-inset-top) + 1rem)' }}
               data-testid="app-header"
             >
               <div className="flex items-center gap-2.5">

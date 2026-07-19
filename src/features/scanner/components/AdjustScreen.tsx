@@ -645,7 +645,13 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
   const { recipe, warpedWidth, warpedHeight } = currentPage;
 
   return (
-    <div className="flex h-full w-full flex-col bg-black text-white" data-testid="adjust-screen">
+    <div
+      className="flex h-full w-full flex-col bg-black text-white"
+      // PWA safe area (iOS standalone): the preview strip sits at the very top,
+      // so clear the notch inset (the bottom toolbar already insets itself).
+      style={{ paddingTop: 'env(safe-area-inset-top)' }}
+      data-testid="adjust-screen"
+    >
       {/* Preview strip: a REAL slide per page + the "add more" panel (bug 6) —
           slides are narrower than the strip (w-[85%]) with matching scroller
           padding so neighbors peek at both edges (bug 3 discoverability). */}

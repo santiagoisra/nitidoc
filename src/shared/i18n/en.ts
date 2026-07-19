@@ -19,6 +19,7 @@ export const en = {
   'lang.toggle': 'Switch language',
 
   'welcome.cta': 'Scan document',
+  'welcome.openCamera': 'Open camera',
   'welcome.hint': 'Tapping opens the camera directly',
 
   'scanner.openScanner': 'Open scanner',

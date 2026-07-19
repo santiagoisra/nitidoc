@@ -117,6 +117,10 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
   // aim the fly-to-tray animation at it (design 5.2).
   const trayRef = useRef<HTMLDivElement | null>(null);
   const inFlightRef = useRef(false);
+  // Post-capture flash auto-off timer — tracked so it is cleared on unmount
+  // (a capture right before leaving `capturing` must not fire `setFlash` after
+  // the component is gone).
+  const flashTimerRef = useRef<number | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [flash, setFlash] = useState(false);
   const [fly, setFly] = useState<FlyState | null>(null);
@@ -144,6 +148,17 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Clear a pending flash-off timer on unmount (F1 hygiene: no state updates
+  // after the component leaves the tree — also silences a test-teardown warning).
+  useEffect(
+    () => () => {
+      if (flashTimerRef.current !== null) {
+        window.clearTimeout(flashTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const handleToggleTorch = useCallback(() => {
     void setTorch(!torchOn);
@@ -188,7 +203,13 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
     // Guarded — `navigator.vibrate` is absent on desktop/many browsers;
     // optional chaining makes this a silent no-op there (design "Feedback").
     navigator.vibrate?.(15);
-    window.setTimeout(() => setFlash(false), FLASH_DURATION_MS);
+    if (flashTimerRef.current !== null) {
+      window.clearTimeout(flashTimerRef.current);
+    }
+    flashTimerRef.current = window.setTimeout(() => {
+      flashTimerRef.current = null;
+      setFlash(false);
+    }, FLASH_DURATION_MS);
 
     // Fly-to-tray (design 5.2): clone a white rect the size of the visible
     // crop and send it toward the count tile — the primary capture feedback.

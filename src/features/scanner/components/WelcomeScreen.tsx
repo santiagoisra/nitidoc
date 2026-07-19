@@ -57,49 +57,48 @@ export function WelcomeScreen({ onStart, onImportFile }: WelcomeScreenProps): Re
   );
 
   return (
-    <div className="flex w-full max-w-md flex-1 flex-col items-center justify-center gap-10 py-6" data-testid="welcome-screen">
-      {/* Floating document illustration — pure CSS (prototype 01). A warm paper
-          card, gently tilted, over a soft shadow so it reads as "floating". */}
-      <div className="relative flex h-40 w-full items-center justify-center" aria-hidden="true">
-        <div className="absolute h-32 w-24 -rotate-6 rounded-lg bg-surface shadow-[0_18px_40px_rgba(0,0,0,0.45)]" />
-        <div className="relative flex h-32 w-24 rotate-3 flex-col gap-2 rounded-lg bg-surface-light p-3 shadow-[0_22px_50px_rgba(0,0,0,0.5)]">
-          <span className="h-1.5 w-3/4 rounded-full bg-primary/70" />
-          <span className="h-1.5 w-full rounded-full bg-bg/15" />
-          <span className="h-1.5 w-5/6 rounded-full bg-bg/15" />
-          <span className="h-1.5 w-full rounded-full bg-bg/15" />
-          <span className="mt-auto h-1.5 w-2/3 rounded-full bg-bg/10" />
+    <div className="flex w-full max-w-md flex-1 flex-col items-center justify-center gap-8 py-6" data-testid="welcome-screen">
+      {/* Floating document illustration — pure CSS. A warm paper card with
+          visible "written" lines, gently floating over a soft shadow. */}
+      <div className="animate-float relative flex h-44 w-full items-center justify-center" aria-hidden="true">
+        <div className="absolute h-36 w-28 -rotate-6 rounded-lg bg-surface shadow-[0_18px_40px_rgba(0,0,0,0.45)]" />
+        <div className="relative flex h-36 w-28 rotate-3 flex-col gap-2 rounded-lg bg-surface-light p-4 shadow-[0_22px_50px_rgba(0,0,0,0.5)]">
+          <span className="h-2 w-2/3 rounded-full bg-primary" />
+          <span className="h-1.5 w-full rounded-full bg-[#d7d0c4]" />
+          <span className="h-1.5 w-full rounded-full bg-[#d7d0c4]" />
+          <span className="h-1.5 w-5/6 rounded-full bg-[#d7d0c4]" />
+          <span className="h-1.5 w-full rounded-full bg-[#d7d0c4]" />
+          <span className="h-1.5 w-3/4 rounded-full bg-[#d7d0c4]" />
+          <span className="mt-1 h-1.5 w-1/2 rounded-full bg-[#e2ddd3]" />
         </div>
       </div>
 
-      {/* Circular CTA (104px) with two breathing halo rings behind it. */}
-      <div className="relative flex items-center justify-center">
+      <div className="flex flex-col items-center gap-2 text-center">
+        <h1 className="text-2xl font-extrabold tracking-tight text-text">{t('welcome.cta')}</h1>
+        <p className="max-w-[16rem] text-sm text-text-muted">{t('welcome.hint')}</p>
+      </div>
+
+      {/* Primary CTA — an unmistakable pill button (icon + label). The old
+          icon-only circle read as decoration; this reads as "tap here". A soft
+          breathing halo behind keeps the delight. */}
+      <div className="relative">
         <span
-          className="animate-breath pointer-events-none absolute h-[104px] w-[104px] rounded-full bg-primary/40"
-          aria-hidden="true"
-        />
-        <span
-          className="animate-breath pointer-events-none absolute h-[104px] w-[104px] rounded-full bg-primary/40"
-          style={{ animationDelay: '0.35s' }}
+          className="animate-breath pointer-events-none absolute inset-0 rounded-full bg-primary/50 blur-lg"
           aria-hidden="true"
         />
         <button
           type="button"
           onClick={onStart}
           data-testid="open-scanner"
-          aria-label={t('welcome.cta')}
-          className="relative flex h-[104px] w-[104px] items-center justify-center rounded-full text-white
+          className="relative flex items-center gap-3 rounded-full px-8 py-4 text-white
             shadow-[0_12px_34px_rgba(15,138,120,0.5)] transition-transform duration-150 ease-out
-            hover:scale-105 active:scale-95
+            hover:scale-[1.03] active:scale-95
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light focus-visible:ring-offset-4 focus-visible:ring-offset-bg"
           style={{ backgroundImage: 'linear-gradient(140deg, #3AD6BD, #0F8A78)' }}
         >
-          <BrandGlyph size={48} withBackground={false} className="text-white" />
+          <BrandGlyph size={26} withBackground={false} className="text-white" />
+          <span className="text-lg font-bold">{t('welcome.openCamera')}</span>
         </button>
-      </div>
-
-      <div className="flex flex-col items-center gap-2 text-center">
-        <h1 className="text-2xl font-extrabold tracking-tight text-text">{t('welcome.cta')}</h1>
-        <p className="max-w-[16rem] text-sm text-text-muted">{t('welcome.hint')}</p>
       </div>
 
       <div className="flex flex-col items-center gap-2">
