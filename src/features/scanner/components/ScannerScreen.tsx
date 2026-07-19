@@ -38,12 +38,15 @@
 
 import type { ReactNode } from 'react';
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
+import { Check } from 'lucide-react';
 import { Button } from '@/shared/ui';
 import { useTranslation } from '@/shared/i18n';
 import { CaptureScreen } from '@/features/scanner/components/CaptureScreen';
 import { CornerEditor, type CornerEditorConfirmResult } from '@/features/scanner/components/CornerEditor';
 import { PageThumbnail } from '@/features/scanner/components/PageThumbnail';
 import { ProcessingScreen } from '@/features/scanner/components/ProcessingScreen';
+import { WelcomeScreen } from '@/features/scanner/components/WelcomeScreen';
+import { decodeImportedFile } from '@/features/scanner/lib/captureFallback';
 import { useActivePage } from '@/features/scanner/hooks/useActivePage';
 import { useExportPdf } from '@/features/scanner/hooks/useExportPdf';
 import { usePageDeletion } from '@/features/scanner/hooks/usePageDeletion';
@@ -84,7 +87,8 @@ export function ScannerScreen(): ReactNode {
 
   // Group 2 / PR5 controller: Activate/Deactivate, Re-warp (design section
   // 2.2) for the grid's re-entry corner-edit flow.
-  const { activeWorking, activePageId, activatePage, deactivateActivePage, rewarpActivePage } = useActivePage();
+  const { activeWorking, activePageId, activatePage, deactivateActivePage, rewarpActivePage, materializeRawCapture } =
+    useActivePage();
 
   const [started, setStarted] = useState(false);
 
@@ -138,6 +142,32 @@ export function ScannerScreen(): ReactNode {
     // no intermediate frame where `phase` is still the initial `'idle'`.
     setPhase('capturing');
   }, [setPhase]);
+
+  /**
+   * Welcome-screen "Importar imagen" (design section 5.1): decode the picked
+   * file → materialize it as a raw capture (the LIGHTWEIGHT path, no detect)
+   * → jump straight to the deferred `processing` batch, entirely skipping the
+   * live camera. `setPhase('processing')` is set BEFORE `setStarted(true)` so
+   * the first render past the welcome gate already lands on `ProcessingScreen`
+   * — never a transient `idle`/`capturing` frame that would pop the camera
+   * permission prompt for a user who explicitly chose to import instead.
+   * Rejects on decode/materialize failure so `WelcomeScreen` can surface the
+   * error inline and stay put.
+   */
+  const handleImportFromWelcome = useCallback(
+    async (file: File) => {
+      const decoded = await decodeImportedFile(file);
+      await materializeRawCapture({
+        id: crypto.randomUUID(),
+        originalBitmap: decoded.bitmap,
+        originalWidth: decoded.width,
+        originalHeight: decoded.height,
+      });
+      setPhase('processing');
+      setStarted(true);
+    },
+    [materializeRawCapture, setPhase],
+  );
 
   /**
    * Re-entry (grid tap -> activatePage -> 'editing-corners') Confirm: writes
@@ -218,11 +248,7 @@ export function ScannerScreen(): ReactNode {
   }, [resetDocument, setPhase]);
 
   if (!started) {
-    return (
-      <Button variant="primary" type="button" onClick={handleStart} data-testid="open-scanner">
-        {t('scanner.openScanner')}
-      </Button>
-    );
+    return <WelcomeScreen onStart={handleStart} onImportFile={handleImportFromWelcome} />;
   }
 
   // Fase 2.3 (capture-ux-redesign.md, Unit 3), "Phase-gating decouple
@@ -309,39 +335,70 @@ export function ScannerScreen(): ReactNode {
 
   if (phase === 'done') {
     return (
-      <div className="flex w-full max-w-md flex-col items-center gap-4" data-testid="scan-done">
-        <p className="text-sm text-text-muted">
-          {t('scanner.scanComplete', { n: pages.length })}
-        </p>
+      <div className="flex w-full max-w-md flex-col items-center gap-6" data-testid="scan-done">
+        {/* Success check (design section 5.6): a 92px teal-gradient circle that
+            pops in, wrapped by an expanding ripple ring. */}
+        <div className="relative flex h-[92px] w-[92px] items-center justify-center">
+          <span
+            className="animate-ripple pointer-events-none absolute inset-0 rounded-full border-2 border-primary"
+            aria-hidden="true"
+          />
+          <div
+            className="animate-check-pop flex h-[92px] w-[92px] items-center justify-center rounded-full text-white shadow-[0_12px_34px_rgba(15,138,120,0.5)]"
+            style={{ backgroundImage: 'linear-gradient(140deg, #3AD6BD, #0F8A78)' }}
+          >
+            <Check size={44} strokeWidth={2.5} aria-hidden="true" />
+          </div>
+        </div>
+
+        <div className="flex flex-col items-center gap-1 text-center">
+          <h1 className="text-2xl font-extrabold tracking-tight text-text">{t('done.title')}</h1>
+          <p className="text-sm text-text-muted">{t('done.pagesScanned', { n: pages.length })}</p>
+        </div>
+
         {pages.length > 0 && (
           // Fase 2.2 item 4a: the last screen before export previously showed
           // only a text count, so there was nothing to actually PREVIEW.
           // Reuses the shared `PageThumbnail` (already applies each page's
           // filter via `buildThumbnailCssFilter`) so the filtered pages are
-          // visibly confirmed here, exactly like the grid strip.
-          <div className="flex w-full items-center gap-2 overflow-x-auto" data-testid="scan-done-pages">
-            {pages.map((page) => (
-              <PageThumbnail
-                key={page.id}
-                bitmap={page.thumbnail}
-                filter={page.recipe.filter}
-                testId={`scan-done-thumb-${page.id}`}
-              />
-            ))}
+          // visibly confirmed here — now fanned (design section 5.6): a slight
+          // per-page rotation off center + a staggered `rise` entrance.
+          <div className="flex w-full items-center justify-center gap-2 overflow-x-auto py-2" data-testid="scan-done-pages">
+            {pages.map((page, index) => {
+              const rotation = Math.max(-8, Math.min(8, (index - (pages.length - 1) / 2) * 4));
+              return (
+                // Two wrappers on purpose: the `rise` keyframe animates
+                // `transform` (translateY), so a rotation on the SAME element
+                // would be overwritten once the animation lands. Outer = rise
+                // (delay-staggered), inner = the static fan rotation.
+                <div key={page.id} className="animate-rise shrink-0" style={{ animationDelay: `${index * 70}ms` }}>
+                  <div style={{ transform: `rotate(${rotation}deg)` }}>
+                    <PageThumbnail
+                      bitmap={page.thumbnail}
+                      filter={page.recipe.filter}
+                      testId={`scan-done-thumb-${page.id}`}
+                    />
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={handleExportPdf}
-          disabled={pages.length === 0 || exporting}
-          data-testid="done-export-pdf"
-        >
-          {exporting ? t('scanner.exporting') : t('scanner.exportPdf')}
-        </Button>
-        <Button type="button" variant="primary" onClick={handleScanAgain} data-testid="scan-again">
-          {t('scanner.scanAnother')}
-        </Button>
+
+        <div className="flex w-full flex-col items-stretch gap-3">
+          <Button
+            type="button"
+            variant="primary"
+            onClick={handleExportPdf}
+            disabled={pages.length === 0 || exporting}
+            data-testid="done-export-pdf"
+          >
+            {exporting ? t('scanner.exporting') : t('scanner.exportPdf')}
+          </Button>
+          <Button type="button" variant="ghost" onClick={handleScanAgain} data-testid="scan-again">
+            {t('scanner.scanAnother')}
+          </Button>
+        </div>
       </div>
     );
   }

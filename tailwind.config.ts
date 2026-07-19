@@ -14,6 +14,7 @@ export default {
         bg: 'var(--color-bg)',
         surface: {
           DEFAULT: 'var(--color-surface)',
+          2: 'var(--color-surface-2)',
           light: 'var(--color-surface-light)',
         },
         text: {
@@ -26,7 +27,7 @@ export default {
         overlay: 'var(--color-overlay)',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['Plus Jakarta Sans', 'system-ui', 'sans-serif'],
       },
       fontSize: {
         xs: ['12px', { lineHeight: '1.5' }],

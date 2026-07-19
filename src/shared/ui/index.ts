@@ -1,3 +1,5 @@
+export { BrandGlyph } from '@/shared/ui/BrandGlyph';
+export type { BrandGlyphProps } from '@/shared/ui/BrandGlyph';
 export { Button } from '@/shared/ui/Button';
 export type { ButtonProps, ButtonVariant } from '@/shared/ui/Button';
 export { LanguageToggle } from '@/shared/ui/LanguageToggle';

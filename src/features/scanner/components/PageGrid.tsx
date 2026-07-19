@@ -28,7 +28,7 @@
 
 import type { ReactNode } from 'react';
 import { useCallback } from 'react';
-import { Pencil, Trash2 } from 'lucide-react';
+import { GripHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { DndContext, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, rectSortingStrategy, useSortable } from '@dnd-kit/sortable';
@@ -129,41 +129,63 @@ export function PageGrid({
   }
 
   return (
-    <div className="flex w-full max-w-md flex-col items-center gap-4" data-testid="page-grid">
-      <p className="text-sm text-text-muted">
-        {t('grid.pagesCaptured', { n: pages.length })}
-      </p>
+    <div className="flex w-full max-w-md flex-col gap-4" data-testid="page-grid">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-extrabold tracking-tight text-text">{t('grid.title')}</h1>
+        <p className="text-sm text-text-muted">{t('grid.pageCount', { n: pages.length })}</p>
+        <p className="text-xs text-text-muted/80">{t('grid.reorderHint')}</p>
+      </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={pages.map((page) => page.id)} strategy={rectSortingStrategy}>
           <ul className="grid w-full grid-cols-3 gap-3" data-testid="page-grid-list">
-            {pages.map((page) => (
+            {pages.map((page, index) => (
               <SortableGridItem
                 key={page.id}
                 page={page}
+                index={index}
                 onActivate={() => onActivatePage(page.id)}
                 onDelete={() => onDeletePage(page.id)}
               />
             ))}
+            {/* "+ Capturar más" tile (design 5.3/5.5): a dashed teal tile as the
+                last grid cell — replaces the old footer "Capturar más" button.
+                Keeps its `grid-capture-more` testid so the E2E flow still finds
+                the re-arm control. */}
+            <li className="list-none">
+              <button
+                type="button"
+                onClick={onCaptureMore}
+                data-testid="grid-capture-more"
+                className="flex aspect-[3/4] w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-primary/45 bg-primary/5 text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light"
+              >
+                <Plus size={24} strokeWidth={1.5} aria-hidden="true" />
+                <span className="text-xs font-semibold">{t('grid.captureMore')}</span>
+              </button>
+            </li>
           </ul>
         </SortableContext>
       </DndContext>
 
-      <div className="flex w-full items-center justify-between gap-3">
-        <Button type="button" variant="secondary" onClick={onCaptureMore} data-testid="grid-capture-more">
-          {t('grid.captureMore')}
+      {/* Footer (design 5.5): Finalizar ghost + Exportar PDF primary (1 / 1.4),
+          pinned to the bottom of the scroll area so it stays reachable. Clears
+          the iOS home-indicator inset when installed as a PWA. */}
+      <div
+        className="sticky bottom-0 flex w-full items-center gap-3 bg-bg/95 pt-3 backdrop-blur"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.75rem)' }}
+      >
+        <Button type="button" variant="ghost" onClick={onFinish} data-testid="grid-finish" className="flex-1">
+          {t('grid.finish')}
         </Button>
         <Button
           type="button"
-          variant="secondary"
+          variant="primary"
           onClick={handleExportPdf}
           disabled={pages.length === 0 || exporting}
           data-testid="grid-export-pdf"
+          className="flex-[1.4]"
         >
           {exporting ? t('scanner.exporting') : t('scanner.exportPdf')}
-        </Button>
-        <Button type="button" variant="primary" onClick={onFinish} data-testid="grid-finish">
-          {t('grid.finish')}
         </Button>
       </div>
     </div>
@@ -175,13 +197,24 @@ export default PageGrid;
 
 interface SortableGridItemProps {
   readonly page: DocumentPage;
+  /** Position in the ordered grid — drives the numeric badge and the staggered `rise` delay. */
+  readonly index: number;
   readonly onActivate: () => void;
   readonly onDelete: () => void;
 }
 
-function SortableGridItem({ page, onActivate, onDelete }: SortableGridItemProps): ReactNode {
+function SortableGridItem({ page, index, onActivate, onDelete }: SortableGridItemProps): ReactNode {
   const { t } = useTranslation();
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: page.id });
+  // Drag handle pattern (dnd-kit): the reorder listeners live on a dedicated
+  // handle (`setActivatorNodeRef`), NOT the whole tile. On touch/iOS, dragging
+  // the entire tile fought the grid's own vertical scroll (and iOS fired the
+  // long-press image/callout menu over the thumbnail canvas) — so reorder was
+  // unreliable. A dedicated handle with `touch-action: none` (see the button
+  // below) makes reorder deterministic while the rest of the tile keeps normal
+  // touch scrolling AND tap-to-edit.
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition } = useSortable({
+    id: page.id,
+  });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -189,26 +222,49 @@ function SortableGridItem({ page, onActivate, onDelete }: SortableGridItemProps)
   };
 
   return (
-    <li
-      ref={setNodeRef}
-      style={style}
-      {...attributes}
-      {...listeners}
-      className="relative"
-      data-testid={`page-grid-item-${page.id}`}
-    >
-      <button
-        type="button"
-        onClick={onActivate}
-        className="block w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light"
-        data-testid={`page-grid-activate-${page.id}`}
+    <li ref={setNodeRef} style={style} className="relative" data-testid={`page-grid-item-${page.id}`}>
+      {/* Inner wrapper carries the staggered `rise` entrance (design 5.5) and
+          the tile shadow. The dnd-kit reorder transform stays on the <li>
+          above, so the entrance animation — which also drives `transform` —
+          never fights the drag transform. */}
+      <div
+        className="animate-rise relative rounded-xl shadow-[0_10px_26px_rgba(0,0,0,0.4)]"
+        style={{ animationDelay: `${index * 70}ms` }}
       >
-        <PageThumbnail
-          bitmap={page.thumbnail}
-          filter={page.recipe.filter}
-          testId={`page-grid-thumb-${page.id}`}
-        />
-      </button>
+        <button
+          type="button"
+          onClick={onActivate}
+          className="block w-full overflow-hidden rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light"
+          data-testid={`page-grid-activate-${page.id}`}
+        >
+          <PageThumbnail
+            bitmap={page.thumbnail}
+            filter={page.recipe.filter}
+            testId={`page-grid-thumb-${page.id}`}
+            sizeClassName="aspect-[3/4] w-full"
+          />
+        </button>
+
+        {/* Numeric order badge (design 5.5), top-left. */}
+        <span
+          className="absolute left-1 top-1 flex h-5 min-w-[20px] items-center justify-center rounded-md px-1 text-[11px] font-semibold tabular-nums text-white"
+          style={{ backgroundColor: 'rgba(18,16,14,0.82)' }}
+          aria-hidden="true"
+        >
+          {index + 1}
+        </span>
+
+        {/* "Revisar" amber badge (design 5.5) for pages the detect fallback
+            couldn't auto-corner — opaque amber + dark text stays legible over
+            the thumbnail. */}
+        {page.needsReview && (
+          <span
+            className="absolute bottom-1 left-1 rounded-full bg-warning px-2 py-0.5 text-[10px] font-semibold text-bg"
+            data-testid={`page-grid-review-badge-${page.id}`}
+          >
+            {t('grid.needsReview')}
+          </span>
+        )}
       {/* Action buttons, stacked in the top-right corner: edit above trash
           (bug 4b). The old illegible "Revisar" text-over-image badge is gone —
           a page that needs review now shows an AMBER edit button + alert dot,
@@ -261,6 +317,24 @@ function SortableGridItem({ page, onActivate, onDelete }: SortableGridItemProps)
         >
           <Trash2 size={18} strokeWidth={1.5} aria-hidden="true" />
         </button>
+      </div>
+
+      {/* Drag handle — the ONLY reorder activator. `touch-action: none` (the
+          `touch-none` class) lets a touch-drag start here without the grid
+          scrolling underneath, while the rest of the tile keeps normal touch
+          scroll + tap-to-edit. Fixes unreliable reorder on iPhone. Bottom-RIGHT
+          so it never collides with the "Revisar" badge (bottom-left). */}
+      <button
+        type="button"
+        ref={setActivatorNodeRef}
+        {...attributes}
+        {...listeners}
+        aria-label={t('grid.reorder')}
+        className="touch-none absolute bottom-1 right-1 flex h-7 w-11 cursor-grab items-center justify-center rounded-full bg-bg/70 text-text-muted backdrop-blur-sm active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light"
+        data-testid={`page-grid-drag-${page.id}`}
+      >
+        <GripHorizontal size={16} strokeWidth={2} aria-hidden="true" />
+      </button>
       </div>
     </li>
   );

@@ -10,7 +10,6 @@
  */
 
 import type { ReactNode } from 'react';
-import { Camera } from 'lucide-react';
 import { useTranslation } from '@/shared/i18n';
 
 export interface CaptureButtonProps {
@@ -24,6 +23,12 @@ export interface CaptureButtonProps {
   readonly shutterKey?: number;
 }
 
+/**
+ * Classic camera shutter (HANDOFF-UI.md section 5.2): a 78px white ring with
+ * an inner white→#D9D4CB gradient disc, no icon. Each shot re-plays a
+ * `ring-out` pulse (keyed on `shutterKey`) and the whole button dips to
+ * `scale(.93)` while pressed.
+ */
 export function CaptureButton({ onCapture, disabled = false, shutterKey = 0 }: CaptureButtonProps): ReactNode {
   const { t } = useTranslation();
 
@@ -34,9 +39,9 @@ export function CaptureButton({ onCapture, disabled = false, shutterKey = 0 }: C
       disabled={disabled}
       data-testid="capture-button"
       aria-label={t('capture.captureDocument')}
-      className="relative flex h-[72px] w-[72px] items-center justify-center rounded-full bg-primary text-bg
+      className="relative flex h-[78px] w-[78px] items-center justify-center rounded-full border-4 border-white bg-transparent
         shadow-lg transition-transform duration-150 ease-out
-        hover:bg-primary-dark active:translate-y-[1px] active:scale-[0.98]
+        active:scale-[0.93]
         disabled:opacity-50 disabled:pointer-events-none
         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
     >
@@ -45,10 +50,14 @@ export function CaptureButton({ onCapture, disabled = false, shutterKey = 0 }: C
           key={shutterKey}
           aria-hidden="true"
           data-testid="capture-shutter-ring"
-          className="animate-capture-ring pointer-events-none absolute inset-0 rounded-full border-2 border-primary-light"
+          className="animate-ring-out pointer-events-none absolute inset-[-6px] rounded-full border-2 border-white"
         />
       )}
-      <Camera size={28} strokeWidth={1.5} aria-hidden="true" />
+      <span
+        aria-hidden="true"
+        className="h-[58px] w-[58px] rounded-full"
+        style={{ backgroundImage: 'linear-gradient(160deg, #FFFFFF, #D9D4CB)' }}
+      />
     </button>
   );
 }

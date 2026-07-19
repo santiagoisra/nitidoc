@@ -299,7 +299,7 @@ describe('PageGrid (Group 5 / PR8, design section 5.3)', () => {
     expect(onFinish).not.toHaveBeenCalled();
   });
 
-  it('shows a needsReview alert dot on the edit button only for tiles whose page has needsReview (bug 4b, replaces the old text badge)', () => {
+  it('shows an amber "Revisar" badge + edit-button alert dot only for tiles whose page has needsReview (bug 4b + design 5.5)', () => {
     installCanvasShims();
     const pages = [
       { ...makePage('p1', 0), needsReview: true },
@@ -319,12 +319,15 @@ describe('PageGrid (Group 5 / PR8, design section 5.3)', () => {
       </ToastHost>,
     );
 
-    // Every tile has an explicit edit button; the old illegible "Revisar" text
-    // badge is gone entirely.
+    // Every tile has an explicit edit button. A page needing review ALSO shows
+    // an opaque amber "Revisar" badge (design 5.5) — legible over the thumbnail
+    // (opaque amber + dark text), unlike the old transparent text-over-image
+    // badge that a prior fix had removed.
     expect(screen.getByTestId('page-grid-edit-p1')).toBeTruthy();
     expect(screen.getByTestId('page-grid-edit-p2')).toBeTruthy();
-    expect(screen.queryByTestId('page-grid-review-badge-p1')).toBeNull();
-    // The needsReview signal is now the alert dot on that tile's edit button.
+    expect(screen.getByTestId('page-grid-review-badge-p1')).toBeTruthy();
+    expect(screen.queryByTestId('page-grid-review-badge-p2')).toBeNull();
+    // The needsReview signal is also mirrored by the alert dot on that tile's edit button.
     expect(screen.getByTestId('page-grid-review-dot-p1')).toBeTruthy();
     expect(screen.queryByTestId('page-grid-review-dot-p2')).toBeNull();
   });
