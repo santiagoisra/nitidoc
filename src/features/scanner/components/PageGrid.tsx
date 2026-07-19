@@ -241,6 +241,7 @@ function SortableGridItem({ page, index, onActivate, onDelete }: SortableGridIte
             bitmap={page.thumbnail}
             filter={page.recipe.filter}
             testId={`page-grid-thumb-${page.id}`}
+            sizeClassName="aspect-[3/4] w-full"
           />
         </button>
 
@@ -321,14 +322,15 @@ function SortableGridItem({ page, index, onActivate, onDelete }: SortableGridIte
       {/* Drag handle — the ONLY reorder activator. `touch-action: none` (the
           `touch-none` class) lets a touch-drag start here without the grid
           scrolling underneath, while the rest of the tile keeps normal touch
-          scroll + tap-to-edit. Fixes unreliable reorder on iPhone. */}
+          scroll + tap-to-edit. Fixes unreliable reorder on iPhone. Bottom-RIGHT
+          so it never collides with the "Revisar" badge (bottom-left). */}
       <button
         type="button"
         ref={setActivatorNodeRef}
         {...attributes}
         {...listeners}
         aria-label={t('grid.reorder')}
-        className="touch-none absolute bottom-1 left-1/2 flex h-7 w-11 -translate-x-1/2 cursor-grab items-center justify-center rounded-full bg-bg/70 text-text-muted backdrop-blur-sm active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light"
+        className="touch-none absolute bottom-1 right-1 flex h-7 w-11 cursor-grab items-center justify-center rounded-full bg-bg/70 text-text-muted backdrop-blur-sm active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light"
         data-testid={`page-grid-drag-${page.id}`}
       >
         <GripHorizontal size={16} strokeWidth={2} aria-hidden="true" />

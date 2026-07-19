@@ -33,9 +33,20 @@ export interface PageThumbnailProps {
    */
   readonly filter: FilterParams;
   readonly testId?: string;
+  /**
+   * Size/shape classes for the canvas. Defaults to a small fixed 3:4 tile
+   * (the `done` fan strip). The grid passes `aspect-[3/4] w-full` so each
+   * page fills its cell exactly like the "Capturar más" tile beside it.
+   */
+  readonly sizeClassName?: string;
 }
 
-export function PageThumbnail({ bitmap, filter, testId }: PageThumbnailProps): ReactNode {
+export function PageThumbnail({
+  bitmap,
+  filter,
+  testId,
+  sizeClassName = 'aspect-[3/4] h-20 shrink-0',
+}: PageThumbnailProps): ReactNode {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -54,7 +65,7 @@ export function PageThumbnail({ bitmap, filter, testId }: PageThumbnailProps): R
   return (
     <canvas
       ref={canvasRef}
-      className="aspect-[3/4] h-20 shrink-0 rounded bg-surface object-cover"
+      className={`rounded bg-surface object-cover ${sizeClassName}`}
       data-testid={testId}
       aria-hidden="true"
     />
