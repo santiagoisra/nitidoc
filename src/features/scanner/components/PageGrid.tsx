@@ -168,8 +168,12 @@ export function PageGrid({
       </DndContext>
 
       {/* Footer (design 5.5): Finalizar ghost + Exportar PDF primary (1 / 1.4),
-          pinned to the bottom of the scroll area so it stays reachable. */}
-      <div className="sticky bottom-0 flex w-full items-center gap-3 bg-bg/95 py-3 backdrop-blur">
+          pinned to the bottom of the scroll area so it stays reachable. Clears
+          the iOS home-indicator inset when installed as a PWA. */}
+      <div
+        className="sticky bottom-0 flex w-full items-center gap-3 bg-bg/95 pt-3 backdrop-blur"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.75rem)' }}
+      >
         <Button type="button" variant="ghost" onClick={onFinish} data-testid="grid-finish" className="flex-1">
           {t('grid.finish')}
         </Button>
