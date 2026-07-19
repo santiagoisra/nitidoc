@@ -91,7 +91,8 @@ export const es = {
 
   'grid.title': 'Documento',
   'grid.pageCount': { one: '{n} página', other: '{n} páginas' },
-  'grid.reorderHint': 'Mantené presionada una página para reordenar',
+  'grid.reorderHint': 'Arrastrá el asa para reordenar',
+  'grid.reorder': 'Reordenar página',
   'grid.pagesCaptured': { one: '{n} página capturada.', other: '{n} páginas capturadas.' },
   'grid.captureMore': 'Capturar más',
   'grid.finish': 'Finalizar',

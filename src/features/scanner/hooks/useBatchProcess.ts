@@ -223,13 +223,21 @@ async function processOneRawCapture(raw: RawCapture, deps: ProcessOneRawCaptureD
         // (detaches) the bitmap, after which `.width` would read 0 (the same
         // regression the old import pipeline fixed; see cddc9ae).
         const detectionWidth = detectionBitmap.width;
-        const offscreenSupported = useScannerStore.getState().offscreenSupported;
 
         let scaledCorners: Quad | null = null;
         try {
-          const result = offscreenSupported
-            ? await deps.workerClient.detect(detectionBitmap, false)
-            : await deps.workerClient.detectImageData(bitmapToImageData(detectionBitmap), false);
+          // iOS fix: DETECT always goes through the main-thread ImageData path
+          // now (it used to pick `detect(bitmap)` when the MAIN thread reported
+          // `offscreenSupported`). `detect(bitmap)` drew the transferred
+          // ImageBitmap onto the WORKER's OffscreenCanvas + `getImageData` — but
+          // iOS/WebKit classic workers can't reliably back that (`getContext('2d')`
+          // / drawImage on a worker OffscreenCanvas fails there even though
+          // `OffscreenCanvas` exists on the main thread), so every DETECT threw
+          // silently and every page was flagged "Revisar" on iPhone while desktop
+          // worked. `detectImageData` extracts the (already downscaled) pixels on
+          // the main thread and feeds `cv.matFromImageData` directly — no worker
+          // canvas — so detection is identical and reliable across platforms.
+          const result = await deps.workerClient.detectImageData(bitmapToImageData(detectionBitmap), false);
           if (result.corners) {
             const upscaled = orderCorners(
               scaleCornersToFullRes(result.corners, detectionWidth, originalBitmap.width),
@@ -237,15 +245,9 @@ async function processOneRawCapture(raw: RawCapture, deps: ProcessOneRawCaptureD
             scaledCorners = isConvex(upscaled) ? upscaled : null;
           }
         } finally {
-          // Offscreen gating + double-close guard (mirrors the old import
-          // pipeline): on the OffscreenCanvas path the worker only closes
-          // the TRANSFERRED bitmap on its own happy path, so close it here
-          // too in case `detect()` rejected. On the `detectImageData` path,
-          // `bitmapToImageData` already closed it internally — closing
-          // again would double-close.
-          if (offscreenSupported) {
-            detectionBitmap.close();
-          }
+          // `bitmapToImageData` already closed the detection bitmap internally
+          // (it owns that one-shot extraction), so there is nothing to close
+          // here — `close()` is idempotent anyway if the cancel tracker also ran.
           deps.tracker.detectionBitmap = null;
         }
 

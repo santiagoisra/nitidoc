@@ -654,8 +654,11 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
     >
       {/* Preview strip: a REAL slide per page + the "add more" panel (bug 6) —
           slides are narrower than the strip (w-[85%]) with matching scroller
-          padding so neighbors peek at both edges (bug 3 discoverability). */}
-      <div className="relative flex-1">
+          padding so neighbors peek at both edges (bug 3 discoverability).
+          `min-h-0` lets this flex child SHRINK below its content's intrinsic
+          height — without it a very tall page preview would grow this strip and
+          push the page-nav / filter / toolbar off the bottom of the screen. */}
+      <div className="relative min-h-0 flex-1">
         <div
           ref={scrollerRef}
           className="flex h-full snap-x snap-mandatory gap-3 overflow-x-auto overflow-y-hidden px-[7.5%]"
@@ -663,6 +666,18 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
         >
           {pages.map((page, index) => {
             const isActive = index === safeIndex;
+            // Fit the preview by HEIGHT (user request): cap the card width to
+            // `availableHeight * aspect` via container-query height units
+            // (`100cqh` of the size-contained slide). A very tall page then
+            // shrinks to fit the strip's height instead of overflowing and
+            // pushing the page-nav / filter / toolbar off screen. `min(20rem, …)`
+            // keeps the original cap for short pages; if `cqh` is unsupported the
+            // whole `min()` is dropped and `max-w-xs` + `max-h-full` +
+            // `overflow-hidden` still keep the toolbar on screen (graceful
+            // degrade to clip-instead-of-scale). Rotation-aware.
+            const rotated = page.recipe.rotation === 90 || page.recipe.rotation === 270;
+            const dispW = rotated ? page.warpedHeight : page.warpedWidth;
+            const dispH = rotated ? page.warpedWidth : page.warpedHeight;
             return (
               <section
                 key={page.id}
@@ -672,13 +687,15 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
                 data-slide-index={index}
                 data-testid={`adjust-page-slide-${page.id}`}
                 className="flex h-full w-[85%] shrink-0 snap-center items-center justify-center p-4"
+                style={{ containerType: 'size' }}
               >
                 <div
-                  className={`relative w-full max-w-xs overflow-hidden rounded-lg bg-neutral-900 transition-[opacity,transform] duration-200 ${
+                  className={`relative max-h-full w-full max-w-xs overflow-hidden rounded-lg bg-neutral-900 transition-[opacity,transform] duration-200 ${
                     isActive
                       ? 'scale-100 opacity-100 shadow-[0_20px_50px_rgba(0,0,0,0.55)]'
                       : 'scale-[0.92] opacity-55'
                   }`}
+                  style={{ maxWidth: `min(20rem, calc(100cqh * ${dispW} / ${dispH}))` }}
                 >
                   {isActive && mode === 'crop' ? (
                     cropActiveWorking && draftCorners ? (
