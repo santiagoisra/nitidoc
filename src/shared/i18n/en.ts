@@ -121,4 +121,10 @@ export const en = {
 
   'camera.selectCamera': 'Select camera',
   'camera.cameraN': 'Camera {n}',
+
+  'install.cta': 'Install app',
+  'install.iosTitle': 'Install Nitidoc on your iPhone',
+  'install.iosStep1': 'Tap the Share button in the Safari toolbar.',
+  'install.iosStep2': 'Choose "Add to Home Screen" and confirm.',
+  'install.iosHint': 'Nitidoc lands on your home screen like any other app — no App Store, no account.',
 } satisfies Record<string, TranslationValue>;

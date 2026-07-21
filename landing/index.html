@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Nitidoc — Escaneá documentos gratis, para siempre</title>
+<meta name="description" content="La alternativa gratis y abierta para escanear documentos: recortá, mejorá y compartí en PDF. Sin suscripción, sin marcas de agua y sin anuncios.">
+
+<link rel="icon" href="/icons/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="theme-color" content="#12100E">
+
+<!-- Open Graph -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://nitidoc.com/">
+<meta property="og:title" content="Nitidoc — Escaneá documentos gratis, para siempre">
+<meta property="og:description" content="La alternativa gratis y abierta para escanear documentos en PDF. Sin suscripción, sin marcas de agua, sin anuncios.">
+<meta property="og:image" content="https://nitidoc.com/icons/icon-512.png">
+<meta property="og:locale" content="es_AR">
+<!-- Twitter -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Nitidoc — Escaneá documentos gratis, para siempre">
+<meta name="twitter:description" content="Escaneá, recortá y compartí documentos en PDF. Gratis para siempre.">
+<meta name="twitter:image" content="https://nitidoc.com/icons/icon-512.png">
+
+<style>
+@font-face{
+  font-family:'Plus Jakarta Sans';
+  font-style:normal;
+  font-weight:200 800;
+  font-display:swap;
+  src:url('/fonts/PlusJakartaSans.woff2') format('woff2');
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:#12100E;font-family:'Plus Jakarta Sans',system-ui,sans-serif;color:#F4F1EC;-webkit-font-smoothing:antialiased}
+a{color:#2EC4AD;text-decoration:none}
+a:hover{color:#8CEBD9}
+img{max-width:100%}
+
+/* interacciones (reemplazan los style-hover del prototipo) */
+.nav-link{transition:color .2s}
+.nav-link:hover{color:#8CEBD9 !important}
+.btn-donate{transition:background .2s,color .2s}
+.btn-donate:hover{background:#F6C87E !important}
+.btn-primary{transition:transform .2s}
+.btn-primary:hover{transform:translateY(-2px)}
+.link-ghost{transition:color .2s}
+.link-ghost:hover{color:#8CEBD9 !important}
+.btn-cafecito{display:inline-block;transition:transform .2s}
+.btn-cafecito:hover{transform:translateY(-2px)}
+.btn-install{transition:border-color .2s,background .2s}
+.btn-install:hover{border-color:rgba(140,235,217,.5) !important;background:rgba(46,196,173,.08) !important}
+
+/* animaciones */
+@keyframes sheen{0%{transform:translateY(-120%)}60%,100%{transform:translateY(220%)}}
+@keyframes breath{0%,100%{transform:scale(1);opacity:.5}50%{transform:scale(1.22);opacity:0}}
+@keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+@keyframes corner-pulse{0%,100%{opacity:1}50%{opacity:.45}}
+@keyframes edge-drift{0%,100%{transform:rotate(-2deg) scale(1)}30%{transform:rotate(-1.6deg) scale(1.008)}65%{transform:rotate(-2.3deg) scale(.996)}}
+@media (prefers-reduced-motion: reduce){*{animation:none !important}}
+</style>
+</head>
+<body>
+<div style="min-height:100vh;background:#12100E">
+  <!-- NAV -->
+  <header style="max-width:1120px;margin:0 auto;padding:22px 32px;display:flex;align-items:center;justify-content:space-between">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="position:relative;width:24px;height:24px;display:inline-block">
+        <span style="position:absolute;top:0;left:0;width:8px;height:8px;border-top:2.5px solid #2EC4AD;border-left:2.5px solid #2EC4AD;border-radius:2px 0 0 0"></span>
+        <span style="position:absolute;top:0;right:0;width:8px;height:8px;border-top:2.5px solid #2EC4AD;border-right:2.5px solid #2EC4AD;border-radius:0 2px 0 0"></span>
+        <span style="position:absolute;bottom:0;left:0;width:8px;height:8px;border-bottom:2.5px solid #2EC4AD;border-left:2.5px solid #2EC4AD;border-radius:0 0 0 2px"></span>
+        <span style="position:absolute;bottom:0;right:0;width:8px;height:8px;border-bottom:2.5px solid #2EC4AD;border-right:2.5px solid #2EC4AD;border-radius:0 0 2px 0"></span>
+        <span style="position:absolute;left:5px;right:5px;top:11px;height:2.5px;background:#8CEBD9;border-radius:2px"></span>
+      </span>
+      <span style="font-size:20px;font-weight:800;letter-spacing:-.02em;color:#F4F1EC">nitidoc</span>
+    </div>
+    <nav style="display:flex;align-items:center;gap:26px">
+      <a href="#como" class="nav-link" style="font:600 14px 'Plus Jakarta Sans';color:#A69E93">Cómo funciona</a>
+      <a href="#gratis" class="nav-link" style="font:600 14px 'Plus Jakarta Sans';color:#A69E93">¿Por qué gratis?</a>
+      <a href="#donar" class="btn-donate" style="font:700 14px 'Plus Jakarta Sans';color:#0F0E0C;background:#F0B254;padding:10px 20px;border-radius:999px">☕ Donar</a>
+    </nav>
+  </header>
+
+  <!-- HERO -->
+  <section style="max-width:1120px;margin:0 auto;padding:56px 32px 80px;display:flex;gap:60px;align-items:center;flex-wrap:wrap">
+    <div style="flex:1;min-width:340px;display:flex;flex-direction:column;gap:22px">
+      <span style="align-self:flex-start;font:700 11px 'Plus Jakarta Sans';letter-spacing:.14em;text-transform:uppercase;color:#8CEBD9;border:1px solid rgba(46,196,173,.4);padding:6px 12px;border-radius:999px">100% gratis · sin suscripción · sin marcas de agua</span>
+      <h1 style="margin:0;font-size:54px;font-weight:800;letter-spacing:-.03em;line-height:1.06;text-wrap:pretty">Escaneá documentos.<br><span style="color:#2EC4AD">Gratis. Para siempre.</span></h1>
+      <p style="margin:0;font-size:17px;line-height:1.65;color:#A69E93;max-width:480px;text-wrap:pretty">Todas las apps de escaneo del mercado te cobran una suscripción para hacer algo tan simple como convertir un papel en PDF. Nitidoc es la alternativa abierta a todos: escaneá, recortá y compartí sin pagar nunca.</p>
+      <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+        <a href="https://app.nitidoc.com" class="btn-primary" style="display:inline-flex;align-items:center;gap:10px;background:linear-gradient(140deg,#3AD6BD,#0F8A78);color:#FFF;font:700 16px 'Plus Jakarta Sans';padding:16px 30px;border-radius:999px;box-shadow:0 14px 34px rgba(46,196,173,.3)">
+          <span style="position:relative;width:18px;height:18px;display:inline-block">
+            <span style="position:absolute;top:0;left:0;width:6px;height:6px;border-top:2px solid #FFF;border-left:2px solid #FFF;border-radius:2px 0 0 0"></span>
+            <span style="position:absolute;top:0;right:0;width:6px;height:6px;border-top:2px solid #FFF;border-right:2px solid #FFF;border-radius:0 2px 0 0"></span>
+            <span style="position:absolute;bottom:0;left:0;width:6px;height:6px;border-bottom:2px solid #FFF;border-left:2px solid #FFF;border-radius:0 0 0 2px"></span>
+            <span style="position:absolute;bottom:0;right:0;width:6px;height:6px;border-bottom:2px solid #FFF;border-right:2px solid #FFF;border-radius:0 0 2px 0"></span>
+            <span style="position:absolute;left:4px;right:4px;top:8px;height:2px;background:#FFF;border-radius:2px"></span>
+          </span>
+          Abrir Nitidoc
+        </a>
+        <a href="https://app.nitidoc.com" class="btn-install" style="display:inline-flex;align-items:center;gap:8px;font:700 15px 'Plus Jakarta Sans';color:#F4F1EC;border:1px solid rgba(244,241,236,.18);padding:14px 22px;border-radius:999px">📲 Instalar en tu teléfono</a>
+        <a href="#donar" class="link-ghost" style="font:600 15px 'Plus Jakarta Sans';color:#A69E93;padding:16px 8px">Apoyá el proyecto →</a>
+      </div>
+      <div style="display:flex;gap:28px;margin-top:8px">
+        <div><p style="margin:0;font-size:22px;font-weight:800;color:#F4F1EC">$0</p><p style="margin:2px 0 0;font-size:12px;color:#A69E93">por siempre</p></div>
+        <div><p style="margin:0;font-size:22px;font-weight:800;color:#F4F1EC">Sin cuenta</p><p style="margin:2px 0 0;font-size:12px;color:#A69E93">ni registro</p></div>
+        <div><p style="margin:0;font-size:22px;font-weight:800;color:#F4F1EC">Sin anuncios</p><p style="margin:2px 0 0;font-size:12px;color:#A69E93">ni marcas de agua</p></div>
+      </div>
+    </div>
+    <!-- mock del teléfono -->
+    <div style="flex:0 0 auto;display:flex;justify-content:center;animation:floaty 5s ease-in-out infinite">
+      <div style="position:relative;width:300px;height:610px;border-radius:44px;background:#0B0A09;border:1.5px solid rgba(244,241,236,.14);box-shadow:0 40px 90px rgba(0,0,0,.6);padding:12px">
+        <div style="position:relative;width:100%;height:100%;border-radius:34px;overflow:hidden;background:radial-gradient(120% 90% at 50% 30%,#3A2F23 0%,#241C13 55%,#171209 100%)">
+          <div style="position:absolute;left:50%;top:46%;width:172px;height:228px;transform:translate(-50%,-50%) rotate(-2deg);background:#FCFAF5;border-radius:4px;box-shadow:0 18px 44px rgba(0,0,0,.55)">
+            <div style="position:absolute;inset:20px 16px;background:repeating-linear-gradient(to bottom,#CFC9BC 0 5px,transparent 5px 15px)"></div>
+            <div style="position:absolute;top:15px;left:16px;width:55%;height:8px;background:#7E7668;border-radius:3px"></div>
+          </div>
+          <div style="position:absolute;left:50%;top:46%;width:192px;height:248px;margin:-124px 0 0 -96px;animation:edge-drift 3.4s ease-in-out infinite">
+            <div style="position:absolute;inset:0;border:2px solid rgba(46,196,173,.85);border-radius:8px;box-shadow:0 0 22px rgba(46,196,173,.35),inset 0 0 22px rgba(46,196,173,.12);overflow:hidden">
+              <div style="position:absolute;left:0;right:0;height:40%;background:linear-gradient(to bottom,transparent,rgba(140,235,217,.22) 60%,rgba(140,235,217,.5) 98%,transparent);animation:sheen 2.8s ease-in-out infinite"></div>
+            </div>
+            <span style="position:absolute;top:-5px;left:-5px;width:20px;height:20px;border-top:3.5px solid #8CEBD9;border-left:3.5px solid #8CEBD9;border-radius:8px 0 0 0;animation:corner-pulse 1.6s ease-in-out infinite"></span>
+            <span style="position:absolute;top:-5px;right:-5px;width:20px;height:20px;border-top:3.5px solid #8CEBD9;border-right:3.5px solid #8CEBD9;border-radius:0 8px 0 0;animation:corner-pulse 1.6s .2s ease-in-out infinite"></span>
+            <span style="position:absolute;bottom:-5px;left:-5px;width:20px;height:20px;border-bottom:3.5px solid #8CEBD9;border-left:3.5px solid #8CEBD9;border-radius:0 0 0 8px;animation:corner-pulse 1.6s .4s ease-in-out infinite"></span>
+            <span style="position:absolute;bottom:-5px;right:-5px;width:20px;height:20px;border-bottom:3.5px solid #8CEBD9;border-right:3.5px solid #8CEBD9;border-radius:0 0 8px 0;animation:corner-pulse 1.6s .6s ease-in-out infinite"></span>
+          </div>
+          <span style="position:absolute;left:50%;top:12%;transform:translateX(-50%);font:700 11px 'Plus Jakarta Sans';letter-spacing:.1em;text-transform:uppercase;color:#8CEBD9;background:rgba(18,16,14,.6);padding:5px 12px;border-radius:999px;backdrop-filter:blur(4px)">Documento detectado</span>
+          <div style="position:absolute;left:50%;bottom:26px;transform:translateX(-50%);width:66px;height:66px;display:flex;align-items:center;justify-content:center">
+            <span style="position:absolute;inset:0;border-radius:999px;background:rgba(46,196,173,.35);animation:breath 2.6s ease-out infinite"></span>
+            <span style="position:relative;width:60px;height:60px;border-radius:999px;background:linear-gradient(140deg,#3AD6BD,#0F8A78);box-shadow:0 10px 26px rgba(46,196,173,.4);display:flex;align-items:center;justify-content:center"><span style="width:24px;height:24px;border-radius:999px;background:#FFF;display:block"></span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CÓMO FUNCIONA -->
+  <section id="como" style="border-top:1px solid rgba(244,241,236,.08);background:#1A1816">
+    <div style="max-width:1120px;margin:0 auto;padding:72px 32px;display:flex;flex-direction:column;gap:40px">
+      <div style="display:flex;flex-direction:column;gap:10px;max-width:560px">
+        <h2 style="margin:0;font-size:34px;font-weight:800;letter-spacing:-.02em">Tres pasos. Nada más.</h2>
+        <p style="margin:0;font-size:15px;line-height:1.6;color:#A69E93">Abrís la cámara, Nitidoc detecta el documento solo y lo convierte en un PDF nítido, listo para compartir.</p>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px">
+        <div style="background:#252220;border:1px solid rgba(244,241,236,.08);border-radius:18px;padding:26px;display:flex;flex-direction:column;gap:12px">
+          <span style="font:800 13px 'Plus Jakarta Sans';color:#0F0E0C;background:#2EC4AD;width:30px;height:30px;border-radius:999px;display:flex;align-items:center;justify-content:center">1</span>
+          <h3 style="margin:0;font-size:18px;font-weight:700">Apuntá</h3>
+          <p style="margin:0;font-size:14px;line-height:1.6;color:#A69E93">La detección de bordes en vivo encuentra el documento en la escena, aunque esté torcido o con poca luz.</p>
+        </div>
+        <div style="background:#252220;border:1px solid rgba(244,241,236,.08);border-radius:18px;padding:26px;display:flex;flex-direction:column;gap:12px">
+          <span style="font:800 13px 'Plus Jakarta Sans';color:#0F0E0C;background:#2EC4AD;width:30px;height:30px;border-radius:999px;display:flex;align-items:center;justify-content:center">2</span>
+          <h3 style="margin:0;font-size:18px;font-weight:700">Capturá</h3>
+          <p style="margin:0;font-size:14px;line-height:1.6;color:#A69E93">Recorte automático de perspectiva y filtros que dejan el papel blanco y el texto legible.</p>
+        </div>
+        <div style="background:#252220;border:1px solid rgba(244,241,236,.08);border-radius:18px;padding:26px;display:flex;flex-direction:column;gap:12px">
+          <span style="font:800 13px 'Plus Jakarta Sans';color:#0F0E0C;background:#2EC4AD;width:30px;height:30px;border-radius:999px;display:flex;align-items:center;justify-content:center">3</span>
+          <h3 style="margin:0;font-size:18px;font-weight:700">Compartí</h3>
+          <p style="margin:0;font-size:14px;line-height:1.6;color:#A69E93">Exportá en PDF de una o varias páginas y mandalo por donde quieras. Sin marcas de agua, sin límites.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- POR QUÉ GRATIS -->
+  <section id="gratis" style="max-width:1120px;margin:0 auto;padding:72px 32px;display:flex;gap:48px;align-items:center;flex-wrap:wrap">
+    <div style="flex:1;min-width:320px;display:flex;flex-direction:column;gap:16px">
+      <h2 style="margin:0;font-size:34px;font-weight:800;letter-spacing:-.02em;text-wrap:pretty">¿Por qué es gratis?</h2>
+      <p style="margin:0;font-size:15px;line-height:1.7;color:#A69E93;text-wrap:pretty">Porque escanear un papel no debería costar una suscripción mensual. Nitidoc nace como alternativa abierta a toda persona que necesita digitalizar un documento y se encuentra con muros de pago en cada app del mercado.</p>
+      <p style="margin:0;font-size:15px;line-height:1.7;color:#A69E93;text-wrap:pretty">No hay plan premium, no hay funciones bloqueadas, no vendemos tus datos. Si Nitidoc te resulta útil y querés que siga existiendo, podés invitarnos un cafecito.</p>
+    </div>
+    <div style="flex:1;min-width:320px;display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div style="background:#1A1816;border:1px solid rgba(244,241,236,.08);border-radius:16px;padding:20px"><p style="margin:0 0 4px;font-size:15px;font-weight:700;color:#E5684F">Otras apps</p><p style="margin:0;font-size:13px;line-height:1.6;color:#A69E93">Suscripción mensual · marcas de agua · límite de escaneos · anuncios</p></div>
+      <div style="background:#1A1816;border:1px solid rgba(46,196,173,.35);border-radius:16px;padding:20px"><p style="margin:0 0 4px;font-size:15px;font-weight:700;color:#2EC4AD">Nitidoc</p><p style="margin:0;font-size:13px;line-height:1.6;color:#A69E93">Gratis para siempre · sin marcas · sin límites · sin anuncios</p></div>
+      <div style="grid-column:1/-1;background:#1A1816;border:1px solid rgba(244,241,236,.08);border-radius:16px;padding:20px"><p style="margin:0 0 4px;font-size:15px;font-weight:700;color:#F0B254">Se sostiene con donaciones</p><p style="margin:0;font-size:13px;line-height:1.6;color:#A69E93">El proyecto se mantiene con el aporte voluntario de quienes lo usan. Cada cafecito ayuda a cubrir servidores y desarrollo.</p></div>
+    </div>
+  </section>
+
+  <!-- DONAR -->
+  <section id="donar" style="border-top:1px solid rgba(244,241,236,.08);background:radial-gradient(80% 100% at 50% 0%,rgba(240,178,84,.1),transparent 65%),#1A1816">
+    <div style="max-width:760px;margin:0 auto;padding:80px 32px;display:flex;flex-direction:column;align-items:center;gap:20px;text-align:center">
+      <span style="font-size:44px">☕</span>
+      <h2 style="margin:0;font-size:36px;font-weight:800;letter-spacing:-.02em;text-wrap:pretty">Invitanos un cafecito</h2>
+      <p style="margin:0;font-size:16px;line-height:1.7;color:#A69E93;max-width:520px;text-wrap:pretty">Nitidoc es y va a seguir siendo gratis. Si te sirvió, tu aporte voluntario nos ayuda a mantenerlo online y seguir mejorándolo.</p>
+      <a href="https://cafecito.app/efectod" class="btn-cafecito" rel="noopener" target="_blank" style="margin-top:8px">
+        <img srcset="https://cdn.cafecito.app/imgs/buttons/button_5.png 1x, https://cdn.cafecito.app/imgs/buttons/button_5_2x.png 2x, https://cdn.cafecito.app/imgs/buttons/button_5_3.75x.png 3.75x" src="https://cdn.cafecito.app/imgs/buttons/button_5.png" alt="Invitame un café en cafecito.app" style="display:block;height:52px">
+      </a>
+      <p style="margin:0;font-size:12px;color:#A69E93">Donación segura vía <a href="https://cafecito.app/efectod" target="_blank" rel="noopener">cafecito.app</a></p>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer style="border-top:1px solid rgba(244,241,236,.08)">
+    <div style="max-width:1120px;margin:0 auto;padding:32px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:9px">
+        <span style="position:relative;width:18px;height:18px;display:inline-block">
+          <span style="position:absolute;top:0;left:0;width:6px;height:6px;border-top:2px solid #2EC4AD;border-left:2px solid #2EC4AD;border-radius:2px 0 0 0"></span>
+          <span style="position:absolute;top:0;right:0;width:6px;height:6px;border-top:2px solid #2EC4AD;border-right:2px solid #2EC4AD;border-radius:0 2px 0 0"></span>
+          <span style="position:absolute;bottom:0;left:0;width:6px;height:6px;border-bottom:2px solid #2EC4AD;border-left:2px solid #2EC4AD;border-radius:0 0 0 2px"></span>
+          <span style="position:absolute;bottom:0;right:0;width:6px;height:6px;border-bottom:2px solid #2EC4AD;border-right:2px solid #2EC4AD;border-radius:0 0 2px 0"></span>
+          <span style="position:absolute;left:4px;right:4px;top:8px;height:2px;background:#8CEBD9;border-radius:2px"></span>
+        </span>
+        <span style="font-size:15px;font-weight:800;letter-spacing:-.02em">nitidoc</span>
+      </div>
+      <p style="margin:0;font-size:13px;color:#A69E93">Un desarrollo de <a href="https://www.efectod.com.ar" target="_blank" rel="noopener" style="font-weight:700">efecto — diseño multimedia</a></p>
+      <p style="margin:0;font-size:12px;color:#A69E93">© 2026 · Gratis para siempre</p>
+    </div>
+  </footer>
+</div>
+</body>
+</html>

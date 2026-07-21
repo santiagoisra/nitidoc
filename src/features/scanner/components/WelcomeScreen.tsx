@@ -19,6 +19,7 @@ import type { ChangeEvent, ReactNode } from 'react';
 import { useCallback, useRef, useState } from 'react';
 import { Button, BrandGlyph } from '@/shared/ui';
 import { useTranslation } from '@/shared/i18n';
+import { InstallAppButton } from '@/features/pwa/InstallAppButton';
 
 export interface WelcomeScreenProps {
   /** Opens the camera directly (ScannerScreen's `handleStart`). */
@@ -119,6 +120,10 @@ export function WelcomeScreen({ onStart, onImportFile }: WelcomeScreenProps): Re
           </p>
         )}
       </div>
+
+      {/* Install-as-app affordance — self-hides when already installed or when
+          the platform can't install (see InstallAppButton / useInstallPrompt). */}
+      <InstallAppButton />
     </div>
   );
 }
