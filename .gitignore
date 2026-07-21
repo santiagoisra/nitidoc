@@ -55,3 +55,6 @@ firestore-debug.log
 
 # Engram (cloud sync active; local export chunks not tracked)
 .engram/
+
+# Design handoff assets (Claude Design export — reference only, not shipped)
+nitidoc_landing/
