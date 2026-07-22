@@ -52,6 +52,21 @@ img{max-width:100%}
 .btn-install{transition:border-color .2s,background .2s}
 .btn-install:hover{border-color:rgba(140,235,217,.5) !important;background:rgba(46,196,173,.08) !important}
 
+/* nav mobile */
+.nav-toggle{display:none;flex-direction:column;align-items:center;justify-content:center;gap:5px;width:44px;height:44px;padding:0;border:1px solid rgba(244,241,236,.18);border-radius:12px;background:transparent;cursor:pointer}
+.nav-toggle span{display:block;width:18px;height:2px;background:#F4F1EC;border-radius:2px;transition:transform .2s,opacity .2s}
+.nav-toggle[aria-expanded="true"] span:nth-child(1){transform:translateY(7px) rotate(45deg)}
+.nav-toggle[aria-expanded="true"] span:nth-child(2){opacity:0}
+.nav-toggle[aria-expanded="true"] span:nth-child(3){transform:translateY(-7px) rotate(-45deg)}
+.mobile-menu{display:none}
+@media (max-width:720px){
+  .nav-links{display:none !important}
+  .nav-toggle{display:flex}
+  .mobile-menu:not([hidden]){display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:0 24px 20px;border-bottom:1px solid rgba(244,241,236,.08)}
+  .mobile-menu a{font:600 17px 'Plus Jakarta Sans';color:#F4F1EC;padding:12px 4px}
+  .mobile-menu .btn-donate{margin-top:10px;color:#0F0E0C;background:#F0B254;padding:12px 24px;border-radius:999px;font-weight:700}
+}
+
 /* animaciones */
 @keyframes sheen{0%{transform:translateY(-120%)}60%,100%{transform:translateY(220%)}}
 @keyframes breath{0%,100%{transform:scale(1);opacity:.5}50%{transform:scale(1.22);opacity:0}}
@@ -75,12 +90,20 @@ img{max-width:100%}
       </span>
       <span style="font-size:20px;font-weight:800;letter-spacing:-.02em;color:#F4F1EC">nitidoc</span>
     </div>
-    <nav style="display:flex;align-items:center;gap:26px">
+    <nav class="nav-links" style="display:flex;align-items:center;gap:26px">
       <a href="#como" class="nav-link" style="font:600 14px 'Plus Jakarta Sans';color:#A69E93">Cómo funciona</a>
       <a href="#gratis" class="nav-link" style="font:600 14px 'Plus Jakarta Sans';color:#A69E93">¿Por qué gratis?</a>
       <a href="#donar" class="btn-donate" style="font:700 14px 'Plus Jakarta Sans';color:#0F0E0C;background:#F0B254;padding:10px 20px;border-radius:999px">☕ Donar</a>
     </nav>
+    <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="menu-mobile" aria-label="Abrir menú">
+      <span></span><span></span><span></span>
+    </button>
   </header>
+  <nav id="menu-mobile" class="mobile-menu" hidden>
+    <a href="#como">Cómo funciona</a>
+    <a href="#gratis">¿Por qué gratis?</a>
+    <a href="#donar" class="btn-donate">☕ Donar</a>
+  </nav>
 
   <!-- HERO -->
   <section style="max-width:1120px;margin:0 auto;padding:56px 32px 80px;display:flex;gap:60px;align-items:center;flex-wrap:wrap">
@@ -207,5 +230,18 @@ img{max-width:100%}
     </div>
   </footer>
 </div>
+<script>
+(function(){
+  var toggle=document.querySelector('.nav-toggle');
+  var menu=document.getElementById('menu-mobile');
+  function setOpen(open){
+    toggle.setAttribute('aria-expanded',String(open));
+    toggle.setAttribute('aria-label',open?'Cerrar menú':'Abrir menú');
+    if(open){menu.removeAttribute('hidden')}else{menu.setAttribute('hidden','')}
+  }
+  toggle.addEventListener('click',function(){setOpen(menu.hasAttribute('hidden'))});
+  menu.addEventListener('click',function(event){if(event.target.closest('a'))setOpen(false)});
+})();
+</script>
 </body>
 </html>
