@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { en } from '@/shared/i18n/en';
 import { DICTIONARIES, translate, type TranslationKey } from '@/shared/i18n/translate';
 import type { Locale, TranslationParams } from '@/shared/i18n/types';
@@ -75,6 +75,15 @@ export interface LocaleProviderProps {
  */
 export function LocaleProvider({ children }: LocaleProviderProps): ReactNode {
   const [locale, setLocaleState] = useState<Locale>(resolveInitialLocale);
+
+  // Keep <html lang> in sync with the rendered locale. index.html ships a
+  // static lang="es" (the app default); without this sync a persisted 'en'
+  // locale — or a live toggle — would leave the attribute lying, and browser
+  // translation heuristics (Chrome's "translate this page?" bar on Android)
+  // key off the mismatch between declared and detected language.
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
 
   const setLocale = useCallback((next: Locale) => {
     setLocaleState(next);
