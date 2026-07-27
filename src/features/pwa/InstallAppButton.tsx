@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Download, Share } from 'lucide-react';
 import { Button, Sheet } from '@/shared/ui';
 import { useTranslation } from '@/shared/i18n';
@@ -16,6 +16,28 @@ export function InstallAppButton(): ReactNode {
   const { t } = useTranslation();
   const { canInstall, platform, promptInstall } = useInstallPrompt();
   const [instructionsOpen, setInstructionsOpen] = useState(false);
+
+  // Deep link from the landing page ("Instalar en tu teléfono" →
+  // app.nitidoc.com/?install=1). On iOS there is no programmatic install, so
+  // the manual-steps sheet opens immediately; on Chromium `prompt()` requires
+  // a user gesture from THIS page, so the visible install button is the flow.
+  // The param is consumed either way so a reload doesn't re-trigger.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('install')) {
+      return;
+    }
+    params.delete('install');
+    const query = params.toString();
+    const cleanUrl = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
+    window.history.replaceState(window.history.state, '', cleanUrl);
+    if (platform === 'ios') {
+      setInstructionsOpen(true);
+    }
+    // Mount-only on purpose: iOS detection is synchronous UA sniffing, already
+    // settled on first render; later `platform` flips (Chromium's async
+    // beforeinstallprompt) must not re-run this — the param is already gone.
+  }, []);
 
   if (!canInstall) {
     return null;
