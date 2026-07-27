@@ -4,6 +4,26 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Nitidoc — free, offline-first document scanner PWA",
+  "license": "AGPL-3.0-or-later",
+  "author": "santiagoisra (https://github.com/santiagoisra)",
+  "homepage": "https://nitidoc.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/santiagoisra/nitidoc.git"
+  },
+  "bugs": {
+    "url": "https://github.com/santiagoisra/nitidoc/issues"
+  },
+  "keywords": [
+    "document-scanner",
+    "pwa",
+    "offline-first",
+    "privacy",
+    "opencv",
+    "on-device",
+    "pdf",
+    "react"
+  ],
   "scripts": {
     "copy-opencv": "node scripts/copy-opencv.mjs",
     "predev": "node scripts/copy-opencv.mjs",
