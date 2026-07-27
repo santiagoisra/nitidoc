@@ -14,7 +14,7 @@ No account, no upload, no watermark, no page limit.
 
 [![CI](https://github.com/santiagoisra/nitidoc/actions/workflows/ci.yml/badge.svg)](https://github.com/santiagoisra/nitidoc/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-342%20passing-brightgreen?style=flat-square)](#testing)
+[![Tests](https://img.shields.io/badge/tests-344%20passing-brightgreen?style=flat-square)](#testing)
 [![PWA](https://img.shields.io/badge/PWA-installable%20%C2%B7%20offline-5EEAD4?style=flat-square)](#install-it-as-an-app)
 [![No backend](https://img.shields.io/badge/backend-none-1E293B?style=flat-square)](#why-this-exists)
 
@@ -22,10 +22,12 @@ No account, no upload, no watermark, no page limit.
 
 <div align="center">
 
-<img src="docs/screenshots/01-welcome.png" alt="Nitidoc home screen" width="24%">
-<img src="docs/screenshots/04-inline-crop.png" alt="Adjusting the detected page edges" width="24%">
-<img src="docs/screenshots/03-adjust-filters.png" alt="Filter presets applied to a scanned page" width="24%">
-<img src="docs/screenshots/05-page-grid.png" alt="Multi-page document ready to export as PDF" width="24%">
+<!-- GitHub's HTML sanitizer drops percentage widths on <img>, which renders
+     these at full size, one per line. Pixel widths survive and keep the row. -->
+<img src="docs/screenshots/01-welcome.png" alt="Nitidoc home screen" width="200">
+<img src="docs/screenshots/04-inline-crop.png" alt="Adjusting the detected page edges" width="200">
+<img src="docs/screenshots/03-adjust-filters.png" alt="Filter presets applied to a scanned page" width="200">
+<img src="docs/screenshots/05-page-grid.png" alt="Multi-page document ready to export as PDF" width="200">
 
 <sub>Capture · adjust the detected edges · pick a filter · export the PDF</sub>
 
