@@ -112,6 +112,21 @@ describe('i18n (Fase 2.1 punch-list item 5, Spanish-default with English toggle)
     expect(screen.getByTestId('scan-complete-singular').textContent).toBe('Scan complete — 1 page.');
   });
 
+  it('keeps <html lang> in sync with the active locale', () => {
+    render(
+      <LocaleProvider>
+        <Harness />
+      </LocaleProvider>,
+    );
+    expect(document.documentElement.lang).toBe('es');
+
+    fireEvent.click(screen.getByTestId('set-en'));
+    expect(document.documentElement.lang).toBe('en');
+
+    fireEvent.click(screen.getByTestId('set-es'));
+    expect(document.documentElement.lang).toBe('es');
+  });
+
   it('falls back to the raw key string for a missing/unknown key (documented behavior)', () => {
     render(
       <LocaleProvider>
