@@ -62,5 +62,8 @@ firestore-debug.log
 .claude/*
 !.claude/launch.json
 
+# Authoring notes kept locally, not part of the published project.
+nitidoc-prompt-maestro.md
+
 # Design handoff assets (Claude Design export — reference only, not shipped)
 nitidoc_landing/
