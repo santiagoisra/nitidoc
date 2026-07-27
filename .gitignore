@@ -56,5 +56,11 @@ firestore-debug.log
 # Engram (cloud sync active; local export chunks not tracked)
 .engram/
 
+# Local AI-agent tooling (machine-specific paths and personal hooks).
+# .claude/launch.json is tracked on purpose: it is the shared dev-server config.
+.atl/
+.claude/*
+!.claude/launch.json
+
 # Design handoff assets (Claude Design export — reference only, not shipped)
 nitidoc_landing/
