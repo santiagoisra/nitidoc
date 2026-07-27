@@ -20,17 +20,26 @@ No account, no upload, no watermark, no page limit.
 
 </div>
 
-<div align="center">
+<!-- A table, because GitHub's stylesheet sets README images to display:block —
+     inline markup stacks them whatever the width. One cell per screenshot is
+     what actually produces a row; valign="top" keeps them level even though the
+     last one is a shorter crop; and widths are pixels because the HTML
+     sanitizer discards percentages. -->
 
-<!-- Two GitHub rendering constraints, both learned the hard way: its HTML
-     sanitizer drops percentage widths on <img> (so these are pixels), and it
-     renders a single newline as <br> (so all four must stay on ONE line to
-     sit in a row). -->
-<img src="docs/screenshots/01-welcome.png" alt="Nitidoc home screen" width="195"> <img src="docs/screenshots/04-inline-crop.png" alt="Adjusting the detected page edges" width="195"> <img src="docs/screenshots/03-adjust-filters.png" alt="Filter presets applied to a scanned page" width="195"> <img src="docs/screenshots/05-page-grid.png" alt="Multi-page document ready to export as PDF" width="195">
-
-<sub>Capture · adjust the detected edges · pick a filter · export the PDF</sub>
-
-</div>
+<table>
+  <tr>
+    <th align="center">Capture</th>
+    <th align="center">Adjust the edges</th>
+    <th align="center">Pick a filter</th>
+    <th align="center">Export the PDF</th>
+  </tr>
+  <tr valign="top">
+    <td align="center"><img src="docs/screenshots/01-welcome.png" alt="Nitidoc home screen" width="180"></td>
+    <td align="center"><img src="docs/screenshots/04-inline-crop.png" alt="Adjusting the detected page edges" width="180"></td>
+    <td align="center"><img src="docs/screenshots/03-adjust-filters.png" alt="Filter presets applied to a scanned page" width="180"></td>
+    <td align="center"><img src="docs/screenshots/05-page-grid.png" alt="Multi-page document ready to export as PDF" width="180"></td>
+  </tr>
+</table>
 
 ## Why this exists
 
