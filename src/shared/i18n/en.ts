@@ -21,6 +21,7 @@ export const en = {
   'welcome.cta': 'Scan document',
   'welcome.openCamera': 'Open camera',
   'welcome.hint': 'Tapping opens the camera directly',
+  'welcome.sourceCode': 'Open source · AGPL-3.0',
 
   'scanner.openScanner': 'Open scanner',
   'scanner.cameraError': 'Could not open the camera. Try again, or import an image instead.',

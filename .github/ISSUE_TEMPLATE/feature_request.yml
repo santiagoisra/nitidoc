@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest an improvement or a new capability
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Nitidoc has one hard constraint that shapes every feature: **documents
+        never leave the device**. Proposals that require uploading pages to a
+        server will not be accepted, however useful they are — please frame the
+        idea as something that can run on-device.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the situation, not the solution.
+      placeholder: >
+        When I scan a multi-page contract I cannot tell which pages are already
+        adjusted without opening each one.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What do you have in mind?
+      description: Optional. If you already pictured a solution, describe it here.
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints
+      options:
+        - label: This works fully on-device (no uploading documents anywhere)
+          required: true
