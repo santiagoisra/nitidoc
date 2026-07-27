@@ -22,12 +22,11 @@ No account, no upload, no watermark, no page limit.
 
 <div align="center">
 
-<!-- GitHub's HTML sanitizer drops percentage widths on <img>, which renders
-     these at full size, one per line. Pixel widths survive and keep the row. -->
-<img src="docs/screenshots/01-welcome.png" alt="Nitidoc home screen" width="200">
-<img src="docs/screenshots/04-inline-crop.png" alt="Adjusting the detected page edges" width="200">
-<img src="docs/screenshots/03-adjust-filters.png" alt="Filter presets applied to a scanned page" width="200">
-<img src="docs/screenshots/05-page-grid.png" alt="Multi-page document ready to export as PDF" width="200">
+<!-- Two GitHub rendering constraints, both learned the hard way: its HTML
+     sanitizer drops percentage widths on <img> (so these are pixels), and it
+     renders a single newline as <br> (so all four must stay on ONE line to
+     sit in a row). -->
+<img src="docs/screenshots/01-welcome.png" alt="Nitidoc home screen" width="195"> <img src="docs/screenshots/04-inline-crop.png" alt="Adjusting the detected page edges" width="195"> <img src="docs/screenshots/03-adjust-filters.png" alt="Filter presets applied to a scanned page" width="195"> <img src="docs/screenshots/05-page-grid.png" alt="Multi-page document ready to export as PDF" width="195">
 
 <sub>Capture · adjust the detected edges · pick a filter · export the PDF</sub>
 
