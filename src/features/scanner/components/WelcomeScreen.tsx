@@ -21,6 +21,9 @@ import { Button, BrandGlyph } from '@/shared/ui';
 import { useTranslation } from '@/shared/i18n';
 import { InstallAppButton } from '@/features/pwa/InstallAppButton';
 
+/** Where the AGPL section 13 source offer points. */
+const SOURCE_URL = 'https://github.com/santiagoisra/nitidoc';
+
 export interface WelcomeScreenProps {
   /** Opens the camera directly (ScannerScreen's `handleStart`). */
   readonly onStart: () => void;
@@ -124,6 +127,21 @@ export function WelcomeScreen({ onStart, onImportFile }: WelcomeScreenProps): Re
       {/* Install-as-app affordance — self-hides when already installed or when
           the platform can't install (see InstallAppButton / useInstallPrompt). */}
       <InstallAppButton />
+
+      {/* AGPL section 13: users interacting with this app over a network must be
+          offered its source. This link is that offer, so it has to stay
+          reachable from the entry screen. */}
+      <a
+        href={SOURCE_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        data-testid="welcome-source-link"
+        className="text-xs text-text-muted underline decoration-text-muted/40 underline-offset-4
+          transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2
+          focus-visible:ring-primary-light focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+      >
+        {t('welcome.sourceCode')}
+      </a>
     </div>
   );
 }
