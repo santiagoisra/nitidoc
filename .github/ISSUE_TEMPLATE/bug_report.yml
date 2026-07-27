@@ -1,0 +1,71 @@
+name: Bug report
+description: Something in Nitidoc does not work as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this.
+
+        Nitidoc runs entirely in the browser, on top of the camera and OpenCV
+        (WebAssembly). Most bugs turn out to be device- or engine-specific, so
+        the environment fields below are the difference between a fix and a
+        guess. Please fill them in even if the bug looks obvious.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what you got instead.
+      placeholder: |
+        1. Opened the camera and captured a page
+        2. Tapped "Mejorado"
+        3. Expected a contrast-boosted page; the image stayed unchanged
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      placeholder: iPhone 13 mini, Pixel 7, MacBook Air M2…
+    validations:
+      required: true
+
+  - type: input
+    id: os-browser
+    attributes:
+      label: OS and browser (with versions)
+      description: On iOS every browser uses WebKit, so the iOS version is what matters.
+      placeholder: iOS 17.4 / Safari · Android 14 / Chrome 126 · macOS 15 / Firefox 128
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-mode
+    attributes:
+      label: How were you running Nitidoc?
+      options:
+        - In a browser tab
+        - Installed as an app (added to home screen)
+        - Locally from source (npm run dev)
+        - Locally from source (npm run build && npm run preview)
+    validations:
+      required: true
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Console errors
+      description: >
+        If you can reach them, paste any errors from the browser console.
+        Leave blank if not.
+      render: text
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or anything else
+      description: >
+        Screenshots and screen recordings help a lot. Please do not attach
+        documents with personal data — crop or blur anything sensitive.
