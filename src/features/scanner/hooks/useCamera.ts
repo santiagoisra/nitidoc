@@ -291,9 +291,19 @@ export function useCamera(): UseCameraResult {
       })();
     }
 
-    navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
+    // `navigator.mediaDevices` is UNDEFINED outside a secure context —
+    // browsers gate the whole Media Devices API behind HTTPS (a plain
+    // `http://` LAN IP does not qualify; only `localhost` is exempt).
+    // Dereferencing it unconditionally threw during this effect and unwound
+    // the entire React tree, so the app painted a blank screen instead of
+    // degrading to the import-only flow that already exists for
+    // camera-less environments (`ImportFallback`).
+    const mediaDevices = navigator.mediaDevices as MediaDevices | undefined;
+    if (!mediaDevices) return;
+
+    mediaDevices.addEventListener('devicechange', handleDeviceChange);
     return () => {
-      navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
+      mediaDevices.removeEventListener('devicechange', handleDeviceChange);
     };
   }, [setActiveDeviceId, setDevices]);
 
