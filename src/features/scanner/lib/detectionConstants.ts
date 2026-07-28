@@ -65,4 +65,30 @@ export const DETECTION = {
    * points are still discarded (too noisy/non-document-shaped to trust).
    */
   MAX_APPROX_POINTS: 8,
+  /**
+   * Upper bound on a candidate quad's area, as a fraction of the frame.
+   *
+   * A quad covering essentially the whole frame is not a detected document —
+   * it is the image border itself, or a uniform background that thresholded
+   * into one big blob. Returning it would be `frameCorners` wearing a
+   * detection costume: the page would be reported as detected, skip the
+   * `needsReview` badge, and still crop nothing. Falling through to the
+   * honest fallback is strictly better for the user.
+   *
+   * Calibrated against measured quad areas rather than guessed. Real
+   * captures — phone camera, imported photo, 9:16 framing, downscaled
+   * stream, synthetic fixture — land between 33% and 52%. Frames whose
+   * background thresholds into a single blob land at 92-94%. 0.90 sits in
+   * the empty band between the two, leaving headroom for a page shot close
+   * enough to genuinely fill most of the frame, where cropping is a no-op
+   * anyway.
+   */
+  MAX_CONTOUR_AREA_RATIO: 0.9,
+  /**
+   * How many of the largest contours per binarisation strategy are examined
+   * for a quad. The page is not always the single biggest region (a shadow,
+   * a desk edge, or a second sheet can outrank it), but it is reliably among
+   * the first few — and every extra candidate costs an `approxPolyDP`.
+   */
+  TOP_CONTOURS_PER_STRATEGY: 5,
 } as const;

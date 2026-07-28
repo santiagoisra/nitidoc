@@ -95,6 +95,12 @@ export interface CvBindings {
     blockSize: number,
     C: number,
   ): void;
+  /**
+   * Global thresholding. Used by the detection pipeline with
+   * `THRESH_BINARY | THRESH_OTSU` to obtain CLOSED regions — unlike a Canny
+   * edge map, whose open polylines have no measurable contour area.
+   */
+  threshold(src: CvMat, dst: CvMat, thresh: number, maxval: number, type: number): number;
   morphologyEx(src: CvMat, dst: CvMat, op: number, kernel: CvMat): void;
   getStructuringElement(shape: number, ksize: CvSize): CvMat;
   filter2D(src: CvMat, dst: CvMat, ddepth: number, kernel: CvMat): void;
@@ -107,10 +113,16 @@ export interface CvBindings {
   readonly COLOR_RGBA2GRAY: number;
   readonly COLOR_GRAY2RGBA: number;
   readonly RETR_LIST: number;
+  /** Outermost contours only — the page border, not the glyphs inside it. */
+  readonly RETR_EXTERNAL: number;
   readonly CHAIN_APPROX_SIMPLE: number;
   readonly ADAPTIVE_THRESH_MEAN_C: number;
   readonly ADAPTIVE_THRESH_GAUSSIAN_C: number;
   readonly THRESH_BINARY: number;
+  /** Otsu automatic threshold selection, OR-ed with `THRESH_BINARY`. */
+  readonly THRESH_OTSU: number;
   readonly MORPH_RECT: number;
   readonly MORPH_OPEN: number;
+  /** Dilate-then-erode — bridges the gaps that leave a Canny outline open. */
+  readonly MORPH_CLOSE: number;
 }
