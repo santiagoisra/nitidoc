@@ -34,7 +34,18 @@ function createMemoryStorage(): Storage {
   } as Storage;
 }
 
-for (const target of new Set<typeof globalThis>([globalThis, window as unknown as typeof globalThis])) {
+/**
+ * `window` is absent in files that opt into `// @vitest-environment node`
+ * (the OpenCV suites: the Emscripten build never finishes bootstrapping
+ * under happy-dom, so they must run on plain Node). Those files need no DOM
+ * storage at all — patch whichever globals actually exist.
+ */
+const storageTargets: Array<typeof globalThis> = [globalThis];
+if (typeof window !== 'undefined') {
+  storageTargets.push(window as unknown as typeof globalThis);
+}
+
+for (const target of new Set<typeof globalThis>(storageTargets)) {
   Object.defineProperty(target, 'localStorage', {
     value: createMemoryStorage(),
     configurable: true,
