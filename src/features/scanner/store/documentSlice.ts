@@ -24,7 +24,7 @@ import { FILTER } from '@/features/scanner/lib/filterConstants';
 
 /** Per-page record (design section 1.2). */
 export interface DocumentPage {
-  /** `crypto.randomUUID()`, assigned by the caller (capture controller) before `addPage`. */
+  /** `randomId()` (secure-context-safe UUID v4), assigned by the caller (capture controller) before `addPage`. */
   readonly id: string;
   /** Dense 0..n-1, always re-indexed on any mutation that changes page count/order. */
   readonly order: number;
@@ -68,7 +68,7 @@ export interface DocumentPage {
  * count tile can render instantly without waiting on detection.
  */
 export interface RawCapture {
-  /** `crypto.randomUUID()`; flows straight into the resulting `DocumentPage.id` at conversion (Unit 4). */
+  /** `randomId()`; flows straight into the resulting `DocumentPage.id` at conversion (Unit 4). */
   readonly id: string;
   /** Dense 0..n-1 within `rawCaptures`, re-indexed on any removal (mirrors `DocumentPage.order`). */
   readonly order: number;

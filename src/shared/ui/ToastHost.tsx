@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ToastAction, ToastVariant } from '@/shared/ui/Toast';
 import { Toast } from '@/shared/ui/Toast';
+import { randomId } from '@/shared/lib/randomId';
 
 /**
  * `ToastHost` — the toast queue + auto-dismiss timer + `useToast()` hook
@@ -73,7 +74,7 @@ export function ToastHost({ children }: ToastHostProps): ReactNode {
 
   const showToast = useCallback(
     (options: ShowToastOptions): string => {
-      const id = crypto.randomUUID();
+      const id = randomId();
       setToasts((current) => [...current, { ...options, id }]);
       const durationMs = options.durationMs ?? DEFAULT_DURATION_MS;
       const timer = setTimeout(() => dismissToast(id), durationMs);

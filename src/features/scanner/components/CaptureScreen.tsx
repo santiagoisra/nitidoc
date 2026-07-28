@@ -48,6 +48,7 @@ import { captureFullResFrame, cropToVisibleRect } from '@/features/scanner/lib/c
 import { FILTER } from '@/features/scanner/lib/filterConstants';
 import type { DocumentPage, RawCapture } from '@/features/scanner/store/documentSlice';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
+import { randomId } from '@/shared/lib/randomId';
 
 /**
  * Duration of the post-capture screen-flash feedback. Redesign (HANDOFF-UI.md
@@ -251,7 +252,7 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
       owned = cropped;
 
       await materializeRawCapture({
-        id: crypto.randomUUID(),
+        id: randomId(),
         originalBitmap: owned,
         originalWidth: owned.width,
         originalHeight: owned.height,
@@ -280,7 +281,7 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
       try {
         const decoded = await decodeImportedFile(file);
         await materializeRawCapture({
-          id: crypto.randomUUID(),
+          id: randomId(),
           originalBitmap: decoded.bitmap,
           originalWidth: decoded.width,
           originalHeight: decoded.height,
