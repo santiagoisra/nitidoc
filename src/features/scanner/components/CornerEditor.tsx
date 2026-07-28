@@ -138,7 +138,7 @@ export interface CornerEditorConfirmResult {
 
 export interface CornerEditorProps {
   /**
-   * Correlates this editing session: a fresh `crypto.randomUUID()` for an
+   * Correlates this editing session: a fresh `randomId()` for an
    * unconfirmed capture, or the existing page's id when re-editing an
    * already-materialized page (design section 5.4). Only used by the
    * caller (not read internally) — kept as a prop so callers can key the

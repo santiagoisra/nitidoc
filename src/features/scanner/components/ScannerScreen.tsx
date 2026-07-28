@@ -53,6 +53,7 @@ import { usePageDeletion } from '@/features/scanner/hooks/usePageDeletion';
 import { useCamera } from '@/features/scanner/hooks/useCamera';
 import { useOpenCvInit } from '@/features/scanner/hooks/useOpenCvInit';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
+import { randomId } from '@/shared/lib/randomId';
 
 /**
  * Group 5 / PR8: lazy-loaded feature boundary for the reorderable page grid
@@ -158,7 +159,7 @@ export function ScannerScreen(): ReactNode {
     async (file: File) => {
       const decoded = await decodeImportedFile(file);
       await materializeRawCapture({
-        id: crypto.randomUUID(),
+        id: randomId(),
         originalBitmap: decoded.bitmap,
         originalWidth: decoded.width,
         originalHeight: decoded.height,

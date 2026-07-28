@@ -42,7 +42,7 @@ import type { EditRecipe } from '@/shared/types/scanner';
  * that runs later, in the `'processing'` batch step (`useBatchProcess.ts`).
  */
 export interface MaterializeRawCaptureInput {
-  /** `crypto.randomUUID()`, assigned by the caller before calling this — flows into the resulting page's id at conversion (Unit 4). */
+  /** `randomId()`, assigned by the caller before calling this — flows into the resulting page's id at conversion (Unit 4). */
   readonly id: string;
   /** Live, from the capture sequence (already cropped to the visible object-cover rect, D-4). OWNERSHIP TRANSFERS to this call — closed once compressed+thumbnailed. */
   readonly originalBitmap: ImageBitmap;
