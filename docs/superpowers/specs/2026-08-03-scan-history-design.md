@@ -223,7 +223,28 @@ Capacitor 8. Status of each item identified up front:
    rejected `applyConstraints` and leaves `torchOn` untouched, so this degrades
    rather than breaks.
 
-Remaining: producing an installable APK needs the Android SDK (compileSdk 36 per
-`android/variables.gradle`), which is not installed on this machine. Everything
-above is in place and the Gradle project is generated; `npm run android:sync`
-followed by a Gradle build is the only step left.
+### Building
+
+```
+npm run android:sync      # build:native (no service worker) + cap sync android
+cd android && ./gradlew assembleDebug
+```
+
+`android/local.properties` (git-ignored, machine-specific) must point at an SDK
+with `platforms;android-36` and `build-tools;36.0.0`, per
+`android/variables.gradle`.
+
+Verified on the produced `app-debug.apk` (9.4 MB):
+
+- `package: com.nitidoc.app`, with `android.permission.CAMERA` declared.
+- `assets/public/opencv/opencv.js` bundled at full size, so the scanner has no
+  10 MB first-run download on device.
+- **No `sw.js`** — confirming `NITIDOC_NATIVE=1` actually dropped the service
+  worker rather than merely being set.
+
+Not yet done: running the APK on hardware. No device was attached and no
+emulator image is installed, so the on-device behaviors this packaging is
+*about* — the camera permission prompt, OpenCV initializing under the Capacitor
+scheme, and the share sheet receiving the PDF — remain unverified in the only
+environment that can actually settle them. That is device QA, and it is the next
+step before this is called done.
