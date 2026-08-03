@@ -9,7 +9,8 @@
     {
       "site": "nitidoc-landing",
       "public": "landing",
-      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"]
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "cleanUrls": true
     }
   ]
 }
