@@ -30,6 +30,9 @@
     "dev": "vite",
     "prebuild": "node scripts/copy-opencv.mjs",
     "build": "tsc --noEmit && vite build",
+    "build:native": "cross-env NITIDOC_NATIVE=1 npm run build",
+    "android:sync": "npm run build:native && npx cap sync android",
+    "android:open": "npx cap open android",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -38,6 +41,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/share": "^8.0.1",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
@@ -49,6 +55,8 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/cli": "^8.5.0",
     "@playwright/test": "^1.49.1",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
@@ -57,6 +65,7 @@
     "@vitejs/plugin-basic-ssl": "^2.3.0",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
+    "cross-env": "^10.1.0",
     "fake-indexeddb": "^6.2.5",
     "happy-dom": "^20.10.6",
     "jpeg-js": "^0.4.4",

@@ -23,6 +23,7 @@
 
 import { buildCssFilter, needsWorker } from '@/features/scanner/lib/filterPipeline';
 import { decodeBlobToBitmap } from '@/features/scanner/lib/pageResources';
+import { deliverPdf } from '@/features/scanner/lib/savePdf';
 import { getSharedWorkerClient } from '@/features/scanner/lib/workerClient';
 import type { DocumentPage } from '@/features/scanner/store/documentSlice';
 import type { EditRecipe } from '@/shared/types/scanner';
@@ -206,5 +207,10 @@ export async function exportPagesToPdf(pages: readonly DocumentPage[]): Promise<
     doc.addImage(rendered.dataUrl, 'JPEG', 0, 0, rendered.width, rendered.height);
   }
 
-  doc?.save(exportFilename());
+  if (doc) {
+    // Web downloads it; a native shell writes it and opens the share sheet
+    // (history design section 9, item 1) — `jsPDF.save()` is a no-op inside an
+    // Android WebView.
+    await deliverPdf(doc, exportFilename());
+  }
 }

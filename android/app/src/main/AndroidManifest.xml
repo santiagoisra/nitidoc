@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+    </application>
+
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+        The scanner uses getUserMedia from the WebView. Capacitor's
+        BridgeWebChromeClient.onPermissionRequest maps the WebView's
+        VIDEO_CAPTURE request onto Manifest.permission.CAMERA and launches the
+        Android runtime prompt (verified in
+        @capacitor/android/capacitor/src/main/java/com/getcapacitor/BridgeWebChromeClient.java) —
+        but only for a permission the manifest actually declares. Without this
+        line the prompt never appears and getUserMedia rejects with
+        NotAllowedError, which the app would report as "camera denied" with no
+        way for the user to fix it.
+    -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!--
+        required="false" on purpose: Nitidoc has a complete import-an-image
+        fallback (ImportFallback), so a camera-less device is a supported
+        configuration, not a reason to hide the app from the Play Store.
+    -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+</manifest>

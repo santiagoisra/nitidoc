@@ -194,21 +194,36 @@ Capacitor rather than a TWA, decided by the iOS requirement: a TWA is
 Android-only with no iOS counterpart, so one codebase for both platforms rules it
 out.
 
-Known work, from reading the current code:
+Capacitor 8. Status of each item identified up front:
 
-1. `exportPdf.ts` ends in `jsPDF.save()`, which triggers a browser download. An
-   Android WebView does not handle that. Native builds must branch to
-   `Filesystem.writeFile` + `Share`.
-2. `opencv.worker.ts` is a classic worker that calls
-   `importScripts('/opencv/opencv.js')`. Capacitor serves the bundle from
-   `https://localhost/`, so the absolute path resolves — but this is the single
-   highest-risk assumption in the packaging work and gets verified first, not
-   last.
-3. The service worker is redundant in a native build and must be disabled there,
-   alongside the existing `httpsPreview` condition in `vite.config.ts`.
-4. `CAMERA` permission in the manifest; Capacitor's WebChromeClient maps the
-   WebView's `getUserMedia` permission request onto the Android runtime prompt.
-   To be verified against the installed Capacitor version rather than assumed.
-5. Torch via `applyConstraints` is inconsistent across Android WebView vendors.
-   Degrading gracefully is already the existing behavior (`setTorch` swallows a
-   rejected `applyConstraints`), so this is a known limitation, not a blocker.
+1. **PDF delivery — done.** `jsPDF.save()` triggers a browser download, which an
+   Android WebView has no download manager to handle: the export would silently
+   evaporate. `savePdf.ts` branches on `Capacitor.isNativePlatform()` and writes
+   to `Directory.Cache` + the OS share sheet on native. The plugins are imported
+   dynamically so the web bundle never carries them.
+2. **OpenCV under the Capacitor scheme — resolved.** `capacitor.config.ts` sets
+   `androidScheme: 'https'`, so the bundle is served from `https://localhost`.
+   That is a secure context (which `getUserMedia`, `crypto.randomUUID` and
+   storage persistence all require) and it makes the worker's absolute
+   `importScripts('/opencv/opencv.js')` resolve unchanged. `cap sync` copies the
+   10 MB asset into `android/app/src/main/assets/public/opencv/` — confirmed
+   present after the first sync.
+3. **Service worker — done.** `npm run build:native` sets `NITIDOC_NATIVE=1`,
+   which adds to `vite.config.ts`'s existing `disable` condition. Verified: the
+   native build emits no `sw.js`.
+4. **Camera permission — done and verified, not assumed.**
+   `BridgeWebChromeClient.onPermissionRequest` in the installed
+   `@capacitor/android@8.5.0` maps the WebView's `VIDEO_CAPTURE` request onto
+   `Manifest.permission.CAMERA` and launches the Android runtime prompt. That
+   only works for a permission the manifest declares, so `CAMERA` is now
+   declared, alongside `<uses-feature android:required="false">` — a camera-less
+   device is a supported configuration given the existing import fallback.
+5. **Torch — known limitation, unchanged.** `applyConstraints` is inconsistent
+   across Android WebView vendors. `useCamera.setTorch` already swallows a
+   rejected `applyConstraints` and leaves `torchOn` untouched, so this degrades
+   rather than breaks.
+
+Remaining: producing an installable APK needs the Android SDK (compileSdk 36 per
+`android/variables.gradle`), which is not installed on this machine. Everything
+above is in place and the Gradle project is generated; `npm run android:sync`
+followed by a Gradle build is the only step left.
