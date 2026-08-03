@@ -37,3 +37,57 @@ jobs:
       # OpenCV asset copy fails here instead of in production.
       - name: Production build
         run: npm run build
+
+  # A separate job, not extra steps on `verify`: it runs in parallel so total
+  # wall-clock does not grow, and a red check then names the layer that broke
+  # instead of one "CI" result covering everything.
+  e2e:
+    name: End-to-end tests
+    runs-on: ubuntu-latest
+    # The OpenCV init is the slowest and least predictable step in the suite,
+    # and it has hung outright in the past (see importFixture.spec.ts). A bound
+    # well above the ~1 minute this takes turns that into a failure instead of
+    # a job that burns the default six hours.
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        # Chromium only — the suite drives Chromium's own fake-device flags
+        # (--use-fake-device-for-media-stream), so no camera hardware and no
+        # other engine is needed.
+        run: npx playwright install --with-deps chromium
+
+      # MUST come before the tests. Playwright's `webServer` runs
+      # `npm run preview`, which serves `dist/` and does NOT rebuild — without
+      # this the suite would test whatever bundle happened to be checked in,
+      # which is worse than not testing at all.
+      - name: Build the bundle under test
+        run: npm run build
+
+      # `--workers=1` on purpose: a 2-core runner running several OpenCV inits
+      # at once is the obvious source of flake, and the whole suite takes about
+      # 20 seconds serially. Determinism is worth far more than those seconds —
+      # a flaky required check gets ignored, which is how the specs rotted in
+      # the first place.
+      - name: E2E tests
+        run: npx playwright test --workers=1
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
