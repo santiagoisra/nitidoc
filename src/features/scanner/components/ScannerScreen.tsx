@@ -261,8 +261,14 @@ export function ScannerScreen({ onOpenHistory }: ScannerScreenProps = {}): React
     // The second of the two "document is finished" moments (history design
     // section 6). Idempotent with the export path: both key off the same
     // `documentId`, so whichever fires second updates one record.
-    void saveToHistory(pages);
-    setPhase('done');
+    //
+    // The phase transition WAITS for the write, unlike the export path. That
+    // buys a guarantee worth having — if you are looking at the done screen,
+    // the scan is in your history — and it closes a real hole found by the E2E
+    // suite: finishing a document and immediately reloading used to kill the
+    // in-flight write and lose the scan entirely. The cost is a few hundred ms
+    // on a terminal screen nobody is racing through.
+    void saveToHistory(pages).finally(() => setPhase('done'));
   }, [pages, saveToHistory, setPhase]);
 
   const handleExportPdf = useCallback(() => {

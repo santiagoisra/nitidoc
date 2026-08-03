@@ -52,27 +52,31 @@ export function useHistoryList(): UseHistoryListResult {
     };
   }, []);
 
+  /**
+   * Deliberately NOT optimistic. Removing the row first and writing afterwards
+   * makes the UI assert "gone" before anything is gone — and the E2E suite
+   * caught exactly that: the empty state rendered, the user reloaded, and the
+   * still-in-flight transaction died with the page, bringing the scan back from
+   * the dead. Deleting is one fast transaction; there is no UX worth buying
+   * with a claim that might not be true.
+   */
   const remove = useCallback(
     async (id: string) => {
-      // Optimistic: the row disappears immediately, then the real usage
-      // figure comes back from the refresh. A failed delete re-appears on the
-      // next refresh rather than lying about being gone.
-      setDocuments((current) => current.filter((meta) => meta.id !== id));
       await deleteDocument(id);
       await refresh();
     },
     [refresh],
   );
 
-  const togglePin = useCallback(
-    async (id: string, pinned: boolean) => {
-      setDocuments((current) =>
-        current.map((meta) => (meta.id === id ? { ...meta, pinned } : meta)),
-      );
-      await setPinned(id, pinned);
-    },
-    [],
-  );
+  /**
+   * Pinning IS optimistic, and the asymmetry is intentional: it is a toggle
+   * whose worst failure is a star that flips back on the next refresh, not a
+   * document that appears to be destroyed and is not.
+   */
+  const togglePin = useCallback(async (id: string, pinned: boolean) => {
+    setDocuments((current) => current.map((meta) => (meta.id === id ? { ...meta, pinned } : meta)));
+    await setPinned(id, pinned);
+  }, []);
 
   return { documents, usage, loading, remove, togglePin, refresh };
 }

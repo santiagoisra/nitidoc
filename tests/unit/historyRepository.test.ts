@@ -51,7 +51,7 @@ function fakePage(order: number, warpedBytes = 1000, thumbBytes = 100): Document
   return {
     id: `page-${order}`,
     order,
-    recipe: createInitialRecipe(CORNERS),
+    recipe: createInitialRecipe(CORNERS, 'unknown'),
     thumbnail: { encodedSize: thumbBytes, close: vi.fn() } as unknown as ImageBitmap,
     originalBlob: new Blob([new Uint8Array(5000)]),
     warpedBlob: new Blob([new Uint8Array(warpedBytes)]),
