@@ -1,5 +1,23 @@
 apply plugin: 'com.android.application'
 
+/**
+ * Release signing (publishing).
+ *
+ * The keystore and its passwords live in `android/keystore.properties`, which
+ * is git-ignored and NEVER committed. Signing material in a public AGPL repo
+ * would let anyone ship an APK that Android accepts as an update to this app.
+ *
+ * Absent that file, the release build still CONFIGURES and COMPILES — it just
+ * comes out unsigned, so a missing keystore fails at the point of publishing
+ * rather than breaking every developer's build. See docs/RELEASING.md.
+ */
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+def hasKeystore = keystorePropertiesFile.exists()
+if (hasKeystore) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
     namespace = "com.nitidoc.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -16,8 +34,26 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (hasKeystore) {
+            release {
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (hasKeystore) {
+                signingConfig signingConfigs.release
+            }
+            // Left off deliberately: the app is one WebView activity plus two
+            // Capacitor plugins, so shrinking saves almost nothing, while an
+            // over-eager rule stripping a plugin's reflected entry point is a
+            // real and hard-to-debug risk. Revisit only with a measured reason.
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
