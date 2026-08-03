@@ -130,4 +130,26 @@ export const es = {
   'install.iosStep1': 'Tocá el botón Compartir en la barra de Safari.',
   'install.iosStep2': 'Elegí "Agregar a inicio" y confirmá.',
   'install.iosHint': 'Nitidoc queda en tu pantalla de inicio como una app más — sin App Store, sin cuenta.',
+
+  'history.title': 'Mis escaneos',
+  'history.open': 'Abrir historial',
+  'history.back': 'Volver',
+  'history.documentTitle': 'Escaneo {date}',
+  'history.pageCount': { one: '{n} página', other: '{n} páginas' },
+  'history.openDocument': 'Abrir',
+  'history.deleteDocument': 'Eliminar',
+  'history.pin': 'Conservar este escaneo',
+  'history.unpin': 'Dejar de conservar este escaneo',
+  'history.pinned': 'Conservado',
+  'history.empty': 'Todavía no hay escaneos guardados',
+  'history.emptyHint': 'Los escaneos se guardan acá solos cuando exportás o terminás un documento.',
+  'history.loading': 'Cargando tus escaneos…',
+  'history.usage': '{used} de {total} usados',
+  'history.saveError': 'No se pudo guardar este escaneo en el historial.',
+  'history.saveQuotaError':
+    'No queda espacio suficiente para guardar este escaneo. Borrá escaneos viejos y probá de nuevo.',
+  'history.openError': 'No se pudo abrir este escaneo.',
+  'history.unavailable': 'Tu navegador tiene el almacenamiento desactivado, así que no se pueden guardar escaneos.',
+  'history.restoredNotice':
+    'Restaurado del historial: recortar ahora recorta la página ya enderezada, no vuelve a detectar la hoja.',
 } satisfies Record<keyof typeof en, TranslationValue>;

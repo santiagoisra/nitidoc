@@ -29,9 +29,11 @@ export interface WelcomeScreenProps {
   readonly onStart: () => void;
   /** Decodes + materializes an imported image and advances to processing. Rejects on failure. */
   readonly onImportFile: (file: File) => Promise<void>;
+  /** Opens the scan history. Omitted by callers that do not mount the history (tests, embeds). */
+  readonly onOpenHistory?: () => void;
 }
 
-export function WelcomeScreen({ onStart, onImportFile }: WelcomeScreenProps): ReactNode {
+export function WelcomeScreen({ onStart, onImportFile, onOpenHistory }: WelcomeScreenProps): ReactNode {
   const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
@@ -121,6 +123,11 @@ export function WelcomeScreen({ onStart, onImportFile }: WelcomeScreenProps): Re
           <p role="alert" className="text-sm text-danger" data-testid="welcome-import-error">
             {importError}
           </p>
+        )}
+        {onOpenHistory && (
+          <Button type="button" variant="ghost" onClick={onOpenHistory} data-testid="welcome-history">
+            {t('history.title')}
+          </Button>
         )}
       </div>
 

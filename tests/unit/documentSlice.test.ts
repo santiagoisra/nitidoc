@@ -30,6 +30,16 @@ function createTestStore() {
   }));
 }
 
+/**
+ * `resetDocument` re-mints `documentId` on purpose (history design section 5),
+ * so a whole-state equality check against the initial slice has to exclude it
+ * and assert the identity separately.
+ */
+function omitDocumentId(slice: DocumentSlice): Omit<DocumentSlice, 'documentId'> {
+  const { documentId: _ignored, ...rest } = slice;
+  return rest;
+}
+
 const CORNERS: Quad = [
   { x: 0, y: 0 },
   { x: 100, y: 0 },
@@ -472,6 +482,7 @@ describe('documentSlice.resetDocument — full teardown (design section 1.5)', (
     useStore.getState().deletePage('c');
     expect(useStore.getState().pendingDeletion?.id).toBe('c');
 
+    const previousDocumentId = useStore.getState().documentId;
     useStore.getState().resetDocument();
 
     expect(active.originalBitmap.close).toHaveBeenCalledTimes(1);
@@ -481,13 +492,22 @@ describe('documentSlice.resetDocument — full teardown (design section 1.5)', (
     expect(pageC.thumbnail.close).toHaveBeenCalledTimes(1);
     expect(rawA.thumbnail.close).toHaveBeenCalledTimes(1);
     expect(rawB.thumbnail.close).toHaveBeenCalledTimes(1);
-    expect(useStore.getState()).toMatchObject(initialDocumentSlice);
+    // Everything resets to the initial shape EXCEPT `documentId`, which is
+    // deliberately re-minted so the next document writes its own scan-history
+    // record instead of overwriting the one just finished (history design
+    // section 5).
+    const { documentId, ...rest } = useStore.getState();
+    expect(rest).toMatchObject(omitDocumentId(initialDocumentSlice));
+    expect(documentId).not.toBe(previousDocumentId);
+    expect(documentId).not.toBe('');
   });
 
   it('does not throw when resetting an already-empty document', () => {
     const useStore = createTestStore();
     expect(() => useStore.getState().resetDocument()).not.toThrow();
-    expect(useStore.getState()).toMatchObject(initialDocumentSlice);
+    const { documentId, ...rest } = useStore.getState();
+    expect(rest).toMatchObject(omitDocumentId(initialDocumentSlice));
+    expect(documentId).not.toBe('');
   });
 });
 

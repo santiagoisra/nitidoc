@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
+import { useCallback, useState } from 'react';
 import { BrandGlyph, LanguageToggle, ToastHost } from '@/shared/ui';
 import { LocaleProvider } from '@/shared/i18n';
+import { HistoryScreen } from '@/features/history/components/HistoryScreen';
 import { ScannerScreen } from '@/features/scanner/components/ScannerScreen';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
 
@@ -50,10 +52,22 @@ import { useScannerStore } from '@/features/scanner/store/scannerStore';
  */
 export function App(): ReactNode {
   const phase = useScannerStore((state) => state.phase);
+
+  /**
+   * Scan history (history design section 6). The app still has no router — one
+   * boolean is the whole navigation model, which is the right size for two
+   * top-level screens. The history is never immersive, so it always renders
+   * inside the normal scrollable shell with the header above it.
+   */
+  const [showHistory, setShowHistory] = useState(false);
+  const openHistory = useCallback(() => setShowHistory(true), []);
+  const closeHistory = useCallback(() => setShowHistory(false), []);
+
   // `adjust` joins `capturing`/`processing` as a full-bleed no-scroll screen:
   // it is a CamScanner-style page-preview + fixed filter strip + toolbar that
   // manages its own internal layout (the page itself must not scroll).
-  const immersive = phase === 'capturing' || phase === 'processing' || phase === 'adjust';
+  const immersive =
+    !showHistory && (phase === 'capturing' || phase === 'processing' || phase === 'adjust');
 
   return (
     <LocaleProvider>
@@ -88,7 +102,11 @@ export function App(): ReactNode {
             }
             data-testid="app-main"
           >
-            <ScannerScreen />
+            {showHistory ? (
+              <HistoryScreen onBack={closeHistory} onOpened={closeHistory} />
+            ) : (
+              <ScannerScreen onOpenHistory={openHistory} />
+            )}
           </main>
         </div>
       </ToastHost>

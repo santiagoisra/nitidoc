@@ -57,6 +57,7 @@
     "@vitejs/plugin-basic-ssl": "^2.3.0",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
+    "fake-indexeddb": "^6.2.5",
     "happy-dom": "^20.10.6",
     "jpeg-js": "^0.4.4",
     "postcss": "^8.5.1",

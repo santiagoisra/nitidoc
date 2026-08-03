@@ -46,6 +46,7 @@ import { CornerEditor, type CornerEditorConfirmResult } from '@/features/scanner
 import { PageThumbnail } from '@/features/scanner/components/PageThumbnail';
 import { ProcessingScreen } from '@/features/scanner/components/ProcessingScreen';
 import { WelcomeScreen } from '@/features/scanner/components/WelcomeScreen';
+import { useSaveToHistory } from '@/features/history/hooks/useSaveToHistory';
 import { decodeImportedFile } from '@/features/scanner/lib/captureFallback';
 import { useActivePage } from '@/features/scanner/hooks/useActivePage';
 import { useExportPdf } from '@/features/scanner/hooks/useExportPdf';
@@ -71,7 +72,16 @@ const PageGrid = lazy(() => import('@/features/scanner/components/PageGrid'));
  */
 const AdjustScreen = lazy(() => import('@/features/scanner/components/AdjustScreen'));
 
-export function ScannerScreen(): ReactNode {
+export interface ScannerScreenProps {
+  /**
+   * Opens the scan history (history design section 6). Optional so the many
+   * existing tests that render `<ScannerScreen />` bare keep compiling — when
+   * absent, the welcome screen simply omits the entry point.
+   */
+  readonly onOpenHistory?: () => void;
+}
+
+export function ScannerScreen({ onOpenHistory }: ScannerScreenProps = {}): ReactNode {
   const { t } = useTranslation();
   const { openCamera, switchCamera, setTorch } = useCamera();
 
@@ -85,13 +95,27 @@ export function ScannerScreen(): ReactNode {
   // Group 5/PR8's minimal direct `DocumentSlice.deletePage` wiring.
   const { deletePage } = usePageDeletion();
   const { exporting, exportPdf } = useExportPdf();
+  // Scan history (history design section 6): the grid's "Listo" transition is
+  // the non-export way to finish a document, so it owns its own save call.
+  const { saveToHistory } = useSaveToHistory();
 
   // Group 2 / PR5 controller: Activate/Deactivate, Re-warp (design section
   // 2.2) for the grid's re-entry corner-edit flow.
   const { activeWorking, activePageId, activatePage, deactivateActivePage, rewarpActivePage, materializeRawCapture } =
     useActivePage();
 
-  const [started, setStarted] = useState(false);
+  const [startedManually, setStarted] = useState(false);
+
+  /**
+   * The welcome screen is the "no document in play" state, not an explicit
+   * flag. Deriving it from `pages` as well as the button press is what lets a
+   * document restored from the history (history design section 6) land
+   * straight on its grid — `loadDocumentFromHistory` fills `pages` without ever
+   * routing through `handleStart`, so a purely manual flag would bounce the
+   * user back to the welcome screen with their restored document invisible
+   * behind it.
+   */
+  const started = startedManually || pages.length > 0;
 
   // Where the corner editor (`editing-corners`) should return on Confirm/
   // Cancel — the grid re-entry returns to `'grid'`, but the new `'adjust'`
@@ -234,8 +258,12 @@ export function ScannerScreen(): ReactNode {
   }, [setPhase]);
 
   const handleGridFinish = useCallback(() => {
+    // The second of the two "document is finished" moments (history design
+    // section 6). Idempotent with the export path: both key off the same
+    // `documentId`, so whichever fires second updates one record.
+    void saveToHistory(pages);
     setPhase('done');
-  }, [setPhase]);
+  }, [pages, saveToHistory, setPhase]);
 
   const handleExportPdf = useCallback(() => {
     exportPdf(pages);
@@ -249,7 +277,13 @@ export function ScannerScreen(): ReactNode {
   }, [resetDocument, setPhase]);
 
   if (!started) {
-    return <WelcomeScreen onStart={handleStart} onImportFile={handleImportFromWelcome} />;
+    return (
+      <WelcomeScreen
+        onStart={handleStart}
+        onImportFile={handleImportFromWelcome}
+        onOpenHistory={onOpenHistory}
+      />
+    );
   }
 
   // Fase 2.3 (capture-ux-redesign.md, Unit 3), "Phase-gating decouple
