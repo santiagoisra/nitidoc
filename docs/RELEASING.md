@@ -40,12 +40,21 @@ developer's build.
 
 ## 2. Bump the version
 
-In `android/app/build.gradle`:
+**`versionName` comes from `package.json`.** Edit `version` there and the
+Android build picks it up — `android/app/build.gradle` reads the file at
+configure time. There is nothing to keep in step, which is the point: the two
+copies drifted before v1.0.0 (0.1.0 in one, "1.0" in the other, v1.0.0 on the
+tag). A missing or unreadable version fails the build rather than substituting
+a placeholder.
 
-- `versionCode` — an integer that MUST increase on every single upload to Play.
-  Play rejects a re-used one, and this is the most common failed-upload cause.
-- `versionName` — the human string ("1.1.0"). Keep it in step with
-  `package.json`.
+**`versionCode` is still by hand**, in `android/app/build.gradle`. It MUST
+increase on every single upload to Play — a re-used one is rejected, and that
+is the most common failed-upload cause. It is deliberately not derived from the
+semver: Play's rule means you sometimes need a second build of the SAME
+version (a rejected upload, a packaging fix), and a formula would make that
+impossible without inventing a version bump to carry it.
+
+Tag the git release to match `package.json`, e.g. `v1.1.0`.
 
 ## 3. Build
 

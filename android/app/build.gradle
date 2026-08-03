@@ -1,5 +1,33 @@
 apply plugin: 'com.android.application'
 
+import groovy.json.JsonSlurper
+
+/**
+ * Version name — read from `package.json`, which is the single source of truth.
+ *
+ * It used to be duplicated here, and the copies drifted: v1.0.0 shipped with
+ * `package.json` saying 0.1.0, this file saying "1.0" and the git tag saying
+ * v1.0.0, all naming the same release. Aligning them by hand fixed that
+ * instance; reading one from the other removes the class of problem, since
+ * there is no longer a second place to forget.
+ *
+ * Gradle parses `package.json` directly rather than a script stamping this
+ * file, so nothing is generated, nothing needs regenerating after `cap sync`,
+ * and opening the project in Android Studio needs no prior npm step.
+ *
+ * It FAILS LOUDLY if the version cannot be read. A silent fallback would let a
+ * release build out the door labelled with a placeholder — precisely the kind
+ * of quiet wrongness this change exists to end.
+ */
+def packageJsonFile = rootProject.file("../package.json")
+if (!packageJsonFile.exists()) {
+    throw new GradleException("Cannot resolve versionName: ${packageJsonFile} not found.")
+}
+def appVersionName = new JsonSlurper().parse(packageJsonFile).version
+if (!appVersionName) {
+    throw new GradleException("Cannot resolve versionName: no \"version\" field in ${packageJsonFile}.")
+}
+
 /**
  * Release signing (publishing).
  *
@@ -25,16 +53,25 @@ android {
         applicationId "com.nitidoc.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // Keep in step with `package.json`'s `version` and with the git tag —
-        // the three name the same release, and they drifted apart before
-        // v1.0.0 went out (0.1.0 here, "1.0" there).
-        //
-        // `versionCode` is the Android-only counterpart and follows a
-        // different rule: it MUST increase on every upload to Play, which
-        // rejects a re-used one. v1.0.0 shipped as 1, so the next release is 2
-        // regardless of how `versionName` changes. See docs/RELEASING.md.
+        /*
+         * `versionCode` stays HAND-WRITTEN, and deliberately so. Deriving it
+         * from the semver (the usual major*10000 + minor*100 + patch) looks
+         * tidy and takes away a capability that is occasionally needed: Play
+         * rejects a re-used code, so shipping a second build of the SAME
+         * version — a rejected upload, a packaging fix with no code change —
+         * would become impossible without inventing a version bump to carry it.
+         *
+         * It also only ever goes up. Adopting a formula would jump this to
+         * 10000 with no way back, on the strength of a guess about future
+         * needs.
+         *
+         * So: bump it by hand on every upload to Play, which rejects a re-used
+         * one. v1.0.0 shipped as 1, so the next release is 2 — independently of
+         * `versionName`, which now comes from `package.json`.
+         * See docs/RELEASING.md.
+         */
         versionCode 1
-        versionName "1.0.0"
+        versionName appVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
