@@ -32,6 +32,7 @@ import { useCallback } from 'react';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
 import type { ActivePageResources } from '@/features/scanner/store/documentSlice';
 import { compressBitmapToJpeg, decodeBlobToBitmap, makeThumbnail } from '@/features/scanner/lib/pageResources';
+import { encodeCapture } from '@/features/scanner/lib/encodeClient';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
 import type { EditRecipe } from '@/shared/types/scanner';
 
@@ -113,38 +114,40 @@ export function useActivePage(): UseActivePageResult {
         return { status: 'blocked-cap' };
       }
 
-      try {
-        // Thumbnail + compress both derive from the UNWARPED original — no
-        // warp has happened yet at capture time (design section "Memory").
-        const [thumbnail, originalBlob] = await Promise.all([
-          makeThumbnail(input.originalBitmap, FILTER.THUMBNAIL_MAX_EDGE),
-          compressBitmapToJpeg(input.originalBitmap, FILTER.JPEG_QUALITY),
-        ]);
+      // Thumbnail + compress both derive from the UNWARPED original — no warp
+      // has happened yet at capture time (design section "Memory").
+      //
+      // This runs OFF the main thread now (capture-latency, bug 5). It used to
+      // be a `Promise.all` of `makeThumbnail`/`compressBitmapToJpeg` right
+      // here, which rasterized ~12MP twice on the thread that also had to keep
+      // the viewfinder alive — the single biggest cause of the post-capture
+      // stall on slower devices.
+      //
+      // `encodeCapture` ALWAYS releases the bitmap (it is transferred to the
+      // worker, or closed by the fallback), which is why the explicit
+      // `finally { close() }` that used to guard this block is gone: closing a
+      // transferred handle here would be a no-op at best and a double-release
+      // hazard at worst.
+      const { originalBlob, thumbnail } = await encodeCapture(
+        input.originalBitmap,
+        FILTER.JPEG_QUALITY,
+        FILTER.THUMBNAIL_MAX_EDGE,
+      );
 
-        // Re-read rawCaptures.length right before appending (not the snapshot
-        // from above) so the new raw's `order` is correct even if another
-        // append happened while the compress/thumbnail work above was in
-        // flight.
-        const order = useScannerStore.getState().rawCaptures.length;
-        addRawCapture({
-          id: input.id,
-          order,
-          originalBlob,
-          thumbnail,
-          originalWidth: input.originalWidth,
-          originalHeight: input.originalHeight,
-        });
+      // Re-read rawCaptures.length right before appending (not the snapshot
+      // from above) so the new raw's `order` is correct even if another
+      // append happened while the encode above was in flight.
+      const order = useScannerStore.getState().rawCaptures.length;
+      addRawCapture({
+        id: input.id,
+        order,
+        originalBlob,
+        thumbnail,
+        originalWidth: input.originalWidth,
+        originalHeight: input.originalHeight,
+      });
 
-        return { status: 'added' };
-      } finally {
-        // Review fix (F1 hygiene): `input.originalBitmap`'s ownership
-        // contract says this call ALWAYS releases it — but the close() call
-        // used to sit AFTER the `Promise.all` above, unreachable whenever
-        // `makeThumbnail`/`compressBitmapToJpeg` rejected, leaking the live
-        // full-res capture bitmap on every failed materialize. `finally` runs
-        // on both the success return above and any rejection propagating out.
-        input.originalBitmap.close();
-      }
+      return { status: 'added' };
     },
     [],
   );

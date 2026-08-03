@@ -112,20 +112,49 @@ export interface ActivePageResources {
  * `'processing'` (a transient BATCH step over `rawCaptures`, not a single
  * page) and `'tray'` is dropped — `'capturing'` now covers the persistent
  * full-bleed camera screen that used to be split across `'capturing'`
- * (transient, mid-frame-grab) and `'tray'` (resting, camera open). Unit 3
- * rewrites the capture flow to match; until then, `ScannerScreen`'s existing
- * F1/Fase-2 phase-driven rendering keeps working unchanged by mapping every
- * former `'tray'` transition onto `'idle'` (see that file's own comments) —
- * both already rendered the exact same camera+tray view.
+ * (transient, mid-frame-grab) and `'tray'` (resting, camera open).
+ *
+ * NAVIGATION (navigation-ux): `'idle'` is renamed to `'welcome'` and now
+ * RENDERS the welcome screen, which used to live outside the phase model
+ * entirely — behind a component-local `started` flag in `ScannerScreen`.
+ *
+ * That flag was the root cause of "there is no back button on almost any
+ * screen": with the first screen sitting outside the phase machine, there was
+ * no transition that could express going back to it, so no screen could offer
+ * one. Making the welcome screen a phase turns "back" into an ordinary phase
+ * transition, which is why the back affordances could then be added in one
+ * place instead of screen by screen.
+ *
+ * The rename is not a new concept, only an honest name: `'idle'` was already
+ * unreachable after startup — `handleStart` goes straight to `'capturing'` and
+ * the welcome import goes straight to `'processing'`, so nothing ever set it
+ * again.
  */
 export type DocumentPhase =
-  | 'idle'
+  | 'welcome' // entry screen: start the camera, import a file, or open the history
   | 'capturing'
   | 'processing'
   | 'adjust' // per-page review carousel: filter strip + retake/rotate/crop toolbar + "add more"
   | 'editing-corners'
-  | 'grid' // reorder / delete / per-page filter
+  | 'grid' // review: reorder / delete / per-page filter. NOT an export surface.
   | 'done';
+
+/**
+ * Where "back" goes from each phase — the whole navigation model, in one
+ * place (navigation-ux, bugs 1 and 3).
+ *
+ * `'welcome'` is absent because it is the root, and `'editing-corners'` is
+ * absent because its return target is dynamic: it depends on whether the
+ * editor was opened from the grid or from the adjust screen, which
+ * `ScannerScreen` tracks in `editReturnPhase`.
+ */
+export const BACK_PHASE: Partial<Record<DocumentPhase, DocumentPhase>> = {
+  capturing: 'welcome',
+  processing: 'capturing',
+  adjust: 'capturing',
+  grid: 'adjust',
+  done: 'grid',
+} as const;
 
 export interface DocumentSlice {
   /**
@@ -242,7 +271,7 @@ export const initialDocumentSlice: DocumentSlice = {
   activeDirty: false,
   selectedPageIds: [],
   pendingDeletion: null,
-  phase: 'idle',
+  phase: 'welcome',
 };
 
 /**

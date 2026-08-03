@@ -12,6 +12,7 @@ import type { TranslationValue } from '@/shared/i18n/types';
  * Eco) per the i18n pass's own scope note.
  */
 export const es = {
+  'common.back': 'Volver',
   'common.close': 'Cerrar',
   'common.processing': 'Procesando…',
   'common.documentLimitReached': 'Se alcanzó el límite de documentos ({cap} páginas).',
@@ -96,7 +97,7 @@ export const es = {
   'grid.reorder': 'Reordenar página',
   'grid.pagesCaptured': { one: '{n} página capturada.', other: '{n} páginas capturadas.' },
   'grid.captureMore': 'Capturar más',
-  'grid.finish': 'Finalizar',
+  'grid.finish': 'Listo',
   'grid.deletePage': 'Eliminar página',
   'grid.needsReview': 'Revisar',
   'grid.editPage': 'Editar página',
@@ -131,6 +132,17 @@ export const es = {
   'install.iosStep2': 'Elegí "Agregar a inicio" y confirmá.',
   'install.iosHint': 'Nitidoc queda en tu pantalla de inicio como una app más — sin App Store, sin cuenta.',
 
+  'viewer.title': 'Vista previa del documento',
+  'viewer.open': 'Ver documento',
+  'viewer.position': '{current} de {total}',
+  'viewer.pageAlt': 'Página {n}',
+  'viewer.previous': 'Página anterior',
+  'viewer.next': 'Página siguiente',
+  'viewer.renderError': 'No se pudo renderizar esta página.',
+
+  'done.keep': 'Finalizar',
+  'done.keepHint': 'Guardado en tus escaneos — podés abrirlo de nuevo cuando quieras.',
+
   'history.title': 'Mis escaneos',
   'history.open': 'Abrir historial',
   'history.back': 'Volver',
@@ -142,7 +154,7 @@ export const es = {
   'history.unpin': 'Dejar de conservar este escaneo',
   'history.pinned': 'Conservado',
   'history.empty': 'Todavía no hay escaneos guardados',
-  'history.emptyHint': 'Los escaneos se guardan acá solos cuando exportás o terminás un documento.',
+  'history.emptyHint': 'Los escaneos se guardan acá solos cuando tocás "Listo" después de revisar un documento.',
   'history.loading': 'Cargando tus escaneos…',
   'history.usage': '{used} de {total} usados',
   'history.saveError': 'No se pudo guardar este escaneo en el historial.',

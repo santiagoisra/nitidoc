@@ -32,7 +32,7 @@ import type { FilterVariant, ImageDataLike } from '@/features/scanner/worker/mes
 /** Quality for the exported JPEG frames embedded in the PDF — higher than the ~0.85 cache quality since this is the final deliverable. */
 const PDF_JPEG_QUALITY = 0.9;
 
-interface RenderedPage {
+export interface RenderedPage {
   readonly dataUrl: string;
   readonly width: number;
   readonly height: number;
@@ -155,8 +155,19 @@ async function bakeViaWorker(
   }
 }
 
-/** Renders one document page (filter baked full-res + orientation applied) to a JPEG data URL. */
-async function renderPage(page: DocumentPage): Promise<RenderedPage> {
+/**
+ * Renders one document page (filter baked full-res + orientation applied) to a
+ * JPEG data URL.
+ *
+ * Exported because the on-screen viewer (`PageViewer`) renders through this
+ * exact function rather than approximating with CSS filters. That matters: the
+ * adaptive presets (`bw`, `bw-high-contrast`, `eco`, and anything with
+ * sharpness) are baked by the OpenCV worker and have NO faithful CSS
+ * equivalent, so a preview built from `ctx.filter` would show the user
+ * something the exported PDF does not contain — which defeats the entire
+ * purpose of letting them look before exporting.
+ */
+export async function renderPage(page: DocumentPage): Promise<RenderedPage> {
   const bitmap = await decodeBlobToBitmap(page.warpedBlob);
   const { recipe } = page;
   const { width, height } = orientedSize(bitmap.width, bitmap.height, recipe.rotation);

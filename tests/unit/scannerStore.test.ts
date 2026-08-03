@@ -34,7 +34,7 @@ describe('scannerStore <- DocumentSlice wiring (Group 1c)', () => {
     expect(useScannerStore.getState().pages).toEqual([]);
     expect(useScannerStore.getState().activePageId).toBeNull();
     expect(useScannerStore.getState().activeWorking).toBeNull();
-    expect(useScannerStore.getState().phase).toBe('idle');
+    expect(useScannerStore.getState().phase).toBe('welcome');
   });
 
   it('setPhase writes DocumentPhase values through the combined store (no legacy phase adapter left)', () => {
