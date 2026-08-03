@@ -30,17 +30,27 @@ const FIXTURE_PATH = path.join(__dirname, 'fixtures', 'document.png');
  * With the WASM embedded inline, no `locateFile`/separate `.wasm` is needed.
  *
  * This test is written to be HONEST about both outcomes rather than hardcoding
- * either: it drives the real import -> decode -> editor -> warp pipeline with
- * zero tolerance for unhandled page errors, and then asserts the worker
- * ACTUALLY RESPONDS to the warp request — success (`warp-preview`) OR a clean
- * error (`warp-error`) — instead of hanging indefinitely as the old ES-module
- * worker did. It does NOT assert pixel-correctness of `warpPerspective` against
- * a real document; that, plus confirming the load path on ACTUAL target
- * browsers (not this CI-style headless Chromium), remains device QA work (see
- * design section 11's R1/R5/degraded-mode calibration items). If OpenCV fails
- * to load in this specific headless environment for an unrelated reason, the
- * warp path degrades to `warp-error` (a reply), which this test still accepts —
- * what it will NOT tolerate is the old silent infinite hang.
+ * either: it drives the real import -> batch-process pipeline with zero
+ * tolerance for unhandled page errors, and asserts the pipeline ACTUALLY
+ * TERMINATES — the batch either warps the page or degrades to the
+ * frame-corners fallback, and both land on the adjust screen. What it will NOT
+ * tolerate is the old silent infinite hang, which the timeout-bounded wait
+ * surfaces as a failure. It does NOT assert pixel-correctness of
+ * `warpPerspective` against a real document; that, plus confirming the load
+ * path on ACTUAL target browsers (not this CI-style headless Chromium), remains
+ * device QA work (see design section 11's R1/R5/degraded-mode calibration
+ * items).
+ *
+ * ============================================================================
+ * FLOW — updated for Fase 2.3 (capture-ux-redesign.md):
+ * ============================================================================
+ *
+ * This test used to assert that selecting the fixture landed directly on
+ * `corner-editor`. That route no longer exists: importing adds a `RawCapture`
+ * and leaves you on the no-camera screen, where "Next" starts the deferred
+ * batch `processing` step (detect -> warp -> thumbnail), which lands on
+ * `adjust`. The corner editor is now reached deliberately, from the adjust
+ * screen's crop chip or from a grid page — see `cornerEditor.spec.ts`.
  *
  * How the import fallback is reached: via `--use-fake-ui-for-media-stream=deny`
  * (the SAME Chromium fake-UI flag `camera.spec.ts` already uses for its
@@ -61,8 +71,15 @@ const FIXTURE_PATH = path.join(__dirname, 'fixtures', 'document.png');
  * dark background — a real image fixture, not a 1x1 placeholder.
  */
 
-test.describe('Phase 1 acceptance: import fallback -> detect -> edit -> warp (task 7.2)', () => {
-  test('importing the document fixture reaches the corner editor and sends a warp request without unhandled errors', async () => {
+test.describe('Phase 1 acceptance: import fallback -> batch process -> adjust (task 7.2)', () => {
+  // Headroom, not an expectation: the batch step cannot start until OpenCV has
+  // loaded, which currently completes in seconds here. The generous budget
+  // exists because this is the exact path that once hung forever, and a bound
+  // far above the normal case still catches a regression to that behavior
+  // while never failing on a merely slow machine.
+  test.describe.configure({ timeout: 180_000 });
+
+  test('importing the document fixture runs the batch pipeline through to the adjust screen without unhandled errors', async () => {
     const browser = await chromium.launch({
       args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream=deny'],
     });
@@ -91,68 +108,32 @@ test.describe('Phase 1 acceptance: import fallback -> detect -> edit -> warp (ta
       expect(hasMultiple).toBe(false);
 
       // Task 6.3.1/6.3.2: select the fixture through the real file input.
-      // This blocks (up to IMPORT_DETECT_TIMEOUT_MS = 15s, per the fix
-      // documented in ScannerScreen.tsx) on an OpenCV init attempt that never
-      // succeeds in this environment (see the file-level docstring), then
-      // falls through to frame-completo corners — so the corner editor is
-      // expected to take up to ~15s to open here, not instantly.
+      // Deferred capture (Fase 2.3): this decodes and materializes a
+      // `RawCapture` and STAYS on the no-camera screen — it does not process
+      // anything yet.
       await input.setInputFiles(FIXTURE_PATH);
 
-      const editor = page.getByTestId('corner-editor');
-      await expect(editor).toBeVisible({ timeout: 30_000 });
+      // The thumbnail strip appearing is the proof the import produced a real
+      // raw capture rather than failing quietly.
+      await expect(page.getByTestId('capture-no-camera-thumbs')).toBeVisible({ timeout: 30_000 });
 
-      const handlePositions: Array<{ left: string; top: string }> = [];
-      for (let i = 0; i < 4; i += 1) {
-        const handle = page.getByTestId(`corner-handle-${i}`);
-        await expect(handle).toBeVisible();
-        const style = await handle.evaluate((el) => ({ left: el.style.left, top: el.style.top }));
-        handlePositions.push(style);
-      }
-      // eslint-disable-next-line no-console
-      console.log(`[task 7.2] seeded corner-handle positions (percent): ${JSON.stringify(handlePositions)}`);
-      // The seed is EITHER a real detected quad (if the one-shot DETECT ran on
-      // this fixture) OR the frameCorners() full-frame fallback (5%/95% inset,
-      // used when DETECT found nothing / OpenCV was not ready in time). Both
-      // are valid — we only assert four positioned handles exist, not their
-      // exact coordinates, so this stays honest whether or not detection fired.
-      expect(handlePositions).toHaveLength(4);
-      for (const pos of handlePositions) {
-        expect(pos.left).toMatch(/%$/);
-        expect(pos.top).toMatch(/%$/);
-      }
+      // "Next" starts the batch detect -> warp -> thumbnail step. THIS is the
+      // OpenCV round-trip the whole file is about.
+      await page.getByTestId('capture-next').click();
 
-      // Fase 2.1 two-step editor: the aspect-ratio selector now lives in step
-      // 'adjust', reached via "Next" from step 'corners'. `.click()` auto-waits
-      // for the button to become enabled, which happens once the initial
-      // mount warp (task 5.2.x) resolves and sets `recipe`.
-      await page.getByTestId('corner-editor-next').click();
-      await expect(page.getByTestId('aspect-ratio-selector')).toBeVisible();
+      // The pipeline MUST terminate. It reaches `adjust` whether the warp
+      // succeeded or detection degraded to `frameCorners` — both are valid
+      // outcomes here, and the fixture is not a real photographed document.
+      // What is NOT acceptable is never arriving, which is exactly the old
+      // ES-module-worker hang this bounded wait exists to catch.
+      await expect(page.getByTestId('adjust-screen')).toBeVisible({ timeout: 120_000 });
 
-      // Clicking an aspect-ratio option triggers the SAME `runWarp` path a
-      // real user's drag-release would, and puts the UI into the
-      // `warp-loading` ("Processing…") state while the request is in flight.
-      await page.getByTestId('aspect-ratio-unknown').click();
-
-      // The worker MUST respond to the warp request — the whole point of the
-      // classic-worker fix is that `init()` (and therefore the warp pipeline)
-      // no longer hangs. We accept EITHER a successful de-skewed preview
-      // (`warp-preview`) OR a clean error (`warp-error`); what we do NOT accept
-      // is the old silent infinite hang, which this timeout-bounded wait would
-      // surface as a failure. (`warp-loading` may flash by faster than a poll
-      // can catch on a fast machine, so we wait on the terminal states, not the
-      // transient loading state.)
-      const warpPreview = page.getByTestId('warp-preview');
-      const warpError = page.getByTestId('warp-error');
-      await expect(warpPreview.or(warpError)).toBeVisible({ timeout: 30_000 });
-
-      // If the warp succeeded, Confirm becomes enabled (recipe is set); if it
-      // errored, Confirm stays disabled. Assert the invariant that matches
-      // whichever terminal state was reached, so the test is correct either way.
-      if (await warpPreview.isVisible()) {
-        await expect(page.getByTestId('corner-editor-confirm')).toBeEnabled();
-      } else {
-        await expect(page.getByTestId('corner-editor-confirm')).toBeDisabled();
-      }
+      // A page actually exists downstream: the adjust screen advances into a
+      // grid holding at least one page, so the batch produced a `DocumentPage`
+      // and not just a screen transition.
+      await page.getByTestId('adjust-next').click();
+      await expect(page.getByTestId('page-grid')).toBeVisible();
+      await expect(page.locator('[data-testid^="page-grid-item-"]')).toHaveCount(1);
 
       expect(pageErrors, `Unhandled page errors: ${pageErrors.map((e) => e.message).join('; ')}`).toHaveLength(0);
     } finally {
