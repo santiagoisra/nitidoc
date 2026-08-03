@@ -6,19 +6,108 @@ Everything Play Console asks for, prepared. Build the artifact with
 ## Read this first: the signing key decision
 
 At listing creation Play Console offers **Play App Signing**, and the choice it
-presents is not obvious. Take the option to **upload your existing key** as the
-app signing key, rather than letting Google generate a new one.
+presents is not obvious. Take the option to **upload the existing key**
+(`nitidoc-release.jks`) as the app signing key, rather than letting Google
+generate a new one.
 
-Why it matters here specifically: Nitidoc is already distributed as a signed
-APK on GitHub Releases. If Play signs with a *different* key, a user who
-installed from GitHub cannot update through Play at all — Android refuses the
-install on a signature mismatch, and they have to uninstall and lose their scan
-history to switch. Uploading the existing key keeps both channels
-interchangeable.
+The reason is narrower than it looks. **It is not about rescuing existing
+installs** — nobody installed the GitHub APK, so there is no population to
+strand. It is about keeping two channels alive going forward.
 
-You still get the recovery benefit: Google holds the app signing key, so a lost
-or compromised *upload* key can be replaced. That is the one recoverable
-failure in a system where losing the app signing key is permanent.
+Play is the primary channel and GitHub Releases stays as a secondary one. If
+Play signs with a Google-generated key, those two channels produce APKs with
+permanently different signatures: anyone who installs from GitHub can never move
+to Play without uninstalling and losing their scan history, and the reverse is
+equally true. One shared key makes them interchangeable in both directions,
+forever.
+
+It costs nothing in safety. Under either option Google ends up holding an app
+signing key and a lost *upload* key can be reset, so the recovery story is
+identical. Uploading the existing key only adds the shared signature.
+
+The keystore still has to be guarded exactly as before — see
+`docs/RELEASING.md`.
+
+## Creating the listing, in order
+
+Play Console has no linear wizard — it presents a checklist you can wander
+through, and some steps block others in ways it does not warn you about. This
+is the order that avoids backtracking.
+
+### 1. Developer account
+
+play.google.com/console → USD 25, once. Choose the **personal** account type
+unless you are publishing as a registered company, since the organisation type
+demands a D-U-N-S number.
+
+Identity verification (a government ID, sometimes an address document) can take
+anywhere from hours to a few days, and **nothing else can be submitted until it
+clears** — so start here even if the rest is not ready.
+
+### 2. Create the app
+
+All apps → Create app.
+
+| Field | Value |
+|---|---|
+| App name | `Nitidoc` |
+| Default language | Spanish (Latin America) — `es-419` |
+| App or game | App |
+| Free or paid | **Free**, and this is irreversible: a free app can never become paid |
+
+### 3. Set up Play App Signing — before the first upload
+
+Release → Setup → App integrity → App signing.
+
+Choose to **upload an app signing key you already own**, then export it from
+the keystore with the PEPK tool Console links on that page. It produces an
+encrypted `.zip` from `nitidoc-release.jks` — it asks for the keystore path,
+the alias (`nitidoc`) and the passwords, and encrypts the key so Google can
+read it and nobody in between can.
+
+Doing this before the first upload matters: after a bundle is uploaded, Console
+will have already generated a key for you and the choice is gone.
+
+### 4. Fill in the content declarations
+
+These are gating: Console will not let a release be reviewed until every one is
+green. Answers are in the sections below.
+
+- **Privacy policy** → `https://nitidoc.com/privacidad`
+- **App access** — all functionality is available without restrictions; no login
+  to declare
+- **Ads** — no ads
+- **Content rating** — questionnaire, see below
+- **Target audience** — 13+; Nitidoc is not designed for children
+- **Data safety** — see below
+- **Government apps** — no
+- **Financial features** — none
+- **Health** — no
+
+### 5. Upload to internal testing first
+
+Release → Testing → **Internal testing**. Not production.
+
+Internal testing has **no review wait**: the build is installable within
+minutes, on up to 100 testers you list by email (add your own account). Install
+from that link on the real phone and confirm the three things only a device can
+settle — the camera permission prompt, OpenCV initialising under the Capacitor
+scheme, and the share sheet receiving the PDF.
+
+The bundle is `android/app/build/outputs/bundle/release/app-release.aab`, built
+with `npm run android:aab`.
+
+Production review takes days, and a rejection costs a full cycle. Never let a
+build reach production without having run it from an internal-testing install
+first.
+
+### 6. Promote to production
+
+Once the internal build behaves on-device: Release → Production → create a
+release, promote the same bundle, write the release notes, submit.
+
+First-time review is typically a few days and can ask follow-up questions —
+most often about the camera permission, which the justification below answers.
 
 ## Store listing
 
