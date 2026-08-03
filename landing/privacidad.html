@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Política de privacidad — Nitidoc</title>
+<meta name="description" content="Nitidoc procesa todo en tu dispositivo. No hay cuentas, no hay servidores, no hay analítica y tus documentos nunca se suben a ningún lado.">
+
+<link rel="icon" href="/icons/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="theme-color" content="#12100E">
+<link rel="canonical" href="https://nitidoc.com/privacidad">
+
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://nitidoc.com/privacidad">
+<meta property="og:title" content="Política de privacidad — Nitidoc">
+<meta property="og:description" content="Nitidoc procesa todo en tu dispositivo. Sin cuentas, sin servidores, sin analítica.">
+<meta property="og:image" content="https://nitidoc.com/icons/icon-512.png">
+<meta property="og:locale" content="es_AR">
+
+<style>
+@font-face{
+  font-family:'Plus Jakarta Sans';
+  font-style:normal;
+  font-weight:200 800;
+  font-display:swap;
+  src:url('/fonts/PlusJakartaSans.woff2') format('woff2');
+}
+*{box-sizing:border-box}
+body{margin:0;background:#12100E;font-family:'Plus Jakarta Sans',system-ui,sans-serif;color:#F4F1EC;-webkit-font-smoothing:antialiased;line-height:1.65}
+a{color:#2EC4AD;text-decoration:none}
+a:hover{color:#8CEBD9}
+.wrap{max-width:46rem;margin:0 auto;padding:2.5rem 1.25rem 5rem}
+header{display:flex;align-items:center;gap:.75rem;margin-bottom:2.5rem}
+header img{width:32px;height:32px}
+header .name{font-weight:800;font-size:1.15rem;letter-spacing:-.02em}
+h1{font-size:clamp(1.75rem,5vw,2.4rem);line-height:1.15;letter-spacing:-.03em;margin:0 0 .5rem}
+h2{font-size:1.2rem;letter-spacing:-.01em;margin:2.5rem 0 .6rem;color:#F4F1EC}
+h3{font-size:1rem;margin:1.6rem 0 .4rem;color:#F4F1EC}
+p,li{color:#CFC8BD}
+.meta{color:#8E867B;font-size:.9rem;margin:0 0 2rem}
+.lede{font-size:1.1rem;color:#F4F1EC}
+.card{background:#1B1815;border:1px solid rgba(244,241,236,.08);border-radius:14px;padding:1.1rem 1.25rem;margin:1.5rem 0}
+.card p:last-child{margin-bottom:0}
+.card p:first-child{margin-top:0}
+table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.95rem;display:block;overflow-x:auto}
+th,td{text-align:left;padding:.6rem .7rem;border-bottom:1px solid rgba(244,241,236,.1);vertical-align:top}
+th{color:#F4F1EC;font-weight:700;white-space:nowrap}
+td{color:#CFC8BD}
+ul{padding-left:1.15rem}
+li{margin:.35rem 0}
+hr{border:0;border-top:1px solid rgba(244,241,236,.1);margin:3.5rem 0}
+footer{margin-top:3rem;color:#8E867B;font-size:.9rem}
+footer a{color:#8E867B;text-decoration:underline}
+footer a:hover{color:#CFC8BD}
+:lang(en) .meta{margin-bottom:1.5rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <img src="/icons/favicon.svg" alt="">
+  <span class="name">nitidoc</span>
+</header>
+
+<h1>Política de privacidad</h1>
+<p class="meta">Vigente desde el 3 de agosto de 2026 · Aplica a la app web (<a href="https://app.nitidoc.com">app.nitidoc.com</a>) y a la aplicación Android</p>
+
+<p class="lede">Nitidoc no recolecta, transmite ni almacena tus documentos. Todo el escaneo, la detección de bordes, el filtrado y la generación del PDF ocurren dentro de tu dispositivo.</p>
+
+<div class="card">
+  <p><strong>No tenemos servidores donde puedan estar tus documentos.</strong> No es una promesa de buena voluntad: la app no tiene código que envíe nada a ningún lado. Podés comprobarlo vos mismo, porque el código es abierto —<a href="https://github.com/santiagoisra/nitidoc">está acá</a>, bajo licencia AGPL-3.0.</p>
+</div>
+
+<h2>Qué pasa con tus documentos</h2>
+<p>Cuando escaneás una hoja, la imagen se captura con la cámara de tu dispositivo y se procesa ahí mismo. La detección de bordes y la corrección de perspectiva usan OpenCV compilado a WebAssembly, que corre localmente dentro de la app. El PDF se arma en tu dispositivo.</p>
+<p>Nada de eso pasa por internet. Podés usar Nitidoc entero en modo avión.</p>
+
+<h2>Qué se guarda y dónde</h2>
+<p>Todo se guarda localmente, en el almacenamiento que el navegador o el sistema operativo le asigna a la app:</p>
+
+<table>
+  <tr><th>Qué</th><th>Dónde</th><th>Para qué</th></tr>
+  <tr><td>Tus escaneos guardados: páginas enderezadas, miniaturas y sus ajustes de edición</td><td>IndexedDB, base <code>nitidoc-history</code></td><td>El historial, para que puedas reabrir un documento y volver a exportarlo</td></tr>
+  <tr><td>El idioma que elegiste</td><td><code>localStorage</code>, clave <code>nitidoc.locale</code></td><td>Que la app se abra en tu idioma</td></tr>
+</table>
+
+<p>Nada de esto sale de tu dispositivo, y nadie más que vos puede leerlo. Cuando exportás un PDF, elegís vos a dónde va: se descarga a tu equipo o se abre el menú de compartir del sistema para que decidas la app de destino.</p>
+
+<h2>Permisos</h2>
+<h3>Cámara</h3>
+<p>Se usa exclusivamente para capturar las páginas que escaneás, mientras la pantalla de captura está abierta. No se graba video, no se toman fotos en segundo plano y no se accede a la cámara fuera de ese momento.</p>
+<p>Podés usar Nitidoc sin darle acceso a la cámara: la app te ofrece importar una imagen ya existente y funciona igual.</p>
+<h3>Almacenamiento</h3>
+<p>La app Android no pide permiso de almacenamiento. Al exportar, el PDF se escribe en el directorio privado de la app y se entrega al menú de compartir, que es el sistema operativo el que decide dónde termina según lo que elijas.</p>
+
+<h2>Lo que sí registra un tercero</h2>
+<p>Preferimos ser exactos antes que decir "no recolectamos nada" y dejarlo ahí:</p>
+<ul>
+  <li><strong>Alojamiento web.</strong> Los sitios <code>nitidoc.com</code> y <code>app.nitidoc.com</code> están alojados en Firebase Hosting (Google). Como cualquier servidor web, registra los pedidos que recibe: dirección IP, fecha, navegador. Nosotros no consultamos esos registros ni los cruzamos con nada, y no contienen tus documentos, que nunca se envían.</li>
+  <li><strong>Descarga del APK.</strong> Si instalás la app bajándola desde GitHub, GitHub registra esa descarga según sus propias políticas.</li>
+  <li><strong>Google Play.</strong> Si la instalás desde Play Store, Google registra la instalación según sus propias políticas, igual que con cualquier app.</li>
+</ul>
+<p>Ninguno de esos registros lo genera Nitidoc ni lo controlamos nosotros: son de la infraestructura que distribuye la app.</p>
+
+<h2>Lo que Nitidoc no tiene</h2>
+<ul>
+  <li>Sin cuentas ni registro. No hay dónde poner un mail.</li>
+  <li>Sin analítica, sin telemetría, sin SDK de terceros que reporten uso.</li>
+  <li>Sin publicidad y sin rastreadores.</li>
+  <li>Sin cookies de seguimiento.</li>
+  <li>Sin venta ni cesión de datos a nadie, porque no hay datos que ceder.</li>
+</ul>
+
+<h2>Cómo borrar tus datos</h2>
+<p>Como todo es local, el control es tuyo y es inmediato:</p>
+<ul>
+  <li>Borrá un escaneo puntual desde <em>Mis escaneos</em>, dentro de la app.</li>
+  <li>En Android, desinstalar la app elimina todo su almacenamiento.</li>
+  <li>En la web, borrar los datos del sitio desde tu navegador elimina el historial y la preferencia de idioma.</li>
+</ul>
+<p>No hace falta que nos escribas para pedir una baja: no tenemos ninguna copia que borrar.</p>
+
+<h2>Menores</h2>
+<p>Nitidoc no está dirigido a menores de 13 años y no recolecta datos personales de nadie, sin importar la edad.</p>
+
+<h2>Cambios en esta política</h2>
+<p>Si esto cambia, se actualiza esta página junto con su fecha de vigencia. Como el sitio es de código abierto, el historial completo de cambios de este documento es público en el repositorio.</p>
+
+<h2>Contacto</h2>
+<p>Por dudas sobre privacidad, abrí un tema en <a href="https://github.com/santiagoisra/nitidoc/issues">GitHub Issues</a>. Es un canal público, así que la respuesta le sirve también a quien tenga la misma pregunta.</p>
+
+<hr>
+
+<div lang="en">
+<h1>Privacy Policy</h1>
+<p class="meta">Effective 3 August 2026 · Applies to the web app (<a href="https://app.nitidoc.com">app.nitidoc.com</a>) and the Android application</p>
+
+<p class="lede">Nitidoc does not collect, transmit or store your documents. Scanning, edge detection, filtering and PDF generation all happen on your device.</p>
+
+<div class="card">
+  <p><strong>We have no servers your documents could be on.</strong> That is not a promise of good intentions: the app contains no code that sends anything anywhere. You can check for yourself — the source is open, <a href="https://github.com/santiagoisra/nitidoc">right here</a>, under AGPL-3.0.</p>
+</div>
+
+<h2>What happens to your documents</h2>
+<p>When you scan a page, the image is captured by your device's camera and processed there. Edge detection and perspective correction run on OpenCV compiled to WebAssembly, locally inside the app. The PDF is assembled on your device.</p>
+<p>None of it travels over the internet. Nitidoc works fully in airplane mode.</p>
+
+<h2>What is stored, and where</h2>
+<p>Everything is stored locally, in the storage your browser or operating system allocates to the app:</p>
+
+<table>
+  <tr><th>What</th><th>Where</th><th>Why</th></tr>
+  <tr><td>Your saved scans: straightened pages, thumbnails and their edit settings</td><td>IndexedDB, database <code>nitidoc-history</code></td><td>The history, so you can reopen a document and export it again</td></tr>
+  <tr><td>Your chosen language</td><td><code>localStorage</code>, key <code>nitidoc.locale</code></td><td>So the app opens in your language</td></tr>
+</table>
+
+<p>None of it leaves your device, and nobody but you can read it. When you export a PDF, you decide where it goes: it downloads to your machine, or the system share sheet opens so you pick the destination app.</p>
+
+<h2>Permissions</h2>
+<h3>Camera</h3>
+<p>Used solely to capture the pages you scan, while the capture screen is open. No video is recorded, no background photos are taken, and the camera is not accessed at any other time.</p>
+<p>You can use Nitidoc without granting camera access: the app offers to import an existing image instead, and works the same.</p>
+<h3>Storage</h3>
+<p>The Android app requests no storage permission. On export, the PDF is written to the app's own private directory and handed to the system share sheet, so the operating system places it wherever you choose.</p>
+
+<h2>What a third party does record</h2>
+<p>We would rather be exact than say "we collect nothing" and leave it there:</p>
+<ul>
+  <li><strong>Web hosting.</strong> <code>nitidoc.com</code> and <code>app.nitidoc.com</code> are hosted on Firebase Hosting (Google). Like any web server it logs the requests it receives: IP address, timestamp, browser. We do not consult those logs or correlate them with anything, and they contain none of your documents, which are never sent.</li>
+  <li><strong>APK download.</strong> If you install the app by downloading it from GitHub, GitHub records that download under its own policies.</li>
+  <li><strong>Google Play.</strong> If you install from the Play Store, Google records the installation under its own policies, as with any app.</li>
+</ul>
+<p>None of those logs are generated by Nitidoc or controlled by us: they belong to the infrastructure that distributes the app.</p>
+
+<h2>What Nitidoc does not have</h2>
+<ul>
+  <li>No accounts, no sign-up. There is nowhere to enter an email address.</li>
+  <li>No analytics, no telemetry, no third-party SDKs reporting usage.</li>
+  <li>No advertising and no trackers.</li>
+  <li>No tracking cookies.</li>
+  <li>No sale or sharing of data with anyone, because there is no data to share.</li>
+</ul>
+
+<h2>Deleting your data</h2>
+<p>Because everything is local, the control is yours and it is immediate:</p>
+<ul>
+  <li>Delete an individual scan from <em>My scans</em>, inside the app.</li>
+  <li>On Android, uninstalling removes all of the app's storage.</li>
+  <li>On the web, clearing the site's data from your browser removes the history and the language preference.</li>
+</ul>
+<p>You do not need to write to us to request deletion: we hold no copy to delete.</p>
+
+<h2>Children</h2>
+<p>Nitidoc is not directed at children under 13, and collects no personal data from anyone, at any age.</p>
+
+<h2>Changes to this policy</h2>
+<p>If this changes, this page is updated along with its effective date. Since the site is open source, the full change history of this document is public in the repository.</p>
+
+<h2>Contact</h2>
+<p>For privacy questions, open an issue on <a href="https://github.com/santiagoisra/nitidoc/issues">GitHub Issues</a>. It is a public channel, so the answer also helps whoever has the same question.</p>
+</div>
+
+<footer>
+  <p><a href="/">← Volver a nitidoc.com</a> · <a href="https://github.com/santiagoisra/nitidoc">Código fuente</a></p>
+</footer>
+
+</div>
+</body>
+</html>
