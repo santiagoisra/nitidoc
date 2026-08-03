@@ -12,6 +12,7 @@ import type { TranslationValue } from '@/shared/i18n/types';
  * Spanish translation is a COMPILE error, not a silent runtime fallback.
  */
 export const en = {
+  'common.back': 'Back',
   'common.close': 'Close',
   'common.processing': 'Processing…',
   'common.documentLimitReached': 'Document limit reached ({cap} pages).',
@@ -95,7 +96,9 @@ export const en = {
   'grid.reorder': 'Reorder page',
   'grid.pagesCaptured': { one: '{n} page captured.', other: '{n} pages captured.' },
   'grid.captureMore': 'Capture more',
-  'grid.finish': 'Finish',
+  // "Done" rather than "Finish": this screen reviews the document, it does not
+  // end the flow — the done screen after it still offers view/export.
+  'grid.finish': 'Done',
   'grid.deletePage': 'Delete page',
   'grid.needsReview': 'Review',
   'grid.editPage': 'Edit page',
@@ -129,6 +132,17 @@ export const en = {
   'install.iosStep2': 'Choose "Add to Home Screen" and confirm.',
   'install.iosHint': 'Nitidoc lands on your home screen like any other app — no App Store, no account.',
 
+  'viewer.title': 'Document preview',
+  'viewer.open': 'View document',
+  'viewer.position': '{current} of {total}',
+  'viewer.pageAlt': 'Page {n}',
+  'viewer.previous': 'Previous page',
+  'viewer.next': 'Next page',
+  'viewer.renderError': 'This page could not be rendered.',
+
+  'done.keep': 'Finish',
+  'done.keepHint': 'Saved to your scans — you can open it again whenever you like.',
+
   'history.title': 'My scans',
   'history.open': 'Open history',
   'history.back': 'Back',
@@ -140,7 +154,7 @@ export const en = {
   'history.unpin': 'Stop keeping this scan',
   'history.pinned': 'Kept',
   'history.empty': 'No saved scans yet',
-  'history.emptyHint': 'Scans are saved here automatically once you export or finish a document.',
+  'history.emptyHint': 'Scans are saved here automatically when you tap "Done" after reviewing a document.',
   'history.loading': 'Loading your scans…',
   'history.usage': '{used} of {total} used',
   'history.saveError': 'Could not save this scan to your history.',

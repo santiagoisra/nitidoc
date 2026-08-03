@@ -117,6 +117,7 @@ function renderAdjustScreen() {
         onCrop={vi.fn()}
         onNext={vi.fn()}
         onAddMore={vi.fn()}
+        onBack={vi.fn()}
       />
     </ToastHost>,
   );

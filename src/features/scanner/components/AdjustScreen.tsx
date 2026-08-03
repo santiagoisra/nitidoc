@@ -75,7 +75,7 @@
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Camera, ChevronLeft, ChevronRight, Crop, Plus, RotateCcw } from 'lucide-react';
-import { Button } from '@/shared/ui';
+import { BackButton, Button } from '@/shared/ui';
 import { useTranslation } from '@/shared/i18n';
 import { CropOverlay } from '@/features/scanner/components/CropOverlay';
 import { FilterPanel } from '@/features/scanner/components/FilterPanel';
@@ -153,9 +153,18 @@ export interface AdjustScreenProps {
   readonly onNext: () => void;
   /** "Agregar más" → re-arm the camera to capture more pages (same as the grid's "Capturar más"). */
   readonly onAddMore: () => void;
+  /** Back to the camera (navigation-ux, bug 3). */
+  readonly onBack: () => void;
 }
 
-export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAddMore }: AdjustScreenProps): ReactNode {
+export function AdjustScreen({
+  initialPageId,
+  onPageChange,
+  onCrop,
+  onNext,
+  onAddMore,
+  onBack,
+}: AdjustScreenProps): ReactNode {
   const { t } = useTranslation();
   const pages = useScannerStore((s) => s.pages);
   const updateRecipe = useScannerStore((s) => s.updateRecipe);
@@ -646,12 +655,23 @@ export function AdjustScreen({ initialPageId, onPageChange, onCrop, onNext, onAd
 
   return (
     <div
-      className="flex h-full w-full flex-col bg-black text-white"
+      className="relative flex h-full w-full flex-col bg-black text-white"
       // PWA safe area (iOS standalone): the preview strip sits at the very top,
       // so clear the notch inset (the bottom toolbar already insets itself).
       style={{ paddingTop: 'env(safe-area-inset-top)' }}
       data-testid="adjust-screen"
     >
+      {/* Back to the camera (navigation-ux, bug 3). Absolutely positioned over
+          the preview strip rather than given its own row: this screen is
+          height-constrained by design (the strip, page-nav, filter strip and
+          toolbar all have to fit without the page scrolling), so a new row
+          would push the toolbar off the bottom on short phones. */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 p-2" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.5rem)' }}>
+        <div className="pointer-events-auto inline-flex">
+          <BackButton onClick={onBack} tone="overlay" testId="adjust-back" />
+        </div>
+      </div>
+
       {/* Preview strip: a REAL slide per page + the "add more" panel (bug 6) —
           slides are narrower than the strip (w-[85%]) with matching scroller
           padding so neighbors peek at both edges (bug 3 discoverability).

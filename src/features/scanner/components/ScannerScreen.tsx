@@ -39,7 +39,7 @@
 import type { ReactNode } from 'react';
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { Check } from 'lucide-react';
-import { Button } from '@/shared/ui';
+import { BackButton, Button } from '@/shared/ui';
 import { useTranslation } from '@/shared/i18n';
 import { CaptureScreen } from '@/features/scanner/components/CaptureScreen';
 import { CornerEditor, type CornerEditorConfirmResult } from '@/features/scanner/components/CornerEditor';
@@ -54,6 +54,7 @@ import { usePageDeletion } from '@/features/scanner/hooks/usePageDeletion';
 import { useCamera } from '@/features/scanner/hooks/useCamera';
 import { useOpenCvInit } from '@/features/scanner/hooks/useOpenCvInit';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
+import { BACK_PHASE } from '@/features/scanner/store/documentSlice';
 import { randomId } from '@/shared/lib/randomId';
 
 /**
@@ -71,6 +72,12 @@ const PageGrid = lazy(() => import('@/features/scanner/components/PageGrid'));
  * stay out of the initial bundle (only reached after the capture flow).
  */
 const AdjustScreen = lazy(() => import('@/features/scanner/components/AdjustScreen'));
+
+/**
+ * Lazy for the same reason as the two above, and one more: the viewer pulls in
+ * `exportPdf`'s render path, which most sessions never open at all.
+ */
+const PageViewer = lazy(() => import('@/features/scanner/components/PageViewer'));
 
 export interface ScannerScreenProps {
   /**
@@ -104,18 +111,18 @@ export function ScannerScreen({ onOpenHistory }: ScannerScreenProps = {}): React
   const { activeWorking, activePageId, activatePage, deactivateActivePage, rewarpActivePage, materializeRawCapture } =
     useActivePage();
 
-  const [startedManually, setStarted] = useState(false);
-
   /**
-   * The welcome screen is the "no document in play" state, not an explicit
-   * flag. Deriving it from `pages` as well as the button press is what lets a
-   * document restored from the history (history design section 6) land
-   * straight on its grid — `loadDocumentFromHistory` fills `pages` without ever
-   * routing through `handleStart`, so a purely manual flag would bounce the
-   * user back to the welcome screen with their restored document invisible
-   * behind it.
+   * Whether a document flow is in play. Derived from `phase` alone — there is
+   * no `started` flag any more (navigation-ux, bugs 1 and 3).
+   *
+   * The old component-local flag put the welcome screen OUTSIDE the phase
+   * machine, which is precisely why no screen could offer a way back to it.
+   * With `'welcome'` a real phase, "go back to the start" is just
+   * `setPhase('welcome')`, and restoring a document from the history still
+   * lands on its grid for free — `loadDocumentFromHistory` sets the phase
+   * itself.
    */
-  const started = startedManually || pages.length > 0;
+  const started = phase !== 'welcome';
 
   // Where the corner editor (`editing-corners`) should return on Confirm/
   // Cancel — the grid re-entry returns to `'grid'`, but the new `'adjust'`
@@ -125,6 +132,8 @@ export function ScannerScreen({ onOpenHistory }: ScannerScreenProps = {}): React
   // The page currently shown in `'adjust'`, so a crop round-trip re-enters the
   // SAME page instead of snapping back to the first.
   const [adjustPageId, setAdjustPageId] = useState<string | null>(null);
+  // Full-screen page viewer over the done screen (navigation-ux, bug 2).
+  const [viewerOpen, setViewerOpen] = useState(false);
 
   // Fase 2.3 "Unit 2"/"Unit 6": the OpenCV INIT/backoff/`OpenCvSlice`-
   // mirroring machinery lives in `useOpenCvInit`, called EXACTLY ONCE here —
@@ -160,22 +169,40 @@ export function ScannerScreen({ onOpenHistory }: ScannerScreenProps = {}): React
   }, [started, ensureOpenCvInit]);
 
   const handleStart = useCallback(() => {
-    setStarted(true);
-    // Transitions: start -> 'capturing' (design "Phase model"). Doing this
-    // alongside `setStarted` (rather than in a separate effect) means
-    // `CaptureScreen` mounts with the right phase on its very first render —
-    // no intermediate frame where `phase` is still the initial `'idle'`.
+    // Transitions: welcome -> 'capturing' (design "Phase model").
     setPhase('capturing');
   }, [setPhase]);
+
+  /**
+   * The single "go back one step" action, shared by every screen that offers
+   * one (navigation-ux, bugs 1 and 3). The map lives in `documentSlice.ts` so
+   * the navigation model is one readable table rather than a handler per
+   * screen.
+   *
+   * Backing out of the camera to `'welcome'` is what makes the history and the
+   * import reachable mid-session — bug 1 needed no new screen, only a way out
+   * of the one the user was trapped in. It deliberately does NOT reset the
+   * document: pages and pending captures survive, so re-entering the camera
+   * resumes exactly where it left off rather than silently discarding work.
+   */
+  const handleBack = useCallback(() => {
+    const target = BACK_PHASE[phase];
+    if (target) {
+      setPhase(target);
+    }
+  }, [phase, setPhase]);
 
   /**
    * Welcome-screen "Importar imagen" (design section 5.1): decode the picked
    * file → materialize it as a raw capture (the LIGHTWEIGHT path, no detect)
    * → jump straight to the deferred `processing` batch, entirely skipping the
-   * live camera. `setPhase('processing')` is set BEFORE `setStarted(true)` so
-   * the first render past the welcome gate already lands on `ProcessingScreen`
-   * — never a transient `idle`/`capturing` frame that would pop the camera
-   * permission prompt for a user who explicitly chose to import instead.
+   * live camera. The single `setPhase('processing')` moves off the welcome
+   * screen and onto `ProcessingScreen` in one transition — never a transient
+   * `'capturing'` frame that would pop the camera permission prompt at a user
+   * who explicitly chose to import instead. (Before the phase model covered
+   * the welcome screen this needed a second `setStarted(true)` kept carefully
+   * in the right order; deriving the screen from `phase` alone removes that
+   * whole class of ordering bug.)
    * Rejects on decode/materialize failure so `WelcomeScreen` can surface the
    * error inline and stay put.
    */
@@ -189,7 +216,6 @@ export function ScannerScreen({ onOpenHistory }: ScannerScreenProps = {}): React
         originalHeight: decoded.height,
       });
       setPhase('processing');
-      setStarted(true);
     },
     [materializeRawCapture, setPhase],
   );
@@ -275,14 +301,27 @@ export function ScannerScreen({ onOpenHistory }: ScannerScreenProps = {}): React
     exportPdf(pages);
   }, [exportPdf, pages]);
 
-  const handleScanAgain = useCallback(() => {
+  /**
+   * "Finalizar" on the done screen: the document is already in the history
+   * (the grid's "Listo" saved it), so this just clears the working document
+   * and returns to the entry screen.
+   *
+   * It replaces the old "Escanear otro", which jumped straight back into the
+   * camera. Landing on `'welcome'` instead offers scanning again, importing, or
+   * opening the scan that was just saved — the last of which was impossible
+   * before, and is the whole reason a user might want to stop here.
+   */
+  const handleFinish = useCallback(() => {
     resetDocument();
-    // Design "Phase model": done "Escanear otro" -> resetDocument -> 'capturing'.
-    // `CaptureScreen` re-arms the camera itself on mount.
-    setPhase('capturing');
+    setPhase('welcome');
   }, [resetDocument, setPhase]);
 
-  if (!started) {
+  const handleOpenViewer = useCallback(() => setViewerOpen(true), []);
+  const handleCloseViewer = useCallback(() => setViewerOpen(false), []);
+
+  // The welcome screen is now a PHASE, not a flag (navigation-ux). Every
+  // other screen can therefore route back to it.
+  if (phase === 'welcome') {
     return (
       <WelcomeScreen
         onStart={handleStart}
@@ -293,14 +332,22 @@ export function ScannerScreen({ onOpenHistory }: ScannerScreenProps = {}): React
   }
 
   // Fase 2.3 (capture-ux-redesign.md, Unit 3), "Phase-gating decouple
-  // (critical)": `idle`/`capturing` both route to the full-bleed
-  // `CaptureScreen`, which owns its own permission/no-camera/camera-error
-  // fallback internally (`cameraUsable`). `openCamera`/`switchCamera`/
-  // `setTorch` are the SAME `useCamera()` hook instance's functions, passed
-  // down as props (see the doc comment above where that hook is
-  // destructured).
-  if (phase === 'idle' || phase === 'capturing') {
-    return <CaptureScreen openCamera={openCamera} switchCamera={switchCamera} setTorch={setTorch} />;
+  // (critical)": the full-bleed `CaptureScreen` owns its own permission/
+  // no-camera/camera-error fallback internally (`cameraUsable`).
+  // `openCamera`/`switchCamera`/`setTorch` are the SAME `useCamera()` hook
+  // instance's functions, passed down as props (see the doc comment above
+  // where that hook is destructured). `onBack` returns to `'welcome'`, which
+  // is what makes the history and the file import reachable mid-session
+  // (bug 1) — the camera used to be a one-way door.
+  if (phase === 'capturing') {
+    return (
+      <CaptureScreen
+        openCamera={openCamera}
+        switchCamera={switchCamera}
+        setTorch={setTorch}
+        onBack={handleBack}
+      />
+    );
   }
 
   // Fase 2.3 (capture-ux-redesign.md, Unit 4): the real deferred
@@ -329,6 +376,7 @@ export function ScannerScreen({ onOpenHistory }: ScannerScreenProps = {}): React
           onCrop={handleAdjustCrop}
           onNext={handleAdjustNext}
           onAddMore={handleAdjustAddMore}
+          onBack={handleBack}
         />
       </Suspense>
     );
@@ -369,6 +417,7 @@ export function ScannerScreen({ onOpenHistory }: ScannerScreenProps = {}): React
           onReorder={reorderPages}
           onCaptureMore={handleGridCaptureMore}
           onFinish={handleGridFinish}
+          onBack={handleBack}
         />
       </Suspense>
     );
@@ -377,6 +426,10 @@ export function ScannerScreen({ onOpenHistory }: ScannerScreenProps = {}): React
   if (phase === 'done') {
     return (
       <div className="flex w-full max-w-md flex-col items-center gap-6" data-testid="scan-done">
+        <div className="flex w-full items-center justify-start">
+          <BackButton onClick={handleBack} testId="done-back" />
+        </div>
+
         {/* Success check (design section 5.6): a 92px teal-gradient circle that
             pops in, wrapped by an expanding ripple ring. */}
         <div className="relative flex h-[92px] w-[92px] items-center justify-center">
@@ -426,20 +479,44 @@ export function ScannerScreen({ onOpenHistory }: ScannerScreenProps = {}): React
           </div>
         )}
 
+        {/* Three actions, in the order the user actually wants them: look at
+            what you scanned, then decide whether to export it, then leave.
+            "Ver documento" leads because checking the result is the step that
+            was missing entirely (bug 2) — until now the only way to find out
+            whether a scan came out right was to export it and open the file. */}
         <div className="flex w-full flex-col items-stretch gap-3">
           <Button
             type="button"
             variant="primary"
+            onClick={handleOpenViewer}
+            disabled={pages.length === 0}
+            data-testid="done-view"
+          >
+            {t('viewer.open')}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
             onClick={handleExportPdf}
             disabled={pages.length === 0 || exporting}
             data-testid="done-export-pdf"
           >
             {exporting ? t('scanner.exporting') : t('scanner.exportPdf')}
           </Button>
-          <Button type="button" variant="ghost" onClick={handleScanAgain} data-testid="scan-again">
-            {t('scanner.scanAnother')}
+          <Button type="button" variant="ghost" onClick={handleFinish} data-testid="done-finish">
+            {t('done.keep')}
           </Button>
+          {/* The document is already in the history by this point — "Listo" on
+              the grid saved it. Saying so is what makes leaving without
+              exporting feel safe rather than lossy. */}
+          <p className="text-center text-xs text-text-muted">{t('done.keepHint')}</p>
         </div>
+
+        {viewerOpen && (
+          <Suspense fallback={null}>
+            <PageViewer pages={pages} onClose={handleCloseViewer} />
+          </Suspense>
+        )}
       </div>
     );
   }

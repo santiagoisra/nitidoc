@@ -111,6 +111,7 @@ function renderCaptureScreen(props: Partial<{
   openCamera: () => Promise<void>;
   switchCamera: () => Promise<void>;
   setTorch: () => Promise<void>;
+  onBack: () => void;
 }> = {}) {
   return render(
     <ToastHost>
@@ -118,6 +119,7 @@ function renderCaptureScreen(props: Partial<{
         openCamera={props.openCamera ?? vi.fn(async () => {})}
         switchCamera={props.switchCamera ?? vi.fn(async () => {})}
         setTorch={props.setTorch ?? vi.fn(async () => {})}
+        onBack={props.onBack ?? vi.fn()}
       />
     </ToastHost>,
   );
@@ -233,7 +235,7 @@ describe('CaptureScreen (Fase 2.3, capture-ux-redesign.md, Unit 3)', () => {
     expect(captureFullResFrameMock).toHaveBeenCalledTimes(1);
   });
 
-  it('review fix: Next is disabled while a capture is in flight, and a tap in that window does not transition to "processing"', async () => {
+  it('queues a Next tapped mid-capture instead of dropping it, and honours it once the capture lands', async () => {
     let resolveCapture: ((value: { bitmap: ImageBitmap; width: number; height: number }) => void) | undefined;
     captureFullResFrameMock.mockImplementation(
       () =>
@@ -247,13 +249,16 @@ describe('CaptureScreen (Fase 2.3, capture-ux-redesign.md, Unit 3)', () => {
     renderCaptureScreen();
     fireEvent.click(screen.getByTestId('capture-button'));
 
-    await waitFor(() => {
-      expect((screen.getByTestId('capture-next') as HTMLButtonElement).disabled).toBe(true);
-    });
+    // capture-latency (bug 5): the button must stay TAPPABLE during a capture.
+    // Disabling it swallowed the event outright, so on a slow device the user
+    // tapped, nothing happened, and the app read as broken rather than busy.
+    expect((screen.getByTestId('capture-next') as HTMLButtonElement).disabled).toBe(false);
 
-    // Belt-and-suspenders: even a synthetic click while disabled must not
-    // flip the phase (handleNext's own inFlightRef early-return).
     fireEvent.click(screen.getByTestId('capture-next'));
+
+    // Still must not transition YET: `useBatchProcess` snapshots
+    // `rawCaptures`, so advancing now would silently drop the capture that is
+    // still materializing.
     expect(useScannerStore.getState().phase).not.toBe('processing');
 
     await act(async () => {
@@ -262,8 +267,8 @@ describe('CaptureScreen (Fase 2.3, capture-ux-redesign.md, Unit 3)', () => {
       await Promise.resolve();
     });
 
-    expect((screen.getByTestId('capture-next') as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(screen.getByTestId('capture-next'));
+    // ...and the queued intent is honoured the moment the capture is safely in
+    // the store — without the user having to tap a second time.
     expect(useScannerStore.getState().phase).toBe('processing');
   });
 
