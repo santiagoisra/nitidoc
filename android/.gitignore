@@ -53,9 +53,12 @@ captures/
 .idea/navEditor.xml
 
 # Keystore files
-# Uncomment the following lines if you do not want to check your keystore files in.
-#*.jks
-#*.keystore
+# Release signing material. This repo is public and AGPL: a committed keystore
+# would let anyone sign a build that Android accepts as an update to this app.
+# See docs/RELEASING.md.
+*.jks
+*.keystore
+keystore.properties
 
 # External native build folder generated in Android Studio 2.2 and later
 .externalNativeBuild
