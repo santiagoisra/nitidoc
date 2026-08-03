@@ -9,6 +9,7 @@
 import { useCallback, useState } from 'react';
 import { useToast } from '@/shared/ui';
 import { useTranslation } from '@/shared/i18n';
+import { useSaveToHistory } from '@/features/history/hooks/useSaveToHistory';
 import { exportPagesToPdf } from '@/features/scanner/lib/exportPdf';
 import type { DocumentPage } from '@/features/scanner/store/documentSlice';
 
@@ -22,6 +23,7 @@ export interface UseExportPdfResult {
 export function useExportPdf(): UseExportPdfResult {
   const { t } = useTranslation();
   const { showToast } = useToast();
+  const { saveToHistory } = useSaveToHistory();
   const [exporting, setExporting] = useState(false);
 
   const exportPdf = useCallback(
@@ -31,6 +33,14 @@ export function useExportPdf(): UseExportPdfResult {
       }
       setExporting(true);
       exportPagesToPdf(pages)
+        .then(() => {
+          // A successful export is one of the two moments a document counts as
+          // finished (history design section 6). Deliberately NOT awaited into
+          // the `exporting` flag: the PDF is already in the user's hands, and
+          // making them wait on a background write would be a regression in the
+          // flow that matters. `saveToHistory` never rejects.
+          void saveToHistory(pages);
+        })
         .catch(() => {
           showToast({ message: t('scanner.exportPdfError'), variant: 'danger' });
         })
@@ -38,7 +48,7 @@ export function useExportPdf(): UseExportPdfResult {
           setExporting(false);
         });
     },
-    [exporting, showToast, t],
+    [exporting, saveToHistory, showToast, t],
   );
 
   return { exporting, exportPdf };

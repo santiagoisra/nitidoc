@@ -18,6 +18,18 @@ const HTTPS_PREVIEW_PORTS = ['4443', '4444'];
 const httpsPreview =
   process.env.HTTPS_PREVIEW === '1' || HTTPS_PREVIEW_PORTS.some((p) => process.argv.includes(p));
 
+/**
+ * Native (Capacitor) build — `npm run build:native` (history design section 9,
+ * item 3).
+ *
+ * A native build ships the whole bundle inside the APK and serves it from
+ * `https://localhost`, so a precaching service worker buys nothing and costs
+ * something real: a second copy of every asset plus a cache that can serve a
+ * stale shell after an app update, which is exactly the failure the
+ * device-diagnostics builds already disable the SW to avoid.
+ */
+const nativeBuild = process.env.NITIDOC_NATIVE === '1';
+
 export default defineConfig({
   plugins: [
     react(),
@@ -38,7 +50,7 @@ export default defineConfig({
       // shell repeatedly served a stale bundle to the phone, so instrumentation
       // added minutes earlier simply wasn't there and the traces looked
       // unchanged. No SW means every reload is guaranteed fresh.
-      disable: httpsPreview,
+      disable: httpsPreview || nativeBuild,
       registerType: 'autoUpdate',
       injectRegister: 'auto',
       // Reuse the existing public/manifest.webmanifest (already linked in

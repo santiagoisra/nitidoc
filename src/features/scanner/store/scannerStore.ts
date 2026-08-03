@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { randomId } from '@/shared/lib/randomId';
 import type { DocumentActions, DocumentSlice } from './documentSlice';
 import { createDocumentActions, initialDocumentSlice } from './documentSlice';
 
@@ -149,6 +150,10 @@ export const scannerStoreInitialState: ScannerStateShape = {
 
 export const useScannerStore = create<ScannerStore>((set, get) => ({
   ...scannerStoreInitialState,
+  // Seed the document identity (history design section 5). `initialDocumentSlice`
+  // leaves it empty on purpose so it stays a pure constant; the live store is
+  // where a real id is minted, and `resetDocument` mints each subsequent one.
+  documentId: randomId(),
 
   setStream: (stream) => set({ stream }),
   setDevices: (devices) => set({ devices }),
