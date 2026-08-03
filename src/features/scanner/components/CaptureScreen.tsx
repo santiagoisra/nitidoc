@@ -35,7 +35,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Flashlight, FlashlightOff } from 'lucide-react';
-import { Button, useToast } from '@/shared/ui';
+import { BackButton, Button, useToast } from '@/shared/ui';
 import { useTranslation } from '@/shared/i18n';
 import { CameraSelector } from '@/features/scanner/components/CameraSelector';
 import { CameraView } from '@/features/scanner/components/CameraView';
@@ -71,6 +71,13 @@ export interface CaptureScreenProps {
   readonly openCamera: (deviceId?: string) => Promise<void>;
   readonly switchCamera: (deviceId: string) => Promise<void>;
   readonly setTorch: (on: boolean) => Promise<void>;
+  /**
+   * Returns to the welcome screen (navigation-ux, bug 1). Without it this
+   * screen was a one-way door: once the camera opened there was no route to
+   * the history or to importing a file short of killing the app. Captures
+   * already taken are NOT discarded — coming back resumes them.
+   */
+  readonly onBack: () => void;
 }
 
 /** Small, filter-less thumbnail tile for the no-camera variant's raw-capture strip. Never decodes a blob — draws the cached thumbnail as-is. */
@@ -98,7 +105,7 @@ function RawThumbnailTile({ raw }: { readonly raw: RawCapture }): ReactNode {
   );
 }
 
-export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScreenProps): ReactNode {
+export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: CaptureScreenProps): ReactNode {
   const { t } = useTranslation();
   const { showToast } = useToast();
   const { materializeRawCapture, isAtCap } = useActivePage();
@@ -126,6 +133,14 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
   const [flash, setFlash] = useState(false);
   const [fly, setFly] = useState<FlyState | null>(null);
   const [pendingBumps, setPendingBumps] = useState(0);
+  /**
+   * "Siguiente" tapped while a capture was still materializing
+   * (capture-latency, bug 5). The ref is what `handleCapture`'s `finally`
+   * reads — it needs the value synchronously, before any re-render — while the
+   * state drives the button's busy label so the user can see the tap landed.
+   */
+  const nextQueuedRef = useRef(false);
+  const [nextQueued, setNextQueued] = useState(false);
   // Bumped once per capture to re-play the CaptureButton shutter-ring animation.
   const [shutterKey, setShutterKey] = useState(0);
 
@@ -166,16 +181,18 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
   }, [setTorch, torchOn]);
 
   const handleNext = useCallback(() => {
-    // Review fix: belt-and-suspenders against the `capture-next` Button's own
-    // `disabled={isCapturing}` gate below — `inFlightRef` is set/cleared
-    // SYNCHRONOUSLY inside `handleCapture` (unlike the `isCapturing` state
-    // update, which only takes effect on the next render), so checking it
-    // here also covers the narrow sub-frame between a tap starting a capture
-    // and that render committing. Without this, "Siguiente" tapped in that
-    // window silently transitioned to `'processing'` while the capture was
-    // still in flight, losing whatever `materializeRawCapture` was about to
-    // add (or racing `useBatchProcess.run()`'s own snapshot of `rawCaptures`).
+    // Advancing while a capture is still materializing would lose it:
+    // `useBatchProcess.run()` snapshots `rawCaptures`, so the in-flight one
+    // would never be processed.
+    //
+    // This used to `return` outright — the tap was DISCARDED, with no feedback
+    // at all (capture-latency, bug 5). On a fast phone the window is
+    // invisible; on a slow one the user taps "Siguiente", nothing happens, and
+    // the app looks broken rather than busy. Now the intent is remembered and
+    // acted on the moment the capture lands, so a tap is never wasted.
     if (inFlightRef.current) {
+      nextQueuedRef.current = true;
+      setNextQueued(true);
       return;
     }
     setPhase('processing');
@@ -267,8 +284,19 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
       inFlightRef.current = false;
       setIsCapturing(false);
       setPendingBumps((n) => Math.max(0, n - 1));
+
+      // Honour a "Siguiente" tapped during the capture, now that the raw
+      // capture is safely in the store and `useBatchProcess` will see it
+      // (capture-latency, bug 5). Fires on the failure path too: the user
+      // asked to move on, and a failed capture already showed its own toast —
+      // trapping them on the camera to re-tap would be a second insult.
+      if (nextQueuedRef.current) {
+        nextQueuedRef.current = false;
+        setNextQueued(false);
+        setPhase('processing');
+      }
     }
-  }, [imageCaptureSupported, isAtCap, materializeRawCapture, showToast, t]);
+  }, [imageCaptureSupported, isAtCap, materializeRawCapture, setPhase, showToast, t]);
 
   const handleImportAnother = useCallback(
     async (file: File) => {
@@ -317,9 +345,16 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
     // copy `ImportFallback` shows.
     return (
       <div
-        className="flex h-full w-full flex-col items-center justify-center gap-4 overflow-y-auto bg-bg p-4"
+        className="flex h-full w-full flex-col items-center gap-4 overflow-y-auto bg-bg p-4"
         data-testid="capture-screen-no-camera"
       >
+        {/* The no-camera variant needs the way out just as much — arguably
+            more, since a user who landed here by denying permission is the
+            most likely to want the history or a different entry point. */}
+        <div className="flex w-full items-center justify-start">
+          <BackButton onClick={onBack} testId="capture-back" />
+        </div>
+
         <ImportFallback
           reason={permission === 'denied' ? 'permission-denied' : 'no-camera'}
           onFileSelected={(file) => void handleImportAnother(file)}
@@ -396,7 +431,8 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
         className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 bg-gradient-to-b from-[rgba(10,8,6,0.72)] to-transparent p-3"
         style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)' }}
       >
-        <div className="pointer-events-auto">
+        <div className="pointer-events-auto flex items-center gap-2">
+          <BackButton onClick={onBack} tone="overlay" testId="capture-back" />
           <CameraSelector onSelect={(deviceId) => void switchCamera(deviceId)} />
         </div>
         {torchSupported && (
@@ -429,16 +465,16 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch }: CaptureScr
         <div className="flex justify-center">
           <CaptureButton onCapture={() => void handleCapture()} disabled={isCapturing || isAtCap} shutterKey={shutterKey} />
         </div>
+        {/* "Siguiente" is deliberately NOT `disabled={isCapturing}` any more
+            (capture-latency, bug 5): a disabled button swallows the tap
+            entirely, which is exactly how the intent got lost. It stays
+            tappable, `handleNext` queues the transition, and the label reports
+            that it is waiting rather than leaving the user wondering whether
+            the tap registered at all. */}
         <div className="flex justify-end">
           {rawCaptures.length > 0 && (
-            <Button
-              type="button"
-              variant="primary"
-              onClick={handleNext}
-              disabled={isCapturing}
-              data-testid="capture-next"
-            >
-              {t('capture.next')}
+            <Button type="button" variant="primary" onClick={handleNext} data-testid="capture-next">
+              {nextQueued ? t('common.processing') : t('capture.next')}
             </Button>
           )}
         </div>

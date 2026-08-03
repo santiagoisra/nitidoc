@@ -83,6 +83,7 @@ function renderAdjustScreen(
     onCrop: (pageId: string) => void;
     onNext: () => void;
     onAddMore: () => void;
+    onBack: () => void;
   }> = {},
 ) {
   return render(
@@ -93,6 +94,7 @@ function renderAdjustScreen(
         onCrop={props.onCrop ?? vi.fn()}
         onNext={props.onNext ?? vi.fn()}
         onAddMore={props.onAddMore ?? vi.fn()}
+        onBack={props.onBack ?? vi.fn()}
       />
     </ToastHost>,
   );

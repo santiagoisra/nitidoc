@@ -525,6 +525,6 @@ describe('documentSlice initial state', () => {
     expect(useStore.getState().activeDirty).toBe(false);
     expect(useStore.getState().selectedPageIds).toEqual([]);
     expect(useStore.getState().pendingDeletion).toBeNull();
-    expect(useStore.getState().phase).toBe('idle');
+    expect(useStore.getState().phase).toBe('welcome');
   });
 });

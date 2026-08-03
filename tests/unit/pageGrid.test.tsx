@@ -140,6 +140,7 @@ describe('PageGrid (Group 5 / PR8, design section 5.3)', () => {
           onReorder={onReorder}
           onCaptureMore={vi.fn()}
           onFinish={vi.fn()}
+          onBack={vi.fn()}
         />
       </ToastHost>,
     );
@@ -169,6 +170,7 @@ describe('PageGrid (Group 5 / PR8, design section 5.3)', () => {
           onReorder={onReorder}
           onCaptureMore={vi.fn()}
           onFinish={vi.fn()}
+          onBack={vi.fn()}
         />
       </ToastHost>,
     );
@@ -191,6 +193,7 @@ describe('PageGrid (Group 5 / PR8, design section 5.3)', () => {
           onReorder={vi.fn()}
           onCaptureMore={vi.fn()}
           onFinish={vi.fn()}
+          onBack={vi.fn()}
         />
       </ToastHost>,
     );
@@ -215,6 +218,7 @@ describe('PageGrid (Group 5 / PR8, design section 5.3)', () => {
           onReorder={vi.fn()}
           onCaptureMore={vi.fn()}
           onFinish={vi.fn()}
+          onBack={vi.fn()}
         />
       </ToastHost>,
     );
@@ -239,6 +243,7 @@ describe('PageGrid (Group 5 / PR8, design section 5.3)', () => {
           onReorder={vi.fn()}
           onCaptureMore={onCaptureMore}
           onFinish={onFinish}
+          onBack={vi.fn()}
         />
       </ToastHost>,
     );
@@ -262,6 +267,7 @@ describe('PageGrid (Group 5 / PR8, design section 5.3)', () => {
           onReorder={vi.fn()}
           onCaptureMore={vi.fn()}
           onFinish={vi.fn()}
+          onBack={vi.fn()}
         />
       </ToastHost>,
     );
@@ -286,6 +292,7 @@ describe('PageGrid (Group 5 / PR8, design section 5.3)', () => {
           onReorder={vi.fn()}
           onCaptureMore={onCaptureMore}
           onFinish={onFinish}
+          onBack={vi.fn()}
         />
       </ToastHost>,
     );
@@ -315,6 +322,7 @@ describe('PageGrid (Group 5 / PR8, design section 5.3)', () => {
           onReorder={vi.fn()}
           onCaptureMore={vi.fn()}
           onFinish={vi.fn()}
+          onBack={vi.fn()}
         />
       </ToastHost>,
     );
@@ -347,6 +355,7 @@ describe('PageGrid (Group 5 / PR8, design section 5.3)', () => {
           onReorder={vi.fn()}
           onCaptureMore={vi.fn()}
           onFinish={vi.fn()}
+          onBack={vi.fn()}
         />
       </ToastHost>,
     );

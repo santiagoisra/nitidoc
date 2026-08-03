@@ -33,10 +33,9 @@ import type { DragEndEvent } from '@dnd-kit/core';
 import { DndContext, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, rectSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Button } from '@/shared/ui';
+import { BackButton, Button } from '@/shared/ui';
 import { useTranslation } from '@/shared/i18n';
 import { PageThumbnail } from '@/features/scanner/components/PageThumbnail';
-import { useExportPdf } from '@/features/scanner/hooks/useExportPdf';
 import type { DocumentPage } from '@/features/scanner/store/documentSlice';
 
 export interface PageGridProps {
@@ -46,7 +45,14 @@ export interface PageGridProps {
   /** onDragEnd hands the FULL new id order to the caller (spec scenario "Reorder por drag-and-drop"). */
   readonly onReorder: (orderedIds: readonly string[]) => void;
   readonly onCaptureMore: () => void;
+  /**
+   * Advances to the done screen, saving the document to the history on the way
+   * (`ScannerScreen.handleGridFinish`). Labelled "Listo" rather than
+   * "Finalizar" because this screen is a REVIEW step, not the end of anything.
+   */
   readonly onFinish: () => void;
+  /** Back to the adjust carousel (navigation-ux, bug 3). */
+  readonly onBack: () => void;
 }
 
 /**
@@ -80,6 +86,7 @@ export function PageGrid({
   onReorder,
   onCaptureMore,
   onFinish,
+  onBack,
 }: PageGridProps): ReactNode {
   const { t } = useTranslation();
   // A bare `PointerSensor` with no activation constraint starts a drag on the
@@ -95,12 +102,6 @@ export function PageGrid({
     useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
   );
-  const { exporting, exportPdf } = useExportPdf();
-
-  const handleExportPdf = useCallback(() => {
-    exportPdf(pages);
-  }, [exportPdf, pages]);
-
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       const { active, over } = event;
@@ -130,10 +131,13 @@ export function PageGrid({
 
   return (
     <div className="flex w-full max-w-md flex-col gap-4" data-testid="page-grid">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-extrabold tracking-tight text-text">{t('grid.title')}</h1>
-        <p className="text-sm text-text-muted">{t('grid.pageCount', { n: pages.length })}</p>
-        <p className="text-xs text-text-muted/80">{t('grid.reorderHint')}</p>
+      <div className="flex items-start gap-2">
+        <BackButton onClick={onBack} testId="grid-back" className="mt-0.5" />
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-extrabold tracking-tight text-text">{t('grid.title')}</h1>
+          <p className="text-sm text-text-muted">{t('grid.pageCount', { n: pages.length })}</p>
+          <p className="text-xs text-text-muted/80">{t('grid.reorderHint')}</p>
+        </div>
       </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -167,25 +171,22 @@ export function PageGrid({
         </SortableContext>
       </DndContext>
 
-      {/* Footer (design 5.5): Finalizar ghost + Exportar PDF primary (1 / 1.4),
-          pinned to the bottom of the scroll area so it stays reachable. Clears
-          the iOS home-indicator inset when installed as a PWA. */}
+      {/* Footer: a single "Listo", pinned to the bottom of the scroll area so
+          it stays reachable. Clears the iOS home-indicator inset when
+          installed as a PWA.
+
+          "Exportar PDF" used to live here beside it, and its removal is the
+          point: this screen is where you REVIEW — reorder, re-crop, delete the
+          pages that came out wrong — not where you commit to an output. Two
+          competing calls to action muddled that, and offering an export before
+          the document was saved is what made a scan feel finished while it was
+          still only in memory. One way out, and it is the one that saves. */}
       <div
         className="sticky bottom-0 flex w-full items-center gap-3 bg-bg/95 pt-3 backdrop-blur"
         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.75rem)' }}
       >
-        <Button type="button" variant="ghost" onClick={onFinish} data-testid="grid-finish" className="flex-1">
+        <Button type="button" variant="primary" onClick={onFinish} data-testid="grid-finish" className="flex-1">
           {t('grid.finish')}
-        </Button>
-        <Button
-          type="button"
-          variant="primary"
-          onClick={handleExportPdf}
-          disabled={pages.length === 0 || exporting}
-          data-testid="grid-export-pdf"
-          className="flex-[1.4]"
-        >
-          {exporting ? t('scanner.exporting') : t('scanner.exportPdf')}
         </Button>
       </div>
     </div>

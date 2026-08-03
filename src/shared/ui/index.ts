@@ -1,3 +1,5 @@
+export { BackButton } from '@/shared/ui/BackButton';
+export type { BackButtonProps } from '@/shared/ui/BackButton';
 export { BrandGlyph } from '@/shared/ui/BrandGlyph';
 export type { BrandGlyphProps } from '@/shared/ui/BrandGlyph';
 export { Button } from '@/shared/ui/Button';
