@@ -25,8 +25,16 @@ android {
         applicationId "com.nitidoc.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
+        // Keep in step with `package.json`'s `version` and with the git tag —
+        // the three name the same release, and they drifted apart before
+        // v1.0.0 went out (0.1.0 here, "1.0" there).
+        //
+        // `versionCode` is the Android-only counterpart and follows a
+        // different rule: it MUST increase on every upload to Play, which
+        // rejects a re-used one. v1.0.0 shipped as 1, so the next release is 2
+        // regardless of how `versionName` changes. See docs/RELEASING.md.
         versionCode 1
-        versionName "1.0"
+        versionName "1.0.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
