@@ -30,7 +30,9 @@ import { FILTER } from '@/features/scanner/lib/filterConstants';
 import { cssPresetRealce } from '@/features/scanner/lib/filterPipeline';
 import { loadOpenCv } from '@/features/scanner/lib/opencvLoader';
 import { runDetectPipeline } from './detectPipeline';
+import { applySauvolaTiled, writeBinaryMatToRgba } from './applySauvolaTiled';
 import type { CvBindings, CvMat } from './cvBindings';
+import { shouldApplyUnsharpSharpening } from './filterRenderPolicy';
 import type {
   ApplyFilterRequest,
   ApplyFilterResponse,
@@ -386,7 +388,7 @@ function applyVariant(cvBindings: CvBindings, srcMat: CvMat, grayMat: CvMat, var
     }
 
     // Sharpness (any preset, design section 3.3/4.4): 3x3 unsharp kernel blended by alpha.
-    if (variant.sharpness > 0) {
+    if (shouldApplyUnsharpSharpening(variant)) {
       const alpha = variant.sharpness / 100;
       const kernelData = SHARPEN_KERNEL_3X3.map((sharpenValue, index) => {
         const identityValue = IDENTITY_KERNEL_3X3[index] as number;
@@ -416,12 +418,10 @@ function applyVariant(cvBindings: CvBindings, srcMat: CvMat, grayMat: CvMat, var
 }
 
 /**
- * `APPLY_FILTER` handler (design section 4.1-4.4). Decodes `srcMat`
- * (RGBA)/`grayMat` ONCE from the base `image`, then renders every
- * `request.variants` entry over the same pair — batches up to 3 adaptive
- * previews in one round-trip (design section 4.3) without re-decoding.
- * Every per-variant Mat is `.delete()`'d in `applyVariant`'s own `finally`;
- * this handler owns and releases only the shared `srcMat`/`grayMat`.
+ * The adopted single-`bw` path owns a binary Sauvola Mat, rewrites and
+ * transfers the request's RGBA buffer, then releases that Mat in `finally`.
+ * Other variants decode `srcMat`/`grayMat` once and render each requested
+ * preview over the pair; every per-variant Mat is released by `applyVariant`.
  */
 async function handleApplyFilter(request: ApplyFilterRequest): Promise<void> {
   if (!cv) {
@@ -432,8 +432,26 @@ async function handleApplyFilter(request: ApplyFilterRequest): Promise<void> {
   const cvBindings = cv;
   let srcMat: CvMat | null = null;
   let grayMat: CvMat | null = null;
+  let sauvolaMat: CvMat | null = null;
 
   try {
+    const sauvolaVariant = request.variants.length === 1 && request.variants[0]?.preset === 'bw' ? request.variants[0] : null;
+    if (sauvolaVariant) {
+      sauvolaMat = applySauvolaTiled(cvBindings, request.image, sauvolaVariant.brightness, sauvolaVariant.contrast);
+      const sauvolaData = sauvolaMat.data;
+      const rgbaData = request.image.data;
+      writeBinaryMatToRgba(sauvolaData, rgbaData);
+      const outImageData = new ImageData(rgbaData as Uint8ClampedArray<ArrayBuffer>, request.image.width, request.image.height);
+      if (request.outputBitmap) {
+        const ctx = getFilterContext(request.image.width, request.image.height);
+        ctx.putImageData(outImageData, 0, 0);
+        const bitmap = (filterCanvas as OffscreenCanvas).transferToImageBitmap();
+        postResponse({ id: request.id, type: 'APPLY_FILTER_RESULT', results: [{ kind: 'bitmap', bitmap }] }, [bitmap]);
+      } else {
+        postResponse({ id: request.id, type: 'APPLY_FILTER_RESULT', results: [{ kind: 'imagedata', image: request.image }] }, [request.image.data.buffer]);
+      }
+      return;
+    }
     const imageData = imageDataLikeToImageData(request.image);
     srcMat = cvBindings.matFromImageData(imageData);
     grayMat = new cvBindings.Mat();
@@ -474,6 +492,7 @@ async function handleApplyFilter(request: ApplyFilterRequest): Promise<void> {
   } finally {
     if (srcMat && !srcMat.isDeleted()) srcMat.delete();
     if (grayMat && !grayMat.isDeleted()) grayMat.delete();
+    if (sauvolaMat && !sauvolaMat.isDeleted()) sauvolaMat.delete();
   }
 }
 

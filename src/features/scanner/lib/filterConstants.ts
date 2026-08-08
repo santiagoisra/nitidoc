@@ -44,6 +44,11 @@ export const FILTER = {
   GRAYSCALE_CONTRAST: 1.3,
   /** Brightness-slider-to-`convertScaleAbs` beta scale for adaptive presets (design section 3.3). STARTING VALUE. */
   BETA_SCALE: 0.5,
+  SAUVOLA_TILE_INTERIOR: 512,
+  SAUVOLA_MIN_WINDOW: 31,
+  SAUVOLA_MAX_WINDOW: 255,
+  SAUVOLA_K: 0.2,
+  SAUVOLA_R: 128,
   /** Debounce for slider-driven worker calls, ms (design section 3.4). STARTING VALUE. */
   SLIDER_DEBOUNCE_MS: 120,
   /** `bw` preset adaptiveThreshold blockSize/C (design section 4.4). STARTING VALUES. */
