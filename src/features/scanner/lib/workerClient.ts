@@ -15,7 +15,6 @@
 
 import type {
   ApplyFilterResponse,
-  AspectRatioName,
   DetectResponse,
   FilterVariant,
   ImageDataLike,
@@ -26,6 +25,7 @@ import type {
   WorkerRequest,
   WorkerResponse,
 } from '@/features/scanner/worker/messages';
+import type { WarpGeometry } from '@/shared/types/paper';
 
 export class WorkerError extends Error {
   constructor(
@@ -55,7 +55,7 @@ export interface WorkerClient {
   warp(
     image: ImageDataLike,
     corners: Quad,
-    aspectRatio: AspectRatioName,
+    geometry: WarpGeometry,
   ): Promise<WarpResponse | WarpResponseImageData>;
   /**
    * Renders 1-3 `FilterVariant`s over the same base `image` in one
@@ -191,10 +191,10 @@ function createWorkerClientForWorker(worker: Worker): WorkerClient {
       }
     },
 
-    async warp(image, corners, aspectRatio) {
+    async warp(image, corners, geometry) {
       const id = nextId++;
       return send<WarpResponse | WarpResponseImageData>(
-        { id, type: 'WARP', image, corners, aspectRatio },
+        { id, type: 'WARP', image, corners, geometry },
         [image.data.buffer],
       );
     },

@@ -10,6 +10,7 @@
  */
 
 import { HISTORY } from '@/features/history/lib/historyConstants';
+import { normalizeRecipe } from '@/features/scanner/lib/editRecipe';
 import { compressBitmapToJpeg, decodeBlobToBitmap } from '@/features/scanner/lib/pageResources';
 import type { DocumentPage } from '@/features/scanner/store/documentSlice';
 import type { StoredPage } from '@/shared/types/history';
@@ -75,7 +76,7 @@ export async function toDocumentPages(stored: readonly StoredPage[]): Promise<Do
         // can never produce gaps (the same invariant `reindex` enforces in
         // `documentSlice`).
         order: index,
-        recipe: row.recipe,
+        recipe: normalizeRecipe(row.recipe),
         thumbnail,
         originalBlob: row.warpedBlob,
         warpedBlob: row.warpedBlob,

@@ -5,6 +5,7 @@ import {
   inferAspectRatio,
   isConvex,
   layoutSizeForRotation,
+  measuredQuadRatio,
   orderCorners,
   outputSize,
   reduceToQuad,
@@ -457,6 +458,15 @@ describe('inferAspectRatio (task 7.1.3)', () => {
     ]);
     const result = inferAspectRatio(q);
     expect(result.name).toBe('unknown');
+  });
+});
+
+describe('measuredQuadRatio', () => {
+  it('normalizes rotated document dimensions before classification', () => {
+    const portrait = quad([{ x: 0, y: 0 }, { x: 210, y: 0 }, { x: 210, y: 297 }, { x: 0, y: 297 }]);
+    const landscape = quad([{ x: 0, y: 0 }, { x: 297, y: 0 }, { x: 297, y: 210 }, { x: 0, y: 210 }]);
+    expect(measuredQuadRatio(portrait)).toBeCloseTo(210 / 297, 6);
+    expect(measuredQuadRatio(landscape)).toBeCloseTo(210 / 297, 6);
   });
 });
 

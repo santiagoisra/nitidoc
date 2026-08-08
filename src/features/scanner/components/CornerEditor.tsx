@@ -115,7 +115,8 @@ import { useTranslation } from '@/shared/i18n';
 import { CropOverlay } from '@/features/scanner/components/CropOverlay';
 import { FilterPanel } from '@/features/scanner/components/FilterPanel';
 import { WarpedPreview } from '@/features/scanner/components/WarpedPreview';
-import { isConvex, inferAspectRatio, outputSize } from '@/features/scanner/lib/geometry';
+import { isConvex, inferAspectRatio, measuredQuadRatio, outputSize } from '@/features/scanner/lib/geometry';
+import { classifyPaperRatio, paperSelection, resolveWarpGeometry } from '@/features/scanner/lib/paperFormats';
 import {
   createInitialRecipe,
   frameCorners,
@@ -235,9 +236,10 @@ export function CornerEditor({
   );
 
   const [corners, setCornersState] = useState<Quad>(seedCorners);
-  const [aspectOverride, setAspectOverride] = useState<AspectRatioName | null>(
-    initialRecipe?.aspectRatio ?? null,
-  );
+  // This is an editor-session action, not a mirror of the deprecated persisted
+  // compatibility field. Without a fresh user choice, an existing manual
+  // PaperSelection (including Oficio) must survive a re-warp unchanged.
+  const [aspectOverride, setAspectOverride] = useState<AspectRatioName | null>(null);
   const [isWarping, setIsWarping] = useState(false);
   const [warpError, setWarpError] = useState(false);
   /** Fase 2.1 item 2: internal two-step flow, presentation-only (see module doc comment). */
@@ -327,6 +329,12 @@ export function CornerEditor({
         // directly, avoiding a stale read of `aspectOverride` from this
         // callback's closure before React commits the state update.
         const aspectForWarp = aspectOverrideArg ?? aspectOverride ?? inferAspectRatio(finalCorners).name;
+        const paperForWarp =
+          aspectOverrideArg !== undefined || aspectOverride !== null
+            ? paperSelection(aspectForWarp === 'unknown' ? 'original' : aspectForWarp, 'manual')
+            : initialRecipe?.paper.source === 'manual'
+              ? initialRecipe.paper
+              : classifyPaperRatio(measuredQuadRatio(finalCorners));
         const workerClient = getSharedWorkerClient();
         // Fix H2: clone a fresh buffer per warp for the transfer. The worker
         // transfers (detaches) the buffer it receives, so transferring the
@@ -337,7 +345,7 @@ export function CornerEditor({
         const response = await workerClient.warp(
           { width: sourceImageData.width, height: sourceImageData.height, data: transferData },
           finalCorners,
-          aspectForWarp,
+          resolveWarpGeometry(paperForWarp),
         );
 
         if (response.type === 'WARP_RESULT') {
@@ -388,9 +396,9 @@ export function CornerEditor({
         setRecipeState((prev) => {
           const base = prev ?? initialRecipe;
           if (base) {
-            return { ...base, corners: finalCorners, aspectRatio: aspectForWarp };
+            return { ...base, corners: finalCorners, aspectRatio: aspectForWarp, paper: paperForWarp };
           }
-          return createInitialRecipe(finalCorners, aspectForWarp);
+          return createInitialRecipe(finalCorners, aspectForWarp, paperForWarp);
         });
       } catch {
         // Only the latest warp may surface an error; a stale warp that rejected
@@ -568,7 +576,7 @@ export function CornerEditor({
                 bitmap={warpedImage}
                 filter={recipe.filter}
                 transform={transform}
-                outSize={outputSize(recipe.corners, recipe.aspectRatio)}
+                outSize={outputSize(recipe.corners, resolveWarpGeometry(recipe.paper))}
                 rotation={recipe.rotation}
               />
             </div>

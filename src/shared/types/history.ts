@@ -11,6 +11,9 @@
 
 import type { EditRecipe } from '@/shared/types/scanner';
 
+/** Stored rows may predate `EditRecipe.paper`; normalize at the read boundary. */
+export type StoredEditRecipe = Omit<EditRecipe, 'paper'> & { readonly paper?: EditRecipe['paper'] };
+
 /**
  * A row of the `documents` store — pure metadata plus one small cover image.
  * Deliberately a few KB: the history list reads this store and NOTHING else,
@@ -44,7 +47,7 @@ export interface HistoryDocumentMeta {
 export interface StoredPage {
   readonly docId: string;
   readonly order: number;
-  readonly recipe: EditRecipe;
+  readonly recipe: StoredEditRecipe;
   /** The UNFILTERED warp base — the export baseline, exactly as in memory. */
   readonly warpedBlob: Blob;
   /** ~150px JPEG; decoded back to an `ImageBitmap` on load. */

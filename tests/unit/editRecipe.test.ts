@@ -6,6 +6,7 @@ import {
   frameCorners,
   magnifierSampleRect,
   nextRotation,
+  normalizeRecipe,
   prevRotation,
   recipeToCssTransform,
   rotateLeftRecipe,
@@ -69,6 +70,7 @@ describe('createInitialRecipe (task 5.2.3)', () => {
     const recipe = createInitialRecipe(corners, 'a4');
     expect(recipe).toEqual({
       corners,
+      paper: expect.objectContaining({ id: 'a4', source: 'auto' }),
       aspectRatio: 'a4',
       rotation: 0,
       flipH: false,
@@ -94,6 +96,37 @@ describe('createInitialRecipe (task 5.2.3)', () => {
     expect(() => JSON.stringify(recipe)).not.toThrow();
     const roundTripped = JSON.parse(JSON.stringify(recipe)) as EditRecipe;
     expect(roundTripped).toEqual(recipe);
+  });
+});
+
+describe('normalizeRecipe (paper-format compatibility)', () => {
+  it('adds legacy provenance without modifying crop, rotation, or filter data', () => {
+    const legacy = {
+      corners: frameCorners(800, 1000),
+      aspectRatio: 'letter' as const,
+      rotation: 270 as const,
+      flipH: true,
+      flipV: false,
+      filter: NEUTRAL_FILTER,
+    };
+
+    const normalized = normalizeRecipe(legacy);
+
+    expect(normalized.paper).toMatchObject({ id: 'letter', alias: 'letter', source: 'legacy', confidence: 'none' });
+    expect(normalized.corners).toBe(legacy.corners);
+    expect(normalized.rotation).toBe(270);
+    expect(normalized.filter).toBe(legacy.filter);
+  });
+
+  it('does not overwrite persisted manual Oficio provenance', () => {
+    const recipe = createInitialRecipe(frameCorners(800, 1000), 'unknown', {
+      id: 'legal',
+      alias: 'oficio',
+      source: 'manual',
+      confidence: 'none',
+      evidence: { measuredRatio: 0.6, scaleInferred: false },
+    });
+    expect(normalizeRecipe(recipe).paper).toEqual(recipe.paper);
   });
 });
 

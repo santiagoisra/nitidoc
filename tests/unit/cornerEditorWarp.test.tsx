@@ -62,6 +62,8 @@ vi.mock('@/features/scanner/lib/workerClient', () => ({
 }));
 
 import { CornerEditor } from '@/features/scanner/components/CornerEditor';
+import { createInitialRecipe } from '@/features/scanner/lib/editRecipe';
+import { paperSelection } from '@/features/scanner/lib/paperFormats';
 
 // ── Canvas / ImageBitmap shims (happy-dom lacks a 2d canvas + createImageBitmap) ──
 function installCanvasShims(): void {
@@ -271,6 +273,44 @@ describe('CornerEditor warp concurrency + bitmap hygiene (C1/C2)', () => {
     // post-unmount) invoked with it.
     expect((orphan as unknown as { close: ReturnType<typeof vi.fn> }).close).toHaveBeenCalledTimes(1);
     expect(onConfirmMock).not.toHaveBeenCalled();
+  });
+
+  it('preserves a manual Oficio selection on re-warp until the editor receives a new override', async () => {
+    const oficio = paperSelection('oficio', 'manual');
+    const initialRecipe = createInitialRecipe(CONVEX_CORNERS, 'unknown', oficio);
+
+    render(
+      <CornerEditor
+        pageId="oficio-page"
+        originalBitmap={makeBitmap()}
+        width={FRAME_WIDTH}
+        height={FRAME_HEIGHT}
+        initialCorners={CONVEX_CORNERS}
+        initialRecipe={initialRecipe}
+        onConfirm={onConfirmMock}
+        onCancel={onCancelMock}
+      />,
+    );
+
+    await waitFor(() => expect(warpMock).toHaveBeenCalledTimes(1));
+    const firstWarpArgs = warpMock.mock.calls[0] as unknown as [unknown, Quad, unknown];
+    expect(firstWarpArgs[2]).toEqual({ mode: 'fixed', portraitRatio: 216 / 356 });
+
+    const initial = warpDeferreds[0];
+    if (!initial) throw new Error('expected initial Oficio warp');
+    await act(async () => {
+      initial.resolve(warpResult(makeBitmap()));
+      await Promise.resolve();
+    });
+
+    goToAdjustStep();
+    // The measured quad is 2800 x 3800, deliberately not 216/356. The
+    // preview must match the same fixed Legal geometry sent to the worker.
+    expect(screen.getByTestId('warped-preview-box').style.aspectRatio).toBe('2306 / 3800');
+    fireEvent.click(screen.getByTestId('corner-editor-confirm'));
+    expect(onConfirmMock).toHaveBeenCalledWith(
+      expect.objectContaining({ recipe: expect.objectContaining({ paper: oficio }) }),
+    );
   });
 });
 

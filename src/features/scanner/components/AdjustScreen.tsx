@@ -83,6 +83,7 @@ import { WarpedPreview } from '@/features/scanner/components/WarpedPreview';
 import { useActivePage } from '@/features/scanner/hooks/useActivePage';
 import { usePageDeletion } from '@/features/scanner/hooks/usePageDeletion';
 import { isConvex } from '@/features/scanner/lib/geometry';
+import { resolveWarpGeometry } from '@/features/scanner/lib/paperFormats';
 import { decodeBlobToBitmap } from '@/features/scanner/lib/pageResources';
 import { recipeToCssTransform, rotateLeftRecipe, withFilter } from '@/features/scanner/lib/editRecipe';
 import { buildThumbnailCssFilter } from '@/features/scanner/lib/filterPipeline';
@@ -535,7 +536,6 @@ export function AdjustScreen({
     // change that bumps `cropSessionRef` while the worker is busy makes this
     // warp discard itself on resolve (finding H1).
     const session = cropSessionRef.current;
-    const aspectRatio = currentPage.recipe.aspectRatio;
     const corners = draftCorners;
     const baseRecipe = currentPage.recipe;
     const originalBitmap = activeWorking.originalBitmap;
@@ -551,7 +551,7 @@ export function AdjustScreen({
         const response = await getSharedWorkerClient().warp(
           { width: imageData.width, height: imageData.height, data: transferData },
           corners,
-          aspectRatio,
+          resolveWarpGeometry(currentPage.recipe.paper),
         );
 
         let freshWarpedBase: ImageBitmap;

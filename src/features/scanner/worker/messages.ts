@@ -19,6 +19,7 @@ import type {
   Quad,
   QualityMetrics,
 } from '@/shared/types/geometry';
+import type { WarpGeometry } from '@/shared/types/paper';
 import type { FilterPreset } from '@/shared/types/scanner';
 
 export type { Point, Quad, QualityMetrics, AspectRatioName };
@@ -83,8 +84,8 @@ export interface WarpRequest {
   readonly image: ImageDataLike;
   /** Corners in `image`'s coordinate space (full resolution). */
   readonly corners: Quad;
-  /** Chosen aspect ratio (auto-inferred or manual override). */
-  readonly aspectRatio: AspectRatioName;
+  /** Numeric crop constraint resolved on the main thread. */
+  readonly geometry: WarpGeometry;
 }
 
 /**
