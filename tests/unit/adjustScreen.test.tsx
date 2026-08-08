@@ -40,7 +40,23 @@ vi.mock('@/features/scanner/lib/pageResources', async () => {
 // its own suite) — stubbed here so this file stays focused on the preview
 // strip / carousel itself.
 vi.mock('@/features/scanner/components/FilterPanel', () => ({
-  FilterPanel: () => createElement('div', { 'data-testid': 'filter-panel-stub' }),
+  FilterPanel: ({ paper, onPaperChange }: { paper?: { evidence: unknown }; onPaperChange?: (paper: unknown) => void }) =>
+    createElement(
+      'button',
+      {
+        type: 'button',
+        'data-testid': 'filter-panel-stub',
+        onClick: () =>
+          onPaperChange?.({
+            id: 'legal',
+            alias: 'oficio',
+            source: 'manual',
+            confidence: 'none',
+            evidence: paper?.evidence ?? { measuredRatio: 0, scaleInferred: false },
+          }),
+      },
+      'filter panel',
+    ),
 }));
 
 import { AdjustScreen } from '@/features/scanner/components/AdjustScreen';
@@ -282,6 +298,20 @@ describe('AdjustScreen preview strip (bug 6: real N-page carousel, bug 3: swipe 
 
     fireEvent.click(screen.getByTestId('adjust-next-page'));
     await waitFor(() => expect(onPageChange).toHaveBeenCalledWith('p2'));
+  });
+
+  it('persists the manual Oficio selection through the document store', async () => {
+    useScannerStore.setState({ pages: [fakePage({ id: 'p1' })] });
+    renderAdjustScreen();
+    await waitFor(() => expect(screen.getByTestId('filter-panel-stub')).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId('filter-panel-stub'));
+
+    expect(useScannerStore.getState().pages[0]?.recipe.paper).toMatchObject({
+      id: 'legal',
+      alias: 'oficio',
+      source: 'manual',
+    });
   });
 
   it('bug 3: shows the "swipe for more" hint while on a page slide (hiding it once the add-more slide is actually centered needs real IntersectionObserver support, not exercised under happy-dom)', async () => {

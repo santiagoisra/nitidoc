@@ -49,6 +49,11 @@ export function paperSelection(
   return { id: getPaperFormat(alias).id, alias, source, confidence, evidence: evidence(measuredRatio) };
 }
 
+/** Creates a manual choice without discarding the measured shape evidence needed by clear-to-auto. */
+export function manualPaperSelection(alias: PaperFormatAlias, previous: PaperSelection): PaperSelection {
+  return paperSelection(alias, 'manual', 'none', previous.evidence.measuredRatio);
+}
+
 /**
  * Classifies shape evidence only. A4 is catalogued for explicit selection but
  * excluded here because A3/A4/A5 share its ratio, so it cannot be inferred
@@ -91,6 +96,11 @@ export function classifyPaperRatio(measuredRatio: number): PaperSelection {
     confidence,
     evidence: evidence(measuredRatio, best.error, margin),
   };
+}
+
+/** Restores automatic selection from persisted shape evidence; it never infers physical scale. */
+export function automaticPaperSelection(previous: PaperSelection): PaperSelection {
+  return classifyPaperRatio(previous.evidence.measuredRatio);
 }
 
 export function resolveWarpGeometry(selection: PaperSelection): WarpGeometry {

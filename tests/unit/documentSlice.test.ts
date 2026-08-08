@@ -12,6 +12,7 @@ import {
 import { createInitialRecipe } from '@/features/scanner/lib/editRecipe';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
 import type { Quad } from '@/shared/types/geometry';
+import { paperSelection } from '@/features/scanner/lib/paperFormats';
 
 /**
  * Isolated `DocumentSlice` store (Group 1b / PR2, design section 1.4-1.5),
@@ -404,6 +405,21 @@ describe('documentSlice.updateRecipe / updatePageWarpBase / applyFilterToAll', (
 
     expect(useStore.getState().pages.find((p) => p.id === 'a')?.recipe).toBe(newRecipe);
     expect(useStore.getState().pages.find((p) => p.id === 'b')?.recipe).toBe(pageB.recipe);
+  });
+
+  it('updatePaperSelection only changes the targeted persisted recipe selection', () => {
+    const useStore = createTestStore();
+    useStore.getState().addPage(fakePage({ id: 'a' }));
+    useStore.getState().addPage(fakePage({ id: 'b' }));
+
+    useStore.getState().updatePaperSelection('a', paperSelection('oficio', 'manual'));
+
+    expect(useStore.getState().pages.find((page) => page.id === 'a')?.recipe.paper).toMatchObject({
+      id: 'legal',
+      alias: 'oficio',
+      source: 'manual',
+    });
+    expect(useStore.getState().pages.find((page) => page.id === 'b')?.recipe.paper.alias).toBe('a4');
   });
 
   it('updatePageWarpBase closes the previous thumbnail before assigning the new one', () => {

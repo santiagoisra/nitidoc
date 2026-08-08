@@ -169,6 +169,7 @@ export function AdjustScreen({
   const { t } = useTranslation();
   const pages = useScannerStore((s) => s.pages);
   const updateRecipe = useScannerStore((s) => s.updateRecipe);
+  const updatePaperSelection = useScannerStore((s) => s.updatePaperSelection);
   const { deletePage } = usePageDeletion();
   // Inline crop mode (Work Unit 2): activates the page's pre-warp
   // `originalBitmap` for `CropOverlay` and persists a re-warp on "Listo" —
@@ -475,6 +476,14 @@ export function AdjustScreen({
       updateRecipe(currentPage.id, withFilter(currentPage.recipe, filter));
     },
     [currentPage, updateRecipe],
+  );
+
+  const handlePaperChange = useCallback(
+    (paper: import('@/shared/types/paper').PaperSelection) => {
+      if (!currentPage) return;
+      updatePaperSelection(currentPage.id, paper);
+    },
+    [currentPage, updatePaperSelection],
   );
 
   const handleRotateLeft = useCallback(() => {
@@ -868,7 +877,14 @@ export function AdjustScreen({
             )}
           </div>
         ) : base ? (
-          <FilterPanel baseBitmap={base} filter={recipe.filter} onChange={handleFilterChange} orientation="row" />
+          <FilterPanel
+            baseBitmap={base}
+            filter={recipe.filter}
+            onChange={handleFilterChange}
+            paper={recipe.paper}
+            onPaperChange={handlePaperChange}
+            orientation="row"
+          />
         ) : (
           <div className="h-[4.5rem]" aria-hidden="true" />
         )}
