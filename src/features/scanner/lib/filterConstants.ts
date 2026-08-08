@@ -45,6 +45,9 @@ export const FILTER = {
   /** Brightness-slider-to-`convertScaleAbs` beta scale for adaptive presets (design section 3.3). STARTING VALUE. */
   BETA_SCALE: 0.5,
   SAUVOLA_TILE_INTERIOR: 512,
+  SAUVOLA_ILLUMINATION_CELL: 8,
+  SAUVOLA_ILLUMINATION_QUANTILE: 0.9,
+  SAUVOLA_ILLUMINATION_CAP: 96,
   SAUVOLA_MIN_WINDOW: 31,
   SAUVOLA_MAX_WINDOW: 255,
   SAUVOLA_K: 0.2,
