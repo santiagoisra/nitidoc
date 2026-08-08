@@ -26,12 +26,44 @@ function cvRound(value: number): number {
 // Independent scalar oracle: mutating the production tiling, border clamp, or
 // threshold formula must make these expected pixels differ.
 function scalar(width: number, height: number, rgba: Uint8ClampedArray, brightness = 0, contrast = 0): number[] {
+  const cellSize = 8;
   const window = Math.max(31, Math.min(255, Math.round(Math.min(width, height) / 16) | 1));
   const halo = (window - 1) / 2;
-  const at = (x: number, y: number) => {
+  const preGainAt = (x: number, y: number) => {
     const offset = (Math.max(0, Math.min(height - 1, y)) * width + Math.max(0, Math.min(width - 1, x))) * 4;
     const gray = (9798 * (rgba[offset] ?? 0) + 19235 * (rgba[offset + 1] ?? 0) + 3735 * (rgba[offset + 2] ?? 0) + 16384) >> 15;
     return Math.min(255, cvRound(Math.abs(gray * (1 + contrast / 100) + brightness * 0.5)));
+  };
+  const cellsWide = Math.ceil(width / cellSize);
+  const cellsHigh = Math.ceil(height / cellSize);
+  const lattice = Array.from({ length: cellsWide * cellsHigh }, (_, cellIndex) => {
+    const cellX = (cellIndex % cellsWide) * cellSize;
+    const cellY = Math.floor(cellIndex / cellsWide) * cellSize;
+    const values: number[] = [];
+    for (let y = cellY; y < Math.min(height, cellY + cellSize); y += 1) for (let x = cellX; x < Math.min(width, cellX + cellSize); x += 1) values.push(preGainAt(x, y));
+    values.sort((a, b) => a - b);
+    return values[Math.ceil(values.length * 0.9) - 1] ?? 0;
+  });
+  const pageValues = [...lattice].sort((a, b) => a - b);
+  const pageReference = pageValues[Math.ceil(pageValues.length * 0.9) - 1] ?? 0;
+  const backgroundAt = (x: number, y: number) => {
+    const cellX = Math.min(cellsWide - 1, Math.floor(x / cellSize));
+    const cellY = Math.min(cellsHigh - 1, Math.floor(y / cellSize));
+    const nextX = Math.min(cellsWide - 1, cellX + 1);
+    const nextY = Math.min(cellsHigh - 1, cellY + 1);
+    const fx = x % cellSize;
+    const fy = y % cellSize;
+    const atCell = (gridX: number, gridY: number) => lattice[gridY * cellsWide + gridX] ?? 0;
+    const top = atCell(cellX, cellY) * (cellSize - fx) + atCell(nextX, cellY) * fx;
+    const bottom = atCell(cellX, nextY) * (cellSize - fx) + atCell(nextX, nextY) * fx;
+    return Math.floor((top * (cellSize - fy) + bottom * fy) / (cellSize * cellSize));
+  };
+  const at = (x: number, y: number) => {
+    const g = preGainAt(x, y);
+    const background = backgroundAt(Math.max(0, Math.min(width - 1, x)), Math.max(0, Math.min(height - 1, y)));
+    const difference = Math.min(96, Math.max(0, pageReference - background));
+    const weight = background === 0 ? 0 : Math.min(1, g / background);
+    return Math.min(255, cvRound(g + difference * weight));
   };
   return Array.from({ length: width * height }, (_, index) => {
     const x = index % width;
@@ -101,6 +133,22 @@ describe('applySauvolaTiled', () => {
     expect([...result.data]).toEqual(scalar(2, height, rgba));
   });
 
+  it('proves the 8px lattice fixes a contaminated 16px boundary while retaining q90, final-cell, cap, B=0, and tile seams', () => {
+    const width = 530;
+    const height = 34;
+    const values = Array.from({ length: width * height }, (_, index) => {
+      const x = index % width;
+      const y = Math.floor(index / width);
+      if (x < 8 && y < 8) return 0;
+      if (x >= 512 && y >= 16) return 40;
+      return x < 256 ? 55 : 240;
+    });
+    const rgba = image(values);
+    const result = applySauvolaTiled(fakeCv(), { width, height, data: rgba }, 0, 0);
+    expect([...result.data]).toEqual(scalar(width, height, rgba));
+    expect(result.data[0]).toBe(0); // B=0 leaves exact black unchanged.
+  });
+
   it('matches OpenCV classification for the documented pre-gain rounding and RGB edge fixtures', () => {
     const center = 480;
     const dark = image(Array.from({ length: 31 * 31 }, (_, index) => index === center ? 9 : 0));
@@ -137,7 +185,7 @@ describe('applySauvolaTiled', () => {
 
   it('catches an unbounded-allocation estimator mutation at 16MP', () => {
     const estimate = estimateSauvolaOwnedBytes(4000, 4000);
-    expect(estimate.liveBytes).toBe(89_895_348);
+    expect(estimate.liveBytes).toBe(90_146_372);
     expect(estimate.fullPageFloatBytes).toBe(0);
     expect(sauvolaWindowSize(4000, 4000)).toBe(251);
   });
