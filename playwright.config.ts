@@ -21,6 +21,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
+      testIgnore: '**/bwPreviewCanvas.spec.ts',
       use: {
         ...devices['Desktop Chrome'],
         // Fake camera stream so useCamera's happy path (getUserMedia,
@@ -31,6 +32,20 @@ export default defineConfig({
         launchOptions: {
           args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
         },
+      },
+    },
+    {
+      name: 'bw-preview-chromium',
+      testMatch: '**/bwPreviewCanvas.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+      },
+    },
+    {
+      name: 'bw-preview-webkit',
+      testMatch: '**/bwPreviewCanvas.spec.ts',
+      use: {
+        ...devices['Desktop Safari'],
       },
     },
   ],

@@ -62,10 +62,9 @@ jobs:
         run: npm ci
 
       - name: Install Playwright browsers
-        # Chromium only — the suite drives Chromium's own fake-device flags
-        # (--use-fake-device-for-media-stream), so no camera hardware and no
-        # other engine is needed.
-        run: npx playwright install --with-deps chromium
+        # Camera coverage remains Chromium-only, while the isolated B&W canvas
+        # contract also runs in WebKit without fake-camera launch flags.
+        run: npx playwright install --with-deps chromium webkit
 
       # MUST come before the tests. Playwright's `webServer` runs
       # `npm run preview`, which serves `dist/` and does NOT rebuild — without

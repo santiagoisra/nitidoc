@@ -45,6 +45,26 @@ function extractImageData(bitmap: ImageBitmap): ImageData {
   return ctx.getImageData(0, 0, bitmap.width, bitmap.height);
 }
 
+/** Draw a resolved worker result without taking ownership of its bitmap payload. */
+function drawAdaptiveResult(ctx: CanvasRenderingContext2D, result: FilteredResult, width: number, height: number): void {
+  if (result.kind === 'bitmap') {
+    ctx.drawImage(result.bitmap, 0, 0, width, height);
+    return;
+  }
+
+  const scratch = document.createElement('canvas');
+  scratch.width = result.image.width;
+  scratch.height = result.image.height;
+  const scratchCtx = scratch.getContext('2d');
+  if (scratchCtx) {
+    const pixelData = new Uint8ClampedArray(result.image.data);
+    scratchCtx.putImageData(new ImageData(pixelData, result.image.width, result.image.height), 0, 0);
+    ctx.drawImage(scratch, 0, 0, width, height);
+  }
+  scratch.width = 0;
+  scratch.height = 0;
+}
+
 export interface WarpedPreviewProps {
   readonly bitmap: ImageBitmap;
   /** Current recipe filter — the preview must reflect this live. */
@@ -191,21 +211,22 @@ export function WarpedPreview({ bitmap, filter, transform, outSize, rotation, te
       ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
       return;
     }
-    if (result.kind === 'bitmap') {
-      ctx.drawImage(result.bitmap, 0, 0, canvas.width, canvas.height);
+
+    // B&W is already strict binary when it leaves the worker. Scope nearest-
+    // neighbor drawing to this resolved frame so interpolation cannot create
+    // gray backing-store pixels, and so the mutable context state cannot leak.
+    if (filter.preset === 'bw') {
+      ctx.save();
+      try {
+        ctx.imageSmoothingEnabled = false;
+        drawAdaptiveResult(ctx, result, canvas.width, canvas.height);
+      } finally {
+        ctx.restore();
+      }
       return;
     }
-    const scratch = document.createElement('canvas');
-    scratch.width = result.image.width;
-    scratch.height = result.image.height;
-    const scratchCtx = scratch.getContext('2d');
-    if (scratchCtx) {
-      const pixelData = new Uint8ClampedArray(result.image.data);
-      scratchCtx.putImageData(new ImageData(pixelData, result.image.width, result.image.height), 0, 0);
-      ctx.drawImage(scratch, 0, 0, canvas.width, canvas.height);
-    }
-    scratch.width = 0;
-    scratch.height = 0;
+
+    drawAdaptiveResult(ctx, result, canvas.width, canvas.height);
   }, [bitmap, filter, adaptiveVersion]);
 
   const layout = layoutSizeForRotation(outSize.outW, outSize.outH, rotation);

@@ -176,11 +176,11 @@ describe('AdjustScreen preview strip (bug 6: real N-page carousel, bug 3: swipe 
       pages: [fakePage({ id: 'p1', order: 0 }), fakePage({ id: 'p2', order: 1, thumbnail: thumb2 })],
     });
     renderAdjustScreen();
-    await waitFor(() => expect(screen.getByTestId('adjust-warped-preview')).toBeTruthy());
-
-    const drawnBitmaps = drawImageSpy.mock.calls.map((call) => call[0]);
-    expect(drawnBitmaps).toContain(decodedBase); // active slide (p1)
-    expect(drawnBitmaps).toContain(thumb2); // inactive slide (p2)
+    await waitFor(() => {
+      const drawnBitmaps = drawImageSpy.mock.calls.map((call) => call[0]);
+      expect(drawnBitmaps).toContain(decodedBase); // active slide (p1)
+      expect(drawnBitmaps).toContain(thumb2); // inactive slide (p2)
+    });
   });
 
   it('D-MEM: switching the active page (chevron) closes the previous decoded base before decoding the next one', async () => {
