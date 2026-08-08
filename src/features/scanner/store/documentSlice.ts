@@ -1,4 +1,5 @@
 import type { EditRecipe, FilterParams } from '@/shared/types/scanner';
+import type { PaperSelection } from '@/shared/types/paper';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
 import { randomId } from '@/shared/lib/randomId';
 
@@ -212,6 +213,8 @@ export interface DocumentActions {
   // ── edits ───────────────────────────────────────────────────────
   /** Replaces one page's recipe (corners/aspect/rotation/flip/filter). JSON only. */
   readonly updateRecipe: (pageId: string, recipe: EditRecipe) => void;
+  /** Replaces one page's persisted paper selection without touching its raster or crop geometry. */
+  readonly updatePaperSelection: (pageId: string, paper: PaperSelection) => void;
   /** After a dirty deactivate: replaces the cached warp base (closes old thumbnail before overwrite). */
   readonly updatePageWarpBase: (
     pageId: string,
@@ -396,6 +399,13 @@ export function createDocumentActions(
     updateRecipe: (pageId, recipe) =>
       set((state) => ({
         pages: state.pages.map((page) => (page.id === pageId ? { ...page, recipe } : page)),
+      })),
+
+    updatePaperSelection: (pageId, paper) =>
+      set((state) => ({
+        pages: state.pages.map((page) =>
+          page.id === pageId ? { ...page, recipe: { ...page.recipe, paper } } : page,
+        ),
       })),
 
     updatePageWarpBase: (pageId, patch) =>

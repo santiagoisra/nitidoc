@@ -25,12 +25,15 @@ import { buildCssFilter, needsWorker } from '@/features/scanner/lib/filterPipeli
 import { decodeBlobToBitmap } from '@/features/scanner/lib/pageResources';
 import { deliverPdf } from '@/features/scanner/lib/savePdf';
 import { getSharedWorkerClient } from '@/features/scanner/lib/workerClient';
+import { getPaperFormat } from '@/features/scanner/lib/paperFormats';
 import type { DocumentPage } from '@/features/scanner/store/documentSlice';
 import type { EditRecipe } from '@/shared/types/scanner';
 import type { FilterVariant, ImageDataLike } from '@/features/scanner/worker/messages';
 
 /** Quality for the exported JPEG frames embedded in the PDF — higher than the ~0.85 cache quality since this is the final deliverable. */
 const PDF_JPEG_QUALITY = 0.9;
+/** Mirrors jsPDF 4.2.1's legacy `unit: 'px'` page MediaBox without claiming a physical scale. */
+const LEGACY_MM_PER_PIXEL = 25.4 / 54;
 
 export interface RenderedPage {
   readonly dataUrl: string;
@@ -191,9 +194,40 @@ function exportFilename(): string {
   return `nitidoc-${Date.now()}.pdf`;
 }
 
+interface PdfPageGeometry {
+  readonly width: number;
+  readonly height: number;
+  readonly orientation: 'p' | 'l';
+}
+
+/**
+ * Resolves the nominal MediaBox independently from camera pixels for known
+ * paper formats. Ticket and Original deliberately retain the old pixel-based
+ * fallback because they have no trustworthy nominal physical dimensions.
+ */
+function resolvePdfPageGeometry(page: DocumentPage, rendered: RenderedPage): PdfPageGeometry {
+  const nominalMm = getPaperFormat(page.recipe.paper.alias).nominalMm;
+  // Fixed-ratio warps preserve the quad's measured orientation. `rendered`
+  // already includes the recipe rotation, so it is the final authoritative
+  // orientation for both known nominal pages and their contained image.
+  const useLandscape = rendered.width >= rendered.height;
+  const width = nominalMm
+    ? useLandscape
+      ? nominalMm.height
+      : nominalMm.width
+    : rendered.width * LEGACY_MM_PER_PIXEL;
+  const height = nominalMm
+    ? useLandscape
+      ? nominalMm.width
+      : nominalMm.height
+    : rendered.height * LEGACY_MM_PER_PIXEL;
+  return { width, height, orientation: width >= height ? 'l' : 'p' };
+}
+
 /**
  * Exports every page (sorted by `order`) into a single PDF, one PDF page per
- * document page sized to that page's own aspect ratio (no distortion), and
+ * document page. Known formats use their catalogued millimeter geometry;
+ * Ticket/Original retain an explicit raster-dependent fallback (no distortion), and
  * triggers the browser download / mobile share sheet. No-op when `pages` is
  * empty. Rejects if decoding, the worker RPC, or `jsPDF` itself fails — the
  * caller is expected to surface that as a user-facing error (e.g. a toast).
@@ -209,13 +243,16 @@ export async function exportPagesToPdf(pages: readonly DocumentPage[]): Promise<
   let doc: InstanceType<typeof jsPDF> | null = null;
   for (const page of ordered) {
     const rendered = await renderPage(page);
-    const orientation = rendered.width >= rendered.height ? 'l' : 'p';
+    const geometry = resolvePdfPageGeometry(page, rendered);
     if (!doc) {
-      doc = new jsPDF({ orientation, unit: 'px', format: [rendered.width, rendered.height] });
+      doc = new jsPDF({ orientation: geometry.orientation, unit: 'mm', format: [geometry.width, geometry.height] });
     } else {
-      doc.addPage([rendered.width, rendered.height], orientation);
+      doc.addPage([geometry.width, geometry.height], geometry.orientation);
     }
-    doc.addImage(rendered.dataUrl, 'JPEG', 0, 0, rendered.width, rendered.height);
+    const scale = Math.min(geometry.width / rendered.width, geometry.height / rendered.height);
+    const imageWidth = rendered.width * scale;
+    const imageHeight = rendered.height * scale;
+    doc.addImage(rendered.dataUrl, 'JPEG', (geometry.width - imageWidth) / 2, (geometry.height - imageHeight) / 2, imageWidth, imageHeight);
   }
 
   if (doc) {
