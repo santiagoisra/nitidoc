@@ -36,8 +36,10 @@ import {
   setPinned,
 } from '@/features/history/lib/historyRepository';
 import { createInitialRecipe } from '@/features/scanner/lib/editRecipe';
+import { toDocumentPages } from '@/features/history/lib/historyMapper';
 import type { DocumentPage } from '@/features/scanner/store/documentSlice';
 import type { Quad } from '@/shared/types/geometry';
+import type { StoredPage } from '@/shared/types/history';
 
 const CORNERS: Quad = [
   { x: 0, y: 0 },
@@ -140,6 +142,30 @@ describe('loadDocumentPages', () => {
     expect(restored?.recipe).toEqual(page.recipe);
     expect(restored?.warpedWidth).toBe(100);
     expect(restored?.warpedHeight).toBe(150);
+  });
+
+  it('normalizes a pre-paper-format stored recipe on read without a database migration', async () => {
+    const legacy: StoredPage = {
+      docId: 'legacy',
+      order: 0,
+      recipe: {
+        corners: CORNERS,
+        aspectRatio: 'a4',
+        rotation: 90,
+        flipH: false,
+        flipV: false,
+        filter: { preset: 'original', brightness: 0, contrast: 0, sharpness: 0 },
+      },
+      warpedBlob: new Blob(['legacy']),
+      thumbnail: new Blob(['thumb']),
+      warpedWidth: 100,
+      warpedHeight: 150,
+    };
+
+    const [restored] = await toDocumentPages([legacy]);
+    expect(restored?.recipe.paper).toMatchObject({ id: 'a4', source: 'legacy' });
+    expect(restored?.recipe.rotation).toBe(90);
+    expect(restored?.warpedWidth).toBe(100);
   });
 
   it('marks restored pages and substitutes the warp base for the missing original', async () => {

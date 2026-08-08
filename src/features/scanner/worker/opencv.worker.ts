@@ -219,7 +219,7 @@ async function handleWarp(request: WarpRequest, offscreenSupported: boolean): Pr
     return;
   }
 
-  const { image, corners, aspectRatio } = request;
+  const { image, corners, geometry } = request;
 
   let srcMat: CvMat | null = null;
   let dstMat: CvMat | null = null;
@@ -231,11 +231,7 @@ async function handleWarp(request: WarpRequest, offscreenSupported: boolean): Pr
     const imageData = imageDataLikeToImageData(image);
     srcMat = cv.matFromImageData(imageData);
 
-    const { outW, outH } = outputSize(corners, aspectRatio);
-    // inferAspectRatio is not re-invoked here: the caller (main thread)
-    // already resolved the final aspectRatio (auto-inferred or manual
-    // override) before sending WARP, per design section 2.2 / perspective
-    // spec "Usuario sobrescribe el aspect ratio inferido".
+    const { outW, outH } = outputSize(corners, geometry);
     const built = buildTransformMats(cv, corners, outW, outH);
     srcPointsMat = built.srcMat;
     dstPointsMat = built.dstMat;

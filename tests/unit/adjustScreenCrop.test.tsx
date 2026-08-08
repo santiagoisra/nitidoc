@@ -227,9 +227,9 @@ describe('AdjustScreen inline crop mode (Work Unit 2)', () => {
     fireEvent.click(screen.getByTestId('adjust-crop-done'));
 
     await waitFor(() => expect(warpMock).toHaveBeenCalledTimes(1));
-    const [, corners, aspectRatio] = warpMock.mock.calls[0] as [unknown, Quad, string];
+    const [, corners, geometry] = warpMock.mock.calls[0] as [unknown, Quad, unknown];
     expect(corners).toEqual(PAGE_CORNERS); // seeded from the page's already-auto-detected recipe corners
-    expect(aspectRatio).toBe('a4');
+    expect(geometry).toEqual({ mode: 'fixed', portraitRatio: 210 / 297 });
 
     // Dirty deactivate recompresses the fresh warped base into blob+thumbnail.
     await waitFor(() => expect(compressBitmapToJpegMock).toHaveBeenCalled());

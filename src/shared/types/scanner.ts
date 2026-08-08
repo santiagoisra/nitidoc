@@ -1,4 +1,5 @@
 import type { AspectRatioName, Quad } from '@/shared/types/geometry';
+import type { PaperSelection } from '@/shared/types/paper';
 
 /**
  * The captured frame at full resolution. Immutable container: `source` is
@@ -56,6 +57,9 @@ export const NEUTRAL_FILTER: FilterParams = {
  */
 export interface EditRecipe {
   readonly corners: Quad;
+  /** Canonical selection and provenance; normalized on every persistence read. */
+  readonly paper: PaperSelection;
+  /** @deprecated Compatibility field retained for pre-paper-format readers. */
   readonly aspectRatio: AspectRatioName;
   readonly rotation: 0 | 90 | 180 | 270;
   readonly flipH: boolean;

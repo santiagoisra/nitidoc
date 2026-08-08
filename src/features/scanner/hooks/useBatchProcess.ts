@@ -51,11 +51,12 @@ import { DETECTION } from '@/features/scanner/lib/detectionConstants';
 import { scaleCornersToFullRes } from '@/features/scanner/lib/detectionMath';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
 import { createInitialRecipe, frameCorners } from '@/features/scanner/lib/editRecipe';
-import { inferAspectRatio, isConvex, orderCorners } from '@/features/scanner/lib/geometry';
+import { isConvex, measuredQuadRatio, orderCorners } from '@/features/scanner/lib/geometry';
+import { classifyPaperRatio, resolveWarpGeometry } from '@/features/scanner/lib/paperFormats';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
 import type { RawCapture } from '@/features/scanner/store/documentSlice';
 import type { ImageDataLike } from '@/features/scanner/worker/messages';
-import type { AspectRatioName, Quad } from '@/shared/types/geometry';
+import type { Quad } from '@/shared/types/geometry';
 
 export interface UseBatchProcessOptions {
   /** Idempotent, shared across the session (see module doc comment on why this is injected, not obtained via a fresh `useOpenCvInit()` call). */
@@ -270,7 +271,7 @@ async function processOneRawCapture(raw: RawCapture, deps: ProcessOneRawCaptureD
 
     // ── d/e. Build the recipe (NEUTRAL filter, D-2) and WARP full-res ──
     let warpedBase: ImageBitmap;
-    let aspectRatioName: AspectRatioName = inferAspectRatio(corners).name;
+    let paper = classifyPaperRatio(measuredQuadRatio(corners));
 
     if (!deps.openCvDegraded) {
       try {
@@ -278,7 +279,7 @@ async function processOneRawCapture(raw: RawCapture, deps: ProcessOneRawCaptureD
         const response = await deps.workerClient.warp(
           { width: imageData.width, height: imageData.height, data: imageData.data },
           corners,
-          aspectRatioName,
+          resolveWarpGeometry(paper),
         );
         // Track immediately (before any cancellation check) so a cancel
         // that fires right as this resolves can never leak the freshly
@@ -293,7 +294,7 @@ async function processOneRawCapture(raw: RawCapture, deps: ProcessOneRawCaptureD
         // no real warp ran against the previously-detected quad.
         corners = frameCorners(originalBitmap.width, originalBitmap.height);
         needsReview = true;
-        aspectRatioName = inferAspectRatio(corners).name;
+        paper = classifyPaperRatio(measuredQuadRatio(corners));
         warpedBase = await buildIdentityWarpedBase(originalBitmap);
         deps.tracker.warpedBase = warpedBase;
       }
@@ -304,7 +305,7 @@ async function processOneRawCapture(raw: RawCapture, deps: ProcessOneRawCaptureD
 
     checkCancelled();
 
-    const recipe = createInitialRecipe(corners, aspectRatioName);
+    const recipe = createInitialRecipe(corners, paper.id === 'legal' || paper.id === 'original' ? 'unknown' : paper.id, paper);
 
     // ── f. thumbnail + compress ──
     // Review fix: `Promise.all` would leak the RESOLVED side's bitmap

@@ -6,6 +6,7 @@
  */
 
 import type { AspectRatio, AspectRatioName, Point, Quad } from '@/shared/types/geometry';
+import type { WarpGeometry } from '@/shared/types/paper';
 import { DETECTION } from './detectionConstants';
 
 /**
@@ -284,6 +285,14 @@ export function inferAspectRatio(quad: Quad): AspectRatio {
   return { name: unknown, ratio: r };
 }
 
+/** Returns the orientation-neutral crop ratio used by the paper classifier. */
+export function measuredQuadRatio(quad: Quad): number {
+  const [tl, tr, br, bl] = quad;
+  const w = (distance(tl, tr) + distance(bl, br)) / 2;
+  const h = (distance(tl, bl) + distance(tr, br)) / 2;
+  return Math.min(w, h) / (Math.max(w, h) || Number.EPSILON);
+}
+
 /**
  * Computes the output dimensions of the warp for a given quad and chosen
  * aspect ratio (design section 6.4). The longer measured side is kept as
@@ -292,21 +301,27 @@ export function inferAspectRatio(quad: Quad): AspectRatio {
  */
 export function outputSize(
   corners: Quad,
-  aspect: AspectRatioName,
+  geometry: WarpGeometry | AspectRatioName,
 ): { readonly outW: number; readonly outH: number } {
   const [tl, tr, br, bl] = corners;
   const wMeasured = (distance(tl, tr) + distance(bl, br)) / 2;
   const hMeasured = (distance(tl, bl) + distance(tr, br)) / 2;
   const portrait = hMeasured >= wMeasured;
 
-  if (aspect === 'unknown') {
+  if (typeof geometry !== 'string' && geometry.mode === 'measured') {
+    return { outW: Math.round(wMeasured), outH: Math.round(hMeasured) };
+  }
+
+  if (geometry === 'unknown') {
     return { outW: Math.round(wMeasured), outH: Math.round(hMeasured) };
   }
 
   let ratio: number;
-  if (aspect === 'a4') {
+  if (typeof geometry !== 'string') {
+    ratio = geometry.portraitRatio;
+  } else if (geometry === 'a4') {
     ratio = 210 / 297;
-  } else if (aspect === 'letter') {
+  } else if (geometry === 'letter') {
     ratio = 8.5 / 11;
   } else {
     // 'ticket': preserve the measured proportions instead of a fixed table ratio.

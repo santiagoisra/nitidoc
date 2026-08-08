@@ -4,6 +4,7 @@ import type { EditRecipe } from '@/shared/types/scanner';
 import { NEUTRAL_FILTER } from '@/shared/types/scanner';
 import type { AspectRatioName, Point, Quad } from '@/shared/types/geometry';
 import type { ApplyFilterResponse } from '@/features/scanner/worker/messages';
+import { paperSelection } from '@/features/scanner/lib/paperFormats';
 
 /**
  * Fase 2.1 punch-list item 4 unit tests for `exportPagesToPdf` (full-res
@@ -74,6 +75,7 @@ function makeQuad(): Quad {
 function makeRecipe(overrides: Partial<EditRecipe> = {}): EditRecipe {
   return {
     corners: makeQuad(),
+    paper: paperSelection('a4', 'auto'),
     aspectRatio: 'a4' as AspectRatioName,
     rotation: 0,
     flipH: false,

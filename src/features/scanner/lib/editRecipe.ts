@@ -11,8 +11,28 @@
  */
 
 import type { AspectRatioName, Quad } from '@/shared/types/geometry';
+import type { PaperSelection } from '@/shared/types/paper';
 import type { EditRecipe, FilterParams } from '@/shared/types/scanner';
 import { NEUTRAL_FILTER } from '@/shared/types/scanner';
+import { paperSelection, selectionFromLegacyAspectRatio } from './paperFormats';
+
+type LegacyEditRecipe = Omit<EditRecipe, 'paper'> & { readonly paper?: PaperSelection };
+
+function legacyAspectRatio(selection: PaperSelection): AspectRatioName {
+  return selection.id === 'a4' || selection.id === 'letter' || selection.id === 'ticket'
+    ? selection.id
+    : 'unknown';
+}
+
+/**
+ * Tolerantly upgrades old recipes when they cross into application memory.
+ * No IndexedDB migration or eager rewrite is required, and crop/filter data
+ * is passed through unchanged.
+ */
+export function normalizeRecipe(recipe: LegacyEditRecipe): EditRecipe {
+  const paper = recipe.paper ?? selectionFromLegacyAspectRatio(recipe.aspectRatio);
+  return { ...recipe, paper, aspectRatio: recipe.aspectRatio ?? legacyAspectRatio(paper) };
+}
 
 /**
  * Distributes 4 corners across the full frame rectangle
@@ -45,9 +65,14 @@ export function frameCorners(
  * The filter seeds to `NEUTRAL_FILTER` (design section 1.1) — every page
  * starts unfiltered until the user picks a preset.
  */
-export function createInitialRecipe(corners: Quad, aspectRatio: AspectRatioName): EditRecipe {
+export function createInitialRecipe(
+  corners: Quad,
+  aspectRatio: AspectRatioName,
+  paper: PaperSelection = paperSelection(aspectRatio === 'unknown' ? 'original' : aspectRatio, 'auto'),
+): EditRecipe {
   return {
     corners,
+    paper,
     aspectRatio,
     rotation: 0,
     flipH: false,
