@@ -48,5 +48,12 @@ export default defineConfig({
         ...devices['Desktop Safari'],
       },
     },
+    {
+      name: 'toolbar-webkit',
+      testMatch: '**/captureToolbar.spec.ts',
+      use: {
+        ...devices['Desktop Safari'],
+      },
+    },
   ],
 });
