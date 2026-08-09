@@ -14,8 +14,9 @@ describe('isDetectionAccepted', () => {
     expect(isDetectionAccepted(safeEvidence)).toBe(true);
   });
 
-  it('degrades low-confidence and incomplete-edge candidates', () => {
+  it('degrades uncertain and incomplete-edge candidates', () => {
     expect(isDetectionAccepted({ ...safeEvidence, confidence: 'low' })).toBe(false);
+    expect(isDetectionAccepted({ ...safeEvidence, confidence: 'medium' })).toBe(false);
     expect(isDetectionAccepted({ ...safeEvidence, edgeSupport: [0.7, 0.2, 0.7, 0.7] })).toBe(false);
   });
 
@@ -23,7 +24,7 @@ describe('isDetectionAccepted', () => {
     expect(isDetectionAccepted({ ...safeEvidence, borderContacts: ['left', 'right'] })).toBe(false);
   });
 
-  it('does not reject a single border contact by itself', () => {
-    expect(isDetectionAccepted({ ...safeEvidence, borderContacts: ['top'] })).toBe(true);
+  it('degrades any candidate touching the frame border', () => {
+    expect(isDetectionAccepted({ ...safeEvidence, borderContacts: ['top'] })).toBe(false);
   });
 });
