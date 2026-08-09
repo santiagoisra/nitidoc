@@ -421,21 +421,26 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
       )}
 
       <div
-        className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 bg-gradient-to-b from-[rgba(10,8,6,0.72)] to-transparent p-3"
+        data-testid="capture-toolbar"
+        className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 bg-gradient-to-b from-[rgba(10,8,6,0.72)] to-transparent py-3 pl-[calc(env(safe-area-inset-left)_+_0.75rem)] pr-[calc(env(safe-area-inset-right)_+_0.75rem)]"
         style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)' }}
       >
-        <div className="pointer-events-auto flex items-center gap-2">
+        <div
+          className="pointer-events-auto flex min-w-0 flex-1 items-center gap-2 overflow-hidden"
+          data-testid="capture-toolbar-leading"
+        >
           <BackButton onClick={onBack} tone="overlay" testId="capture-back" />
           <CameraSelector onSelect={(deviceId) => void switchCamera(deviceId)} />
         </div>
         {torchSupported && (
-          <div className="pointer-events-auto">
+          <div className="pointer-events-auto h-11 w-11 shrink-0" data-testid="torch-control">
             <Button
               variant="secondary"
               type="button"
               onClick={handleToggleTorch}
               aria-pressed={torchOn}
               data-testid="torch-toggle"
+              className="h-11 w-11 shrink-0 !p-0"
             >
               {torchOn ? (
                 <Flashlight size={18} strokeWidth={1.5} aria-hidden="true" />

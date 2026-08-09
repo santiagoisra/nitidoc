@@ -25,14 +25,27 @@ export function CameraSelector({ onSelect }: CameraSelectorProps): ReactNode {
     return null;
   }
 
+  const activeDeviceIndex = devices.findIndex((device) => device.deviceId === activeDeviceId);
+  const activeDevice = devices[activeDeviceIndex];
+  const activeLabel =
+    activeDevice?.label ||
+    (activeDeviceIndex >= 0 ? t('camera.cameraN', { n: activeDeviceIndex + 1 }) : t('camera.selectCamera'));
+
   return (
-    <label className="flex items-center gap-2 rounded-lg bg-surface/80 px-3 py-2 text-sm text-text">
-      <Camera size={18} strokeWidth={1.5} className="text-text-muted" aria-hidden="true" />
+    <label
+      className="relative flex min-w-0 flex-1 shrink items-center gap-2 overflow-hidden rounded-lg bg-surface/80 px-3 py-2 text-sm text-text focus-within:ring-2 focus-within:ring-primary-light"
+      data-testid="camera-selector"
+    >
+      <Camera size={18} strokeWidth={1.5} className="shrink-0 text-text-muted" aria-hidden="true" />
       <span className="sr-only">{t('camera.selectCamera')}</span>
+      <span className="min-w-0 flex-1 truncate" data-testid="camera-selector-label" aria-hidden="true">
+        {activeLabel}
+      </span>
       <select
         value={activeDeviceId ?? ''}
         onChange={(event) => onSelect(event.target.value)}
-        className="min-h-[44px] flex-1 bg-transparent text-text focus-visible:outline-none"
+        className="absolute inset-0 min-h-[44px] w-full cursor-pointer opacity-0 focus-visible:outline-none"
+        data-testid="camera-selector-select"
       >
         {devices.map((device, index) => (
           <option key={device.deviceId} value={device.deviceId} className="bg-surface text-text">
