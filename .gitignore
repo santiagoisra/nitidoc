@@ -59,6 +59,7 @@ firestore-debug.log
 # Local AI-agent tooling (machine-specific paths and personal hooks).
 # .claude/launch.json is tracked on purpose: it is the shared dev-server config.
 .atl/
+.worktrees/
 .claude/*
 !.claude/launch.json
 
