@@ -216,7 +216,7 @@ describe('useBatchProcess — frameCorners fallback on missing/non-convex detect
 });
 
 describe('useBatchProcess — unsafe detection evidence', () => {
-  it('uses frame corners and needsReview instead of warping a cropped candidate', async () => {
+  it('uses frame corners and needsReview instead of auto-cropping an ambiguous candidate', async () => {
     const raw = fakeRawCapture({ originalWidth: 1000, originalHeight: 1400 });
     useScannerStore.setState({ rawCaptures: [raw] });
     decodeBlobToBitmapMock.mockResolvedValueOnce(fakeBitmap(1000, 1400));
@@ -226,7 +226,7 @@ describe('useBatchProcess — unsafe detection evidence', () => {
         id: 0,
         type: 'DETECT_RESULT' as const,
         corners: DETECTION_FRAME_CORNERS,
-        evidence: { confidence: 'low' as const, areaRatio: 0.5, edgeSupport: [0.8, 0.8, 0.8, 0] as const, borderContacts: ['left'] as const },
+        evidence: { confidence: 'medium' as const, areaRatio: 0.15, edgeSupport: [0.8, 0.8, 0.8, 0.8] as const, borderContacts: [] as const },
         quality: null,
       })),
     });
