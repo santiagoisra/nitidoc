@@ -153,8 +153,8 @@ async function handleDetect(request: DetectRequest): Promise<void> {
     ctx.drawImage(bitmap, 0, 0, width, height);
     const imageData = ctx.getImageData(0, 0, width, height);
 
-    const { corners, quality } = runDetectPipeline(cv, imageData, withQuality);
-    const response: DetectResponse = { id: request.id, type: 'DETECT_RESULT', corners, quality };
+    const { corners, evidence, quality } = runDetectPipeline(cv, imageData, withQuality);
+    const response: DetectResponse = { id: request.id, type: 'DETECT_RESULT', corners, evidence, quality };
     postResponse(response);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown DETECT failure.';
@@ -181,8 +181,8 @@ async function handleDetectImageData(request: DetectRequestImageData): Promise<v
 
   try {
     const imageData = imageDataLikeToImageData(request.image);
-    const { corners, quality } = runDetectPipeline(cv, imageData, request.withQuality);
-    const response: DetectResponse = { id: request.id, type: 'DETECT_RESULT', corners, quality };
+    const { corners, evidence, quality } = runDetectPipeline(cv, imageData, request.withQuality);
+    const response: DetectResponse = { id: request.id, type: 'DETECT_RESULT', corners, evidence, quality };
     postResponse(response);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown DETECT failure.';

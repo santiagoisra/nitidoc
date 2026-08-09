@@ -84,7 +84,8 @@ describe('WorkerClient.detectImageData (task 6.7.1)', () => {
     const response: DetectResponse = {
       id: sentRequest.id,
       type: 'DETECT_RESULT',
-      corners: null,
+          corners: null,
+          evidence: null,
       quality: null,
     };
     worker.emitMessage(response);
@@ -106,7 +107,7 @@ describe('WorkerClient.detectImageData (task 6.7.1)', () => {
 
     const worker = latestWorker as FakeWorkerInstance;
     const [sentRequest] = worker.postMessage.mock.calls[0] as [WorkerRequest];
-    worker.emitMessage({ id: sentRequest.id, type: 'DETECT_RESULT', corners: null, quality: null });
+    worker.emitMessage({ id: sentRequest.id, type: 'DETECT_RESULT', corners: null, evidence: null, quality: null });
 
     await detectPromise;
     expect(client.isBusy()).toBe(false);

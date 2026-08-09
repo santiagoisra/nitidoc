@@ -60,6 +60,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { runDetectPipeline } from '@/features/scanner/worker/detectPipeline';
 import { DETECTION } from '@/features/scanner/lib/detectionConstants';
+import { isDetectionAccepted } from '@/features/scanner/lib/detectionAcceptance';
 import type { CvBindings } from '@/features/scanner/worker/cvBindings';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -158,10 +159,25 @@ function loadDetectionFrame(): ImageData {
   return { data: out, width: targetWidth, height: targetHeight, colorSpace: 'srgb' } as ImageData;
 }
 
+/**
+ * Derives the unsafe fixture from the exact iPhone capture rather than
+ * fabricating a page. This removes the left side of the photographed sheet,
+ * reproducing the evidence loss that preview-time cropping used to cause.
+ */
+function cropFrame(frame: ImageData, x: number, width: number): ImageData {
+  const data = new Uint8ClampedArray(width * frame.height * 4);
+  for (let y = 0; y < frame.height; y += 1) {
+    const sourceStart = (y * frame.width + x) * 4;
+    const targetStart = y * width * 4;
+    data.set(frame.data.subarray(sourceStart, sourceStart + width * 4), targetStart);
+  }
+  return { data, width, height: frame.height, colorSpace: 'srgb' } as ImageData;
+}
+
 describe('runDetectPipeline against a real camera capture', () => {
   it('finds the page', () => {
     const frame = loadDetectionFrame();
-    const { corners } = runDetectPipeline(cv, frame, false);
+    const { corners, evidence } = runDetectPipeline(cv, frame, false);
 
     expect(
       corners,
@@ -169,11 +185,12 @@ describe('runDetectPipeline against a real camera capture', () => {
         'The page outline IS in the Canny edge map, but contourArea() of an ' +
         'open polyline collapses to ~0, so a word of body text outranks it.',
     ).not.toBeNull();
+    expect(isDetectionAccepted(evidence)).toBe(true);
   });
 
   it('returns a quad covering most of the page rather than an interior detail', () => {
     const frame = loadDetectionFrame();
-    const { corners } = runDetectPipeline(cv, frame, false);
+    const { corners, evidence } = runDetectPipeline(cv, frame, false);
     expect(corners).not.toBeNull();
 
     const quad = corners as NonNullable<typeof corners>;
@@ -190,6 +207,18 @@ describe('runDetectPipeline against a real camera capture', () => {
     // fallback wearing a detection costume.
     expect(coverage).toBeGreaterThan(0.15);
     expect(coverage).toBeLessThan(0.95);
+    expect(evidence?.edgeSupport.every((support) => support > 0)).toBe(true);
+  });
+
+  it('degrades a deterministic crop of the same camera fixture when page-side evidence is removed', () => {
+    const cropped = cropFrame(loadDetectionFrame(), 190, 450);
+    const result = runDetectPipeline(cv, cropped, false);
+
+    expect(
+      isDetectionAccepted(result.evidence),
+      'A crop that removes a photographed page side must never authorize an automatic warp.',
+    ).toBe(false);
+    expect(result.evidence?.borderContacts).toContain('left');
   });
 });
 

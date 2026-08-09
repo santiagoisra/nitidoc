@@ -24,6 +24,13 @@ import type { FilterPreset } from '@/shared/types/scanner';
 
 export type { Point, Quad, QualityMetrics, AspectRatioName };
 
+export interface DetectionEvidence {
+  readonly confidence: 'high' | 'medium' | 'low';
+  readonly areaRatio: number;
+  readonly edgeSupport: readonly [number, number, number, number];
+  readonly borderContacts: readonly ('top' | 'right' | 'bottom' | 'left')[];
+}
+
 // ─────────────── Requests (main -> worker) ───────────────
 
 export interface InitRequest {
@@ -154,6 +161,8 @@ export interface DetectResponse {
    * polygon with sufficient area was found.
    */
   readonly corners: Quad | null;
+  /** Safety evidence computed from the selected candidate, or null without one. */
+  readonly evidence: DetectionEvidence | null;
   /** Present only if the request asked for withQuality. */
   readonly quality: QualityMetrics | null;
 }

@@ -26,7 +26,7 @@
  *
  * Capture flow (design "Capture flow (rewrite runCaptureSequence)"):
  * tap -> guard (in-flight ref OR `isAtCap`) -> `captureFullResFrame` ->
- * `cropToVisibleRect` (D-4 WYSIWYG) -> `materializeRawCapture` -> stays in
+ * `materializeRawCapture` -> stays in
  * `'capturing'` (this screen never navigates away on a successful capture).
  * A thrown error is caught, the partial bitmap released, a toast shown, and
  * the screen stays put — capture failures must never strand the user.
@@ -44,7 +44,7 @@ import { CaptureCountThumbnail } from '@/features/scanner/components/CaptureCoun
 import { ImportFallback } from '@/features/scanner/components/ImportFallback';
 import { useActivePage } from '@/features/scanner/hooks/useActivePage';
 import { decodeImportedFile } from '@/features/scanner/lib/captureFallback';
-import { captureFullResFrame, cropToVisibleRect } from '@/features/scanner/lib/captureFrame';
+import { captureFullResFrame } from '@/features/scanner/lib/captureFrame';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
 import type { DocumentPage, RawCapture } from '@/features/scanner/store/documentSlice';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
@@ -260,13 +260,6 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
     try {
       const fullRes = await captureFullResFrame(video, track, imageCaptureSupported);
       owned = fullRes.bitmap;
-
-      const rect = video.getBoundingClientRect();
-      const cropped = await cropToVisibleRect(owned, video.videoWidth, video.videoHeight, {
-        width: rect.width,
-        height: rect.height,
-      });
-      owned = cropped;
 
       await materializeRawCapture({
         id: randomId(),

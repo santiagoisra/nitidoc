@@ -25,11 +25,8 @@ vi.mock('@/features/scanner/hooks/useActivePage', () => ({
 }));
 
 const captureFullResFrameMock = vi.fn();
-const cropToVisibleRectMock = vi.fn();
-
 vi.mock('@/features/scanner/lib/captureFrame', () => ({
   captureFullResFrame: (...args: unknown[]) => captureFullResFrameMock(...args),
-  cropToVisibleRect: (...args: unknown[]) => cropToVisibleRectMock(...args),
 }));
 
 const decodeImportedFileMock = vi.fn();
@@ -167,12 +164,10 @@ describe('CaptureScreen (Fase 2.3, capture-ux-redesign.md, Unit 3)', () => {
     expect(useScannerStore.getState().phase).toBe('processing');
   });
 
-  it('capture flow: captureFullResFrame -> cropToVisibleRect -> materializeRawCapture, staying in "capturing"', async () => {
+  it('persists the capped full-source bitmap without preview cropping, staying in "capturing"', async () => {
     useScannerStore.setState({ phase: 'capturing' });
     const rawBitmap = fakeBitmap(3000, 4000);
-    const croppedBitmap = fakeBitmap(3000, 3000);
     captureFullResFrameMock.mockResolvedValue({ bitmap: rawBitmap, width: 3000, height: 4000 });
-    cropToVisibleRectMock.mockResolvedValue(croppedBitmap);
 
     renderCaptureScreen();
     fireEvent.click(screen.getByTestId('capture-button'));
@@ -182,23 +177,11 @@ describe('CaptureScreen (Fase 2.3, capture-ux-redesign.md, Unit 3)', () => {
     });
 
     expect(captureFullResFrameMock).toHaveBeenCalledTimes(1);
-    // The 2nd/3rd args are `video.videoWidth`/`video.videoHeight` (D-4's
-    // native-aspect reference) and the 4th is the displayed element's
-    // `getBoundingClientRect()` box — happy-dom's mocked `<video>` reports
-    // neither realistically, so this only asserts the crop was invoked with
-    // the captured bitmap and SOME box shape, not real layout numbers (real
-    // aspect-math coverage lives in captureFrame's own cropToVisibleRect unit
-    // tests).
-    expect(cropToVisibleRectMock).toHaveBeenCalledTimes(1);
-    expect(cropToVisibleRectMock.mock.calls[0]?.[0]).toBe(rawBitmap);
-    expect(cropToVisibleRectMock.mock.calls[0]?.[3]).toEqual(
-      expect.objectContaining({ width: expect.any(Number), height: expect.any(Number) }),
-    );
     expect(materializeRawCaptureMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        originalBitmap: croppedBitmap,
-        originalWidth: croppedBitmap.width,
-        originalHeight: croppedBitmap.height,
+        originalBitmap: rawBitmap,
+        originalWidth: rawBitmap.width,
+        originalHeight: rawBitmap.height,
       }),
     );
     expect(useScannerStore.getState().phase).toBe('capturing');
@@ -212,7 +195,6 @@ describe('CaptureScreen (Fase 2.3, capture-ux-redesign.md, Unit 3)', () => {
           resolveCapture = resolve;
         }),
     );
-    cropToVisibleRectMock.mockImplementation((bitmap: ImageBitmap) => Promise.resolve(bitmap));
 
     renderCaptureScreen();
     const button = screen.getByTestId('capture-button');
@@ -243,7 +225,6 @@ describe('CaptureScreen (Fase 2.3, capture-ux-redesign.md, Unit 3)', () => {
           resolveCapture = resolve;
         }),
     );
-    cropToVisibleRectMock.mockImplementation((bitmap: ImageBitmap) => Promise.resolve(bitmap));
     useScannerStore.setState({ rawCaptures: [fakeRaw('r1', 0)] });
 
     renderCaptureScreen();

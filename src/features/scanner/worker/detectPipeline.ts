@@ -19,6 +19,7 @@
 
 import { isConvex, orderCorners, reduceToQuad } from '@/features/scanner/lib/geometry';
 import { DETECTION } from '@/features/scanner/lib/detectionConstants';
+import type { DetectionEvidence } from './messages';
 import type { CvBindings, CvMat } from './cvBindings';
 import type { Point, Quad, QualityMetrics } from './messages';
 
@@ -104,6 +105,61 @@ function quadArea(quad: Quad): number {
   return Math.abs(sum) / 2;
 }
 
+function measureEdgeSupport(edgeMask: CvMat, start: Point, end: Point): number {
+  let supported = 0;
+  const radius = DETECTION.EDGE_SUPPORT_RADIUS_PX;
+  for (let sample = 0; sample < DETECTION.EDGE_SUPPORT_SAMPLES; sample += 1) {
+    const fraction = (sample + 0.5) / DETECTION.EDGE_SUPPORT_SAMPLES;
+    const x = Math.round(start.x + (end.x - start.x) * fraction);
+    const y = Math.round(start.y + (end.y - start.y) * fraction);
+    // A sample whose support band leaves the source frame cannot establish a
+    // photographed edge: OpenCV contours may close a clipped foreground shape
+    // along the bitmap boundary even though no page side was actually seen.
+    if (x - radius < 0 || x + radius >= edgeMask.cols || y - radius < 0 || y + radius >= edgeMask.rows) {
+      continue;
+    }
+    let hasEdge = false;
+    for (let dy = -radius; dy <= radius && !hasEdge; dy += 1) {
+      const row = y + dy;
+      if (row < 0 || row >= edgeMask.rows) continue;
+      for (let dx = -radius; dx <= radius; dx += 1) {
+        const column = x + dx;
+        if (column >= 0 && column < edgeMask.cols && edgeMask.data[row * edgeMask.cols + column] !== 0) {
+          hasEdge = true;
+          break;
+        }
+      }
+    }
+    if (hasEdge) supported += 1;
+  }
+  return supported / DETECTION.EDGE_SUPPORT_SAMPLES;
+}
+
+function buildEvidence(quad: Quad, width: number, height: number, edgeMask: CvMat): DetectionEvidence {
+  const areaRatio = quadArea(quad) / (width * height);
+  const [topLeft, topRight, bottomRight, bottomLeft] = quad;
+  const edgeSupport: DetectionEvidence['edgeSupport'] = [
+    measureEdgeSupport(edgeMask, topLeft, topRight),
+    measureEdgeSupport(edgeMask, topRight, bottomRight),
+    measureEdgeSupport(edgeMask, bottomRight, bottomLeft),
+    measureEdgeSupport(edgeMask, bottomLeft, topLeft),
+  ];
+  const borderDistance = Math.min(width, height) * DETECTION.BORDER_CONTACT_RATIO;
+  const borderContacts: DetectionEvidence['borderContacts'][number][] = [];
+  if (quad.some((point) => point.y <= borderDistance)) borderContacts.push('top');
+  if (quad.some((point) => point.x >= width - borderDistance)) borderContacts.push('right');
+  if (quad.some((point) => point.y >= height - borderDistance)) borderContacts.push('bottom');
+  if (quad.some((point) => point.x <= borderDistance)) borderContacts.push('left');
+  const minSupport = Math.min(...edgeSupport);
+  const confidence =
+    minSupport < DETECTION.MIN_EDGE_SUPPORT
+      ? 'low'
+      : areaRatio >= DETECTION.HIGH_CONFIDENCE_AREA_RATIO
+        ? 'high'
+        : 'medium';
+  return { confidence, areaRatio, edgeSupport, borderContacts };
+}
+
 /**
  * Turns one contour into a validated quad, or null.
  *
@@ -159,7 +215,10 @@ function contourToQuad(
  * single global threshold and degrades under uneven lighting, where an edge
  * map still holds up.
  */
-function buildDetectionMasks(cv: CvBindings, blurred: CvMat): { readonly name: string; readonly mask: CvMat }[] {
+function buildDetectionMasks(
+  cv: CvBindings,
+  blurred: CvMat,
+): { readonly masks: { readonly name: string; readonly mask: CvMat }[]; readonly edgeEvidence: CvMat } {
   const masks: { name: string; mask: CvMat }[] = [];
 
   const otsu = new cv.Mat();
@@ -174,11 +233,10 @@ function buildDetectionMasks(cv: CvBindings, blurred: CvMat): { readonly name: s
     cv.morphologyEx(edges, closed, cv.MORPH_CLOSE, kernel);
   } finally {
     if (!kernel.isDeleted()) kernel.delete();
-    if (!edges.isDeleted()) edges.delete();
   }
   masks.push({ name: 'canny-closed', mask: closed });
 
-  return masks;
+  return { masks, edgeEvidence: edges };
 }
 
 /**
@@ -201,7 +259,7 @@ export function runDetectPipeline(
   cvBindings: CvBindings,
   imageData: ImageData,
   withQuality: boolean,
-): { readonly corners: Quad | null; readonly quality: QualityMetrics | null } {
+): { readonly corners: Quad | null; readonly evidence: DetectionEvidence | null; readonly quality: QualityMetrics | null } {
   const width = imageData.width;
   const height = imageData.height;
 
@@ -209,6 +267,7 @@ export function runDetectPipeline(
   let grayMat: CvMat | null = null;
   let blurredMat: CvMat | null = null;
   let approx: CvMat | null = null;
+  let edgeEvidence: CvMat | null = null;
   const masks: { readonly name: string; readonly mask: CvMat }[] = [];
 
   try {
@@ -220,7 +279,9 @@ export function runDetectPipeline(
     cvBindings.cvtColor(srcMat, grayMat, cvBindings.COLOR_RGBA2GRAY);
     cvBindings.GaussianBlur(grayMat, blurredMat, new cvBindings.Size(5, 5), 0);
 
-    masks.push(...buildDetectionMasks(cvBindings, blurredMat));
+    const detectionMasks = buildDetectionMasks(cvBindings, blurredMat);
+    masks.push(...detectionMasks.masks);
+    edgeEvidence = detectionMasks.edgeEvidence;
 
     const frameArea = width * height;
     const minArea = frameArea * DETECTION.MIN_CONTOUR_AREA_RATIO;
@@ -284,7 +345,7 @@ export function runDetectPipeline(
     }
 
     const quality = withQuality ? computeQuality(cvBindings, grayMat) : null;
-    return { corners, quality };
+    return { corners, evidence: corners && edgeEvidence ? buildEvidence(corners, width, height, edgeEvidence) : null, quality };
   } finally {
     for (const { mask } of masks) {
       if (!mask.isDeleted()) mask.delete();
@@ -293,5 +354,6 @@ export function runDetectPipeline(
     if (grayMat && !grayMat.isDeleted()) grayMat.delete();
     if (blurredMat && !blurredMat.isDeleted()) blurredMat.delete();
     if (approx && !approx.isDeleted()) approx.delete();
+    if (edgeEvidence && !edgeEvidence.isDeleted()) edgeEvidence.delete();
   }
 }
