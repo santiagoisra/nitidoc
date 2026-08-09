@@ -27,6 +27,8 @@ export interface PaperEvidence {
   readonly runnerUpMargin?: number;
   /** Ratios and pixels never establish a physical measurement. */
   readonly scaleInferred: false;
+  /** Present only when the format is a useful non-authoritative shape recommendation. */
+  readonly probabilistic?: true;
 }
 
 export interface PaperSelection {

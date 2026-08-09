@@ -326,6 +326,12 @@ export function FilterPanel({
     none: t('paper.confidenceNone'),
   };
   const detectedPaper = paper ? automaticPaperSelection(paper) : null;
+  const detectedPaperLabel =
+    detectedPaper?.id === 'a4' && detectedPaper.evidence.probabilistic
+      ? t('paper.a4Probable')
+      : detectedPaper
+        ? paperLabels[detectedPaper.alias]
+        : '';
 
   const handlePaperChange = useCallback(
     (event: ChangeEvent<HTMLSelectElement>) => {
@@ -361,7 +367,7 @@ export function FilterPanel({
         {detectedPaper && (
           <p className="text-xs text-text-muted" data-testid="paper-detection">
             {t('paper.detected', {
-              format: paperLabels[detectedPaper.alias],
+              format: detectedPaperLabel,
               confidence: confidenceLabels[detectedPaper.confidence],
             })}
           </p>

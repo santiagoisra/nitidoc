@@ -82,8 +82,8 @@ import { FilterPanel } from '@/features/scanner/components/FilterPanel';
 import { WarpedPreview } from '@/features/scanner/components/WarpedPreview';
 import { useActivePage } from '@/features/scanner/hooks/useActivePage';
 import { usePageDeletion } from '@/features/scanner/hooks/usePageDeletion';
-import { isConvex } from '@/features/scanner/lib/geometry';
-import { resolveWarpGeometry } from '@/features/scanner/lib/paperFormats';
+import { isConvex, measuredQuadRatio } from '@/features/scanner/lib/geometry';
+import { paperSelectionAfterCornerEdit, resolveWarpGeometry } from '@/features/scanner/lib/paperFormats';
 import { decodeBlobToBitmap } from '@/features/scanner/lib/pageResources';
 import { recipeToCssTransform, rotateLeftRecipe, withFilter } from '@/features/scanner/lib/editRecipe';
 import { buildThumbnailCssFilter } from '@/features/scanner/lib/filterPipeline';
@@ -547,6 +547,7 @@ export function AdjustScreen({
     const session = cropSessionRef.current;
     const corners = draftCorners;
     const baseRecipe = currentPage.recipe;
+    const paperForWarp = paperSelectionAfterCornerEdit(baseRecipe.paper, measuredQuadRatio(corners));
     const originalBitmap = activeWorking.originalBitmap;
 
     warpInFlightRef.current = true;
@@ -560,7 +561,7 @@ export function AdjustScreen({
         const response = await getSharedWorkerClient().warp(
           { width: imageData.width, height: imageData.height, data: transferData },
           corners,
-          resolveWarpGeometry(currentPage.recipe.paper),
+          resolveWarpGeometry(paperForWarp),
         );
 
         let freshWarpedBase: ImageBitmap;
@@ -606,7 +607,7 @@ export function AdjustScreen({
         // This activation is about to be retired by the explicit deactivate
         // below — nothing left for the safety net/unmount cleanup to do.
         pendingActivationRef.current = null;
-        rewarpActivePage({ pageId, freshWarpedBase, recipe: { ...baseRecipe, corners } });
+        rewarpActivePage({ pageId, freshWarpedBase, recipe: { ...baseRecipe, corners, paper: paperForWarp } });
         await deactivateActivePage();
         setMode('filter');
       } catch {

@@ -128,6 +128,13 @@ const CONVEX_CORNERS: Quad = [
   { x: 100, y: 3900 },
 ];
 
+const A_SERIES_CORNERS: Quad = [
+  { x: 450, y: 500 },
+  { x: 2550, y: 500 },
+  { x: 2550, y: 3470 },
+  { x: 450, y: 3470 },
+];
+
 function warpResult(bitmap: ImageBitmap): WarpResponse {
   return { id: 1, type: 'WARP_RESULT', bitmap, outWidth: 700, outHeight: 990 };
 }
@@ -310,6 +317,51 @@ describe('CornerEditor warp concurrency + bitmap hygiene (C1/C2)', () => {
     fireEvent.click(screen.getByTestId('corner-editor-confirm'));
     expect(onConfirmMock).toHaveBeenCalledWith(
       expect.objectContaining({ recipe: expect.objectContaining({ paper: oficio }) }),
+    );
+  });
+
+  it('reclassifies non-manual confirmed A-series corners as A4 probable before warp', async () => {
+    const initialRecipe = createInitialRecipe(
+      A_SERIES_CORNERS,
+      'unknown',
+      paperSelection('original', 'auto', 'none', 1),
+    );
+    render(
+      <CornerEditor
+        pageId="a-series-page"
+        originalBitmap={makeBitmap()}
+        width={FRAME_WIDTH}
+        height={FRAME_HEIGHT}
+        initialCorners={A_SERIES_CORNERS}
+        initialRecipe={initialRecipe}
+        onConfirm={onConfirmMock}
+        onCancel={onCancelMock}
+      />,
+    );
+
+    await waitFor(() => expect(warpMock).toHaveBeenCalledTimes(1));
+    const firstWarpArgs = warpMock.mock.calls[0] as unknown as [unknown, Quad, unknown];
+    expect(firstWarpArgs[2]).toEqual({ mode: 'fixed', portraitRatio: 210 / 297 });
+    const initial = warpDeferreds[0];
+    if (!initial) throw new Error('expected initial A-series warp');
+    await act(async () => {
+      initial.resolve(warpResult(makeBitmap()));
+      await Promise.resolve();
+    });
+
+    goToAdjustStep();
+    fireEvent.click(screen.getByTestId('corner-editor-confirm'));
+    expect(onConfirmMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipe: expect.objectContaining({
+          paper: expect.objectContaining({
+            id: 'a4',
+            source: 'auto',
+            confidence: 'low',
+            evidence: expect.objectContaining({ scaleInferred: false, probabilistic: true }),
+          }),
+        }),
+      }),
     );
   });
 });

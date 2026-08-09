@@ -18,10 +18,11 @@ describe('paper format catalog', () => {
     expect(PAPER_FORMATS.map((format) => format.id)).toEqual(['a4', 'letter', 'legal', 'ticket', 'original']);
   });
 
-  it('falls back to Original for an ISO A-series ratio because ratio cannot identify physical scale', () => {
+  it('preselects canonical A4 as a low-confidence probabilistic A-series recommendation', () => {
     const result = classifyPaperRatio(210 / 297);
-    expect(result).toMatchObject({ id: 'original', alias: 'original', source: 'auto', confidence: 'none' });
+    expect(result).toMatchObject({ id: 'a4', alias: 'a4', source: 'auto', confidence: 'low' });
     expect(result.evidence.scaleInferred).toBe(false);
+    expect(result.evidence.probabilistic).toBe(true);
   });
 
   it('falls back to Original when ratios are too close to distinguish honestly', () => {
@@ -46,5 +47,10 @@ describe('paper format catalog', () => {
     expect(selectionFromLegacyAspectRatio('a4')).toMatchObject({ id: 'a4', source: 'legacy', confidence: 'none' });
     expect(resolveWarpGeometry(selectionFromLegacyAspectRatio('ticket'))).toEqual({ mode: 'measured' });
     expect(selectionFromLegacyAspectRatio('unknown')).toMatchObject({ id: 'original', source: 'legacy' });
+  });
+
+  it('keeps legacy and manual A4 selections non-probabilistic', () => {
+    expect(selectionFromLegacyAspectRatio('a4').evidence.probabilistic).toBeUndefined();
+    expect(paperSelection('a4', 'manual').evidence.probabilistic).toBeUndefined();
   });
 });

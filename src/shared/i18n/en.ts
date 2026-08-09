@@ -68,6 +68,7 @@ export const en = {
   'paper.confidenceLow': 'low confidence',
   'paper.confidenceNone': 'not confident',
   'paper.a4': 'A4',
+  'paper.a4Probable': 'A4 probable',
   'paper.letter': 'Letter',
   'paper.legal': 'Legal',
   'paper.oficio': 'Oficio',
