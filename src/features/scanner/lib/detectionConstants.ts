@@ -91,4 +91,15 @@ export const DETECTION = {
    * the first few — and every extra candidate costs an `approxPolyDP`.
    */
   TOP_CONTOURS_PER_STRATEGY: 5,
+  /** Candidate edge needs this fraction of Canny samples to find nearby visual support. */
+  /** Calibrated against the supplied intact/cropped iPhone fixture: 0.25 separates its supported edge from a clipped frame-edge side. */
+  MIN_EDGE_SUPPORT: 0.25,
+  /** Samples evaluated along each candidate edge; bounded per detected page. */
+  EDGE_SUPPORT_SAMPLES: 48,
+  /** Canny-support search radius around each sampled candidate-edge point. */
+  EDGE_SUPPORT_RADIUS_PX: 15,
+  /** Candidate points this close to a frame border count as touching it. */
+  BORDER_CONTACT_RATIO: 0.02,
+  /** Area required before a candidate can be treated as high-confidence. */
+  HIGH_CONFIDENCE_AREA_RATIO: 0.2,
 } as const;

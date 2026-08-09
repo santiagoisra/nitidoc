@@ -92,24 +92,13 @@ async function captureViaImageCapture(track: MediaStreamTrack): Promise<Captured
 
   try {
     try {
-      // Review fix (WYSIWYG crop aspect mismatch): `grabFrame()` is preferred
-      // here — it grabs a frame from the LIVE preview track, sharing that
-      // track's own negotiated resolution/aspect ratio, i.e. the SAME one
-      // `video.videoWidth`/`videoHeight` reports and `cropToVisibleRect`
-      // (D-4) assumes this captured bitmap matches. `takePhoto()` can instead
-      // return the camera's full-SENSOR photo resolution, whose aspect ratio
-      // may differ from the preview track's — silently corrupting
-      // `cropToVisibleRect`'s crop fractions (derived by comparing the
-      // preview's aspect against the displayed box's aspect, then applied to
-      // a bitmap of a DIFFERENT aspect). `cropToVisibleRect` also carries its
-      // own defensive guard for the `takePhoto()` fallback below (skips
-      // cropping instead of corrupting the region when aspects disagree).
+       // Persist the capped full source unchanged. Preview `object-cover` is
+       // presentation-only; using it to crop would remove page-edge evidence
+       // needed for safe detection and later corner editing.
       rawBitmap = await capturer.grabFrame();
     } catch {
-      // grabFrame() is not implemented/supported everywhere ImageCapture
-      // itself is; takePhoto() is the documented fallback within the same
-      // API — accepting the WYSIWYG-crop risk only in this fallback case,
-      // mitigated by `cropToVisibleRect`'s own aspect-mismatch guard.
+       // grabFrame() is not implemented/supported everywhere ImageCapture
+       // itself is; takePhoto() is the documented fallback within the same API.
       const blob = await capturer.takePhoto();
       objectUrl = URL.createObjectURL(blob);
       const img = new Image();
@@ -177,102 +166,4 @@ export async function captureFullResFrame(
  */
 export function releaseCapturedFrame(frame: CapturedFrameResult | null): void {
   frame?.bitmap.close();
-}
-
-/** The displayed element's CSS box (e.g. `video.getBoundingClientRect()`). */
-export interface VisibleRectBox {
-  readonly width: number;
-  readonly height: number;
-}
-
-/**
- * Aspect mismatch below this threshold is treated as "already matches" —
- * avoids a no-op 1px crop from floating point noise.
- */
-const ASPECT_EPSILON = 0.01;
-
-/**
- * Fase 2.3 (capture-ux-redesign.md, D-4 "WYSIWYG"): the live camera preview
- * renders full-bleed with `object-cover`, which means the browser silently
- * crops whichever dimension of the native video stream overflows the
- * displayed box. Without correcting for this, a captured full-res frame
- * would include content the user never actually saw framed on screen (and
- * detection in Unit 4 would run on that same unseen margin). This crops the
- * captured `bitmap` down to exactly the portion `object-cover` was showing.
- *
- * `nativeWidth`/`nativeHeight` are the live `<video>` element's own
- * negotiated resolution (`video.videoWidth`/`video.videoHeight`) — used only
- * to derive the SOURCE aspect ratio, since `captureFullResFrame`'s own 16MP
- * cap (`capCaptureDimensions`) may scale `bitmap` to different absolute
- * pixel dimensions than the live video while preserving the same ratio.
- * `box` is the displayed element's CSS box (what `object-cover` fits into).
- *
- * Takes ownership of `bitmap`: it is closed unless returned UNCHANGED
- * (aspect ratio already matches the box, or the box/native dimensions are
- * not yet usable — e.g. before layout, or a non-browser test environment —
- * in which case guessing a crop would be worse than not cropping at all).
- *
- * Review fix (WYSIWYG crop aspect mismatch): the crop fractions below are
- * derived by comparing `sourceAspect` (`nativeWidth`/`nativeHeight`, the live
- * PREVIEW's aspect) against `boxAspect`, then applied to `bitmap`'s own
- * pixel dimensions — which is only correct when `bitmap` actually HAS that
- * same aspect ratio. `captureFullResFrame` now prefers `grabFrame()` (shares
- * the preview track's aspect) precisely so this holds, but its `takePhoto()`
- * fallback can still return a differently-aspected full-sensor photo. Rather
- * than trust that assumption blindly, this function now verifies `bitmap`'s
- * OWN aspect against `sourceAspect` first and returns it UNCHANGED (skips
- * cropping) when they disagree — an uncropped capture that includes a bit
- * more than the preview showed is safer than corrupting the captured region
- * with fractions computed against the wrong shape.
- */
-export async function cropToVisibleRect(
-  bitmap: ImageBitmap,
-  nativeWidth: number,
-  nativeHeight: number,
-  box: VisibleRectBox,
-): Promise<ImageBitmap> {
-  if (box.width <= 0 || box.height <= 0 || nativeWidth <= 0 || nativeHeight <= 0) {
-    return bitmap;
-  }
-
-  const sourceAspect = nativeWidth / nativeHeight;
-  const boxAspect = box.width / box.height;
-
-  if (bitmap.height > 0) {
-    const bitmapAspect = bitmap.width / bitmap.height;
-    if (Math.abs(bitmapAspect - sourceAspect) >= ASPECT_EPSILON) {
-      // `bitmap`'s actual aspect doesn't match the preview's — e.g. a
-      // `takePhoto()` full-sensor capture. Cropping under that false
-      // assumption would cut the wrong region out of the page; skip it.
-      return bitmap;
-    }
-  }
-
-  if (Math.abs(sourceAspect - boxAspect) < ASPECT_EPSILON) {
-    return bitmap;
-  }
-
-  // Crop FRACTIONS derived from comparing the native/box aspect ratios,
-  // applied to the bitmap's own (possibly 16MP-capped, but proportionally
-  // identical) pixel dimensions.
-  let cropWidthFraction = 1;
-  let cropHeightFraction = 1;
-  if (boxAspect > sourceAspect) {
-    // Box is relatively WIDER than the source -> object-cover crops height.
-    cropHeightFraction = sourceAspect / boxAspect;
-  } else {
-    // Box is relatively TALLER than the source -> object-cover crops width.
-    cropWidthFraction = boxAspect / sourceAspect;
-  }
-
-  const cropWidth = Math.max(1, Math.round(bitmap.width * cropWidthFraction));
-  const cropHeight = Math.max(1, Math.round(bitmap.height * cropHeightFraction));
-  const x = Math.round((bitmap.width - cropWidth) / 2);
-  const y = Math.round((bitmap.height - cropHeight) / 2);
-
-  try {
-    return await createImageBitmap(bitmap, x, y, cropWidth, cropHeight);
-  } finally {
-    bitmap.close();
-  }
 }

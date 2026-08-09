@@ -157,7 +157,7 @@ describe('WorkerClient.applyFilter (Group 3 / PR6, design section 4.1-4.5)', () 
       type: 'APPLY_FILTER_RESULT',
       results: [{ kind: 'imagedata', image: makeImage(2) }],
     });
-    worker.emitMessage({ id: detectRequest.id, type: 'DETECT_RESULT', corners: null, quality: null });
+    worker.emitMessage({ id: detectRequest.id, type: 'DETECT_RESULT', corners: null, evidence: null, quality: null });
 
     const applyResult = await applyPromise;
     const detectResult = await detectPromise;

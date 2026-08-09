@@ -57,7 +57,7 @@ const DETECTION_FRAME_CORNERS = [
 ] as const;
 
 function makeWorkerClient(overrides: Partial<WorkerClient> = {}): WorkerClient {
-  const detectResult: DetectResponse = { id: 0, type: 'DETECT_RESULT', corners: null, quality: null };
+  const detectResult: DetectResponse = { id: 0, type: 'DETECT_RESULT', corners: null, evidence: null, quality: null };
   const warpResult: WarpResponse = {
     id: 0,
     type: 'WARP_RESULT',
@@ -167,10 +167,10 @@ describe('useBatchProcess — one-live-page hygiene', () => {
     createImageBitmapMock.mockImplementationOnce(async () => detectionBitmap);
 
     const warpedBitmap = fakeBitmap(500, 700);
-    const detectResult: DetectResponse = { id: 0, type: 'DETECT_RESULT', corners: null, quality: null };
+    const detectResult: DetectResponse = { id: 0, type: 'DETECT_RESULT', corners: null, evidence: null, quality: null };
     const warpResult: WarpResponse = { id: 0, type: 'WARP_RESULT', bitmap: warpedBitmap, outWidth: 500, outHeight: 700 };
     const workerClient = makeWorkerClient({
-      detect: vi.fn(async () => detectResult),
+      detectImageData: vi.fn(async () => detectResult),
       warp: vi.fn(async () => warpResult),
     });
 
@@ -199,7 +199,7 @@ describe('useBatchProcess — frameCorners fallback on missing/non-convex detect
     useScannerStore.setState({ rawCaptures: [raw] });
     decodeBlobToBitmapMock.mockResolvedValueOnce(fakeBitmap(1000, 1400));
 
-    const detectResult: DetectResponse = { id: 0, type: 'DETECT_RESULT', corners: null, quality: null };
+    const detectResult: DetectResponse = { id: 0, type: 'DETECT_RESULT', corners: null, evidence: null, quality: null };
     const workerClient = makeWorkerClient({ detect: vi.fn(async () => detectResult) });
 
     const ensureOpenCvInit = vi.fn(async () => {});
@@ -215,6 +215,32 @@ describe('useBatchProcess — frameCorners fallback on missing/non-convex detect
   });
 });
 
+describe('useBatchProcess — unsafe detection evidence', () => {
+  it('uses frame corners and needsReview instead of warping a cropped candidate', async () => {
+    const raw = fakeRawCapture({ originalWidth: 1000, originalHeight: 1400 });
+    useScannerStore.setState({ rawCaptures: [raw] });
+    decodeBlobToBitmapMock.mockResolvedValueOnce(fakeBitmap(1000, 1400));
+    createImageBitmapMock.mockImplementationOnce(async () => fakeBitmap(640, 896));
+    const workerClient = makeWorkerClient({
+      detectImageData: vi.fn(async () => ({
+        id: 0,
+        type: 'DETECT_RESULT' as const,
+        corners: DETECTION_FRAME_CORNERS,
+        evidence: { confidence: 'low' as const, areaRatio: 0.5, edgeSupport: [0.8, 0.8, 0.8, 0] as const, borderContacts: ['left'] as const },
+        quality: null,
+      })),
+    });
+    const { result } = renderHook(() => useBatchProcess({ ensureOpenCvInit: vi.fn(async () => {}), workerClient }));
+
+    await act(async () => {
+      await result.current.run();
+    });
+
+    expect(workerClient.warp).toHaveBeenCalledWith(expect.anything(), frameCorners(1000, 1400), expect.anything());
+    expect(useScannerStore.getState().pages[0]?.needsReview).toBe(true);
+  });
+});
+
 describe('useBatchProcess — per-page WARP failure -> degraded page (NEVER dropped)', () => {
   it('builds an identity-warp page with frameCorners + needsReview when workerClient.warp throws, even though DETECT succeeded', async () => {
     const raw = fakeRawCapture({ originalWidth: 1000, originalHeight: 1400 });
@@ -226,10 +252,11 @@ describe('useBatchProcess — per-page WARP failure -> degraded page (NEVER drop
       id: 0,
       type: 'DETECT_RESULT',
       corners: DETECTION_FRAME_CORNERS as unknown as DetectResponse['corners'],
+      evidence: { confidence: 'high', areaRatio: 0.5, edgeSupport: [0.8, 0.8, 0.8, 0.8], borderContacts: [] },
       quality: null,
     };
     const workerClient = makeWorkerClient({
-      detect: vi.fn(async () => detectResult),
+      detectImageData: vi.fn(async () => detectResult),
       warp: vi.fn(async () => {
         throw new Error('WARP_FAILED');
       }),
@@ -263,7 +290,7 @@ describe('useBatchProcess — partial thumbnail/compress failure does not leak t
     decodeBlobToBitmapMock.mockResolvedValueOnce(originalBitmap);
 
     const warpedBitmap = fakeBitmap(500, 700);
-    const detectResult: DetectResponse = { id: 0, type: 'DETECT_RESULT', corners: null, quality: null };
+    const detectResult: DetectResponse = { id: 0, type: 'DETECT_RESULT', corners: null, evidence: null, quality: null };
     const warpResult: WarpResponse = { id: 0, type: 'WARP_RESULT', bitmap: warpedBitmap, outWidth: 500, outHeight: 700 };
     const workerClient = makeWorkerClient({
       detect: vi.fn(async () => detectResult),

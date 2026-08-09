@@ -48,6 +48,7 @@ import type { WorkerClient } from '@/features/scanner/lib/workerClient';
 import { compressBitmapToJpeg, decodeBlobToBitmap, makeThumbnail } from '@/features/scanner/lib/pageResources';
 import { bitmapToImageData } from '@/features/scanner/lib/mainThreadImageData';
 import { DETECTION } from '@/features/scanner/lib/detectionConstants';
+import { isDetectionAccepted } from '@/features/scanner/lib/detectionAcceptance';
 import { scaleCornersToFullRes } from '@/features/scanner/lib/detectionMath';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
 import { createInitialRecipe, frameCorners } from '@/features/scanner/lib/editRecipe';
@@ -239,7 +240,7 @@ async function processOneRawCapture(raw: RawCapture, deps: ProcessOneRawCaptureD
           // the main thread and feeds `cv.matFromImageData` directly — no worker
           // canvas — so detection is identical and reliable across platforms.
           const result = await deps.workerClient.detectImageData(bitmapToImageData(detectionBitmap), false);
-          if (result.corners) {
+          if (result.corners && isDetectionAccepted(result.evidence)) {
             const upscaled = orderCorners(
               scaleCornersToFullRes(result.corners, detectionWidth, originalBitmap.width),
             );
