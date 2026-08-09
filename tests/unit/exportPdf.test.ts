@@ -5,7 +5,7 @@ import type { EditRecipe } from '@/shared/types/scanner';
 import { NEUTRAL_FILTER } from '@/shared/types/scanner';
 import type { AspectRatioName, Point, Quad } from '@/shared/types/geometry';
 import type { ApplyFilterResponse } from '@/features/scanner/worker/messages';
-import { paperSelection } from '@/features/scanner/lib/paperFormats';
+import { classifyPaperRatio, paperSelection } from '@/features/scanner/lib/paperFormats';
 
 const decodeBlobToBitmapMock = vi.fn();
 vi.mock('@/features/scanner/lib/pageResources', () => ({
@@ -186,6 +186,17 @@ describe('exportPagesToPdf', () => {
     decodeBlobToBitmapMock.mockResolvedValue(makeBitmap(3024, 4032));
     await exportPagesToPdf([makePage('a4', 0, makeRecipe({ paper: paperSelection('a4', 'manual') }))]);
     expectMm(mediaBoxesInPoints(deliveredPdf())[0]!, 210, 297);
+  });
+
+  it('keeps automatic probabilistic A4 on raster geometry without claiming nominal millimeters', async () => {
+    decodeBlobToBitmapMock.mockResolvedValue(makeBitmap(764, 540));
+    await exportPagesToPdf([
+      makePage('a4-probable', 0, makeRecipe({ paper: classifyPaperRatio(210 / 297) })),
+    ]);
+
+    const mediaBox = mediaBoxesInPoints(deliveredPdf())[0]!;
+    expectMm(mediaBox, 764 * (25.4 / 54), 540 * (25.4 / 54));
+    expect(mediaBox[0] / mediaBox[1]).toBeCloseTo(764 / 540, 5);
   });
 
   it('uses final rendered orientation for a landscape known format even when recipe rotation is zero', async () => {

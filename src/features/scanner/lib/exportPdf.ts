@@ -201,12 +201,26 @@ interface PdfPageGeometry {
 }
 
 /**
+ * The explicit probabilistic marker is the compatibility boundary: an
+ * automatic shape recommendation cannot authorize physical PDF dimensions.
+ * Manual choices and persisted non-probabilistic selections retain their
+ * established nominal behavior.
+ */
+function hasAuthoritativeNominalSize(page: DocumentPage): boolean {
+  const { paper } = page.recipe;
+  return paper.source !== 'auto' || paper.evidence.probabilistic !== true;
+}
+
+/**
  * Resolves the nominal MediaBox independently from camera pixels for known
- * paper formats. Ticket and Original deliberately retain the old pixel-based
- * fallback because they have no trustworthy nominal physical dimensions.
+ * authoritative paper formats. Probabilistic recommendations, Ticket, and
+ * Original retain the pixel-based fallback because they have no trustworthy
+ * nominal physical dimensions.
  */
 function resolvePdfPageGeometry(page: DocumentPage, rendered: RenderedPage): PdfPageGeometry {
-  const nominalMm = getPaperFormat(page.recipe.paper.alias).nominalMm;
+  const nominalMm = hasAuthoritativeNominalSize(page)
+    ? getPaperFormat(page.recipe.paper.alias).nominalMm
+    : undefined;
   // Fixed-ratio warps preserve the quad's measured orientation. `rendered`
   // already includes the recipe rotation, so it is the final authoritative
   // orientation for both known nominal pages and their contained image.
@@ -226,11 +240,12 @@ function resolvePdfPageGeometry(page: DocumentPage, rendered: RenderedPage): Pdf
 
 /**
  * Exports every page (sorted by `order`) into a single PDF, one PDF page per
- * document page. Known formats use their catalogued millimeter geometry;
- * Ticket/Original retain an explicit raster-dependent fallback (no distortion), and
- * triggers the browser download / mobile share sheet. No-op when `pages` is
- * empty. Rejects if decoding, the worker RPC, or `jsPDF` itself fails — the
- * caller is expected to surface that as a user-facing error (e.g. a toast).
+ * document page. Authoritative known formats use their catalogued millimeter
+ * geometry; probabilistic recommendations, Ticket, and Original retain an
+ * explicit raster-dependent fallback (no distortion), and triggers the browser
+ * download / mobile share sheet. No-op when `pages` is empty. Rejects if
+ * decoding, the worker RPC, or `jsPDF` itself fails — the caller is expected to
+ * surface that as a user-facing error (e.g. a toast).
  */
 export async function exportPagesToPdf(pages: readonly DocumentPage[]): Promise<void> {
   if (pages.length === 0) {

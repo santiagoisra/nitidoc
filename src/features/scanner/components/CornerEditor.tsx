@@ -116,7 +116,7 @@ import { CropOverlay } from '@/features/scanner/components/CropOverlay';
 import { FilterPanel } from '@/features/scanner/components/FilterPanel';
 import { WarpedPreview } from '@/features/scanner/components/WarpedPreview';
 import { isConvex, inferAspectRatio, measuredQuadRatio, outputSize } from '@/features/scanner/lib/geometry';
-import { classifyPaperRatio, paperSelection, resolveWarpGeometry } from '@/features/scanner/lib/paperFormats';
+import { paperSelection, paperSelectionAfterCornerEdit, resolveWarpGeometry } from '@/features/scanner/lib/paperFormats';
 import {
   createInitialRecipe,
   frameCorners,
@@ -332,9 +332,10 @@ export function CornerEditor({
         const paperForWarp =
           aspectOverrideArg !== undefined || aspectOverride !== null
             ? paperSelection(aspectForWarp === 'unknown' ? 'original' : aspectForWarp, 'manual')
-            : initialRecipe?.paper.source === 'manual'
-              ? initialRecipe.paper
-              : classifyPaperRatio(measuredQuadRatio(finalCorners));
+            : paperSelectionAfterCornerEdit(
+                initialRecipe?.paper ?? paperSelection('original', 'auto', 'none'),
+                measuredQuadRatio(finalCorners),
+              );
         const workerClient = getSharedWorkerClient();
         // Fix H2: clone a fresh buffer per warp for the transfer. The worker
         // transfers (detaches) the buffer it receives, so transferring the

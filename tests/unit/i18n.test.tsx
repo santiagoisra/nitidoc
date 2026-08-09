@@ -22,6 +22,7 @@ function Harness(): ReactNode {
       <span data-testid="locale">{locale}</span>
       <span data-testid="scan-complete-plural">{t('scanner.scanComplete', { n: 2 })}</span>
       <span data-testid="scan-complete-singular">{t('scanner.scanComplete', { n: 1 })}</span>
+      <span data-testid="a4-probable">{t('paper.a4Probable')}</span>
       <button type="button" onClick={() => setLocale('en')} data-testid="set-en">
         en
       </button>
@@ -61,6 +62,7 @@ describe('i18n (Fase 2.1 punch-list item 5, Spanish-default with English toggle)
     render(<Harness />);
     expect(screen.getByTestId('locale').textContent).toBe('en');
     expect(screen.getByTestId('scan-complete-plural').textContent).toBe('Scan complete — 2 pages.');
+    expect(screen.getByTestId('a4-probable').textContent).toBe('A4 probable');
   });
 
   it('<LocaleProvider> defaults to Spanish when there is no stored preference', () => {
@@ -71,6 +73,7 @@ describe('i18n (Fase 2.1 punch-list item 5, Spanish-default with English toggle)
     );
     expect(screen.getByTestId('locale').textContent).toBe('es');
     expect(screen.getByTestId('scan-complete-plural').textContent).toBe('Escaneo completo — 2 páginas.');
+    expect(screen.getByTestId('a4-probable').textContent).toBe('A4 probable');
   });
 
   it('setLocale flips the active locale and persists the choice to localStorage', () => {

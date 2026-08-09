@@ -276,6 +276,19 @@ describe('FilterPanel (Group 4 / PR7, design section 3.4/5.4)', () => {
     expect(screen.getByTestId('paper-format-select')).toHaveValue('letter');
   });
 
+  it('labels automatic A-series evidence as A4 probable in English', async () => {
+    render(
+      <Harness
+        baseBitmap={makeBitmap()}
+        onChangeSpy={vi.fn()}
+        onPaperChangeSpy={vi.fn()}
+        initialPaper={paperSelection('a4', 'auto', 'low', 210 / 297)}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('paper-detection')).toHaveTextContent('Detected: A4 probable (low confidence)'));
+  });
+
   it('keeps a persisted canonical Legal alias selectable instead of leaving the control unmatched', async () => {
     const onChangeSpy = vi.fn();
     render(

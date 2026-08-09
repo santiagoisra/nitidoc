@@ -21,7 +21,7 @@ export const PAPER_FORMATS: readonly PaperFormat[] = [
 
 const DETECTABLE_FORMATS = PAPER_FORMATS.filter(
   (format): format is PaperFormat & Required<Pick<PaperFormat, 'portraitRatio'>> =>
-    format.portraitRatio !== undefined && format.id !== 'a4',
+    format.portraitRatio !== undefined,
 );
 
 const HIGH_MAX_ERROR = 0.015;
@@ -29,6 +29,7 @@ const HIGH_MIN_MARGIN = 0.03;
 const MEDIUM_MAX_ERROR = 0.03;
 const MEDIUM_MIN_MARGIN = 0.015;
 const TICKET_MAX_RATIO = 1 / 2.4;
+const A_SERIES_MAX_ERROR = 0.03;
 
 function evidence(measuredRatio: number, relativeError?: number, runnerUpMargin?: number): PaperEvidence {
   return { measuredRatio, relativeError, runnerUpMargin, scaleInferred: false };
@@ -55,10 +56,11 @@ export function manualPaperSelection(alias: PaperFormatAlias, previous: PaperSel
 }
 
 /**
- * Classifies shape evidence only. A4 is catalogued for explicit selection but
- * excluded here because A3/A4/A5 share its ratio, so it cannot be inferred
- * from a crop. Legal and Oficio share one candidate so an alias never creates
- * an artificial tie; a ratio cannot determine scale.
+ * Classifies shape evidence only. ISO A-series sheets share one ratio, so an
+ * A-shaped crop yields a deliberately low-confidence canonical A4
+ * recommendation with `scaleInferred: false` rather than physical-size
+ * certainty. Legal and Oficio share one candidate so an alias never creates
+ * an artificial tie.
  */
 export function classifyPaperRatio(measuredRatio: number): PaperSelection {
   if (!Number.isFinite(measuredRatio) || measuredRatio <= 0 || measuredRatio > 1) {
@@ -78,6 +80,15 @@ export function classifyPaperRatio(measuredRatio: number): PaperSelection {
   if (!best || !runnerUp) return paperSelection('original', 'auto', 'none', measuredRatio);
 
   const margin = runnerUp.error - best.error;
+  if (best.format.id === 'a4' && best.error <= A_SERIES_MAX_ERROR) {
+    return {
+      id: 'a4',
+      alias: 'a4',
+      source: 'auto',
+      confidence: 'low',
+      evidence: { ...evidence(measuredRatio, best.error, margin), probabilistic: true },
+    };
+  }
   const confidence: PaperConfidence =
     best.error <= HIGH_MAX_ERROR && margin >= HIGH_MIN_MARGIN
       ? 'high'
@@ -101,6 +112,11 @@ export function classifyPaperRatio(measuredRatio: number): PaperSelection {
 /** Restores automatic selection from persisted shape evidence; it never infers physical scale. */
 export function automaticPaperSelection(previous: PaperSelection): PaperSelection {
   return classifyPaperRatio(previous.evidence.measuredRatio);
+}
+
+/** Reclassifies confirmed geometry unless the user explicitly chose a format. */
+export function paperSelectionAfterCornerEdit(previous: PaperSelection, measuredRatio: number): PaperSelection {
+  return previous.source === 'manual' ? previous : classifyPaperRatio(measuredRatio);
 }
 
 export function resolveWarpGeometry(selection: PaperSelection): WarpGeometry {

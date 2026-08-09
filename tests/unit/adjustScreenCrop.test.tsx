@@ -51,6 +51,7 @@ import { AdjustScreen } from '@/features/scanner/components/AdjustScreen';
 import { ToastHost } from '@/shared/ui';
 import { useScannerStore, scannerStoreInitialState } from '@/features/scanner/store/scannerStore';
 import { createInitialRecipe } from '@/features/scanner/lib/editRecipe';
+import { paperSelection } from '@/features/scanner/lib/paperFormats';
 import type { DocumentPage } from '@/features/scanner/store/documentSlice';
 import type { Quad } from '@/shared/types/geometry';
 import type { WarpResponse } from '@/features/scanner/worker/messages';
@@ -83,6 +84,13 @@ const PAGE_CORNERS: Quad = [
   { x: 100, y: 0 },
   { x: 100, y: 100 },
   { x: 0, y: 100 },
+];
+
+const A_SERIES_CORNERS: Quad = [
+  { x: 0, y: 0 },
+  { x: 210, y: 0 },
+  { x: 210, y: 297 },
+  { x: 0, y: 297 },
 ];
 
 /** Corners for the drag test — matches cropOverlay.test.tsx's own 300x400 convention for a 1:1 (scale=1, no offset) letterbox mapping. */
@@ -229,12 +237,17 @@ describe('AdjustScreen inline crop mode (Work Unit 2)', () => {
     await waitFor(() => expect(warpMock).toHaveBeenCalledTimes(1));
     const [, corners, geometry] = warpMock.mock.calls[0] as [unknown, Quad, unknown];
     expect(corners).toEqual(PAGE_CORNERS); // seeded from the page's already-auto-detected recipe corners
-    expect(geometry).toEqual({ mode: 'fixed', portraitRatio: 210 / 297 });
+    expect(geometry).toEqual({ mode: 'measured' });
 
     // Dirty deactivate recompresses the fresh warped base into blob+thumbnail.
     await waitFor(() => expect(compressBitmapToJpegMock).toHaveBeenCalled());
     await waitFor(() => expect(useScannerStore.getState().activeWorking).toBeNull());
     expect(useScannerStore.getState().pages[0]?.recipe.corners).toEqual(PAGE_CORNERS);
+    expect(useScannerStore.getState().pages[0]?.recipe.paper).toMatchObject({
+      id: 'original',
+      source: 'auto',
+      confidence: 'none',
+    });
     // Ownership of the fresh warped bitmap transferred into the store, which
     // closes it once its pixels are compressed into the persisted blob.
     expect(freshWarped.close).toHaveBeenCalled();
@@ -242,6 +255,49 @@ describe('AdjustScreen inline crop mode (Work Unit 2)', () => {
     await waitFor(() => expect(screen.getByTestId('adjust-toolbar')).toBeTruthy());
     expect(screen.queryByTestId('adjust-crop-toolbar')).toBeNull();
     expect(screen.queryByTestId('corner-editor-canvas')).toBeNull();
+  });
+
+  it('recomputes automatic evidence from confirmed A-series corners before warp and persists A4 probable', async () => {
+    const original = paperSelection('original', 'auto', 'none', 1);
+    useScannerStore.setState({
+      pages: [fakePage({ id: 'p1', recipe: createInitialRecipe(A_SERIES_CORNERS, 'unknown', original) })],
+    });
+    warpMock.mockResolvedValue(fakeWarpResult(fakeBitmap(700, 1000)));
+
+    renderAdjustScreen();
+    await waitFor(() => expect(screen.getByTestId('adjust-warped-preview')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('adjust-crop'));
+    await waitFor(() => expect(screen.getByTestId('corner-editor-canvas')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('adjust-crop-done'));
+
+    await waitFor(() => expect(warpMock).toHaveBeenCalledTimes(1));
+    expect(warpMock.mock.calls[0]?.[2]).toEqual({ mode: 'fixed', portraitRatio: 210 / 297 });
+    await waitFor(() => expect(useScannerStore.getState().activeWorking).toBeNull());
+    expect(useScannerStore.getState().pages[0]?.recipe.paper).toMatchObject({
+      id: 'a4',
+      source: 'auto',
+      confidence: 'low',
+      evidence: { scaleInferred: false, probabilistic: true },
+    });
+  });
+
+  it('preserves a manual paper choice when later corners are confirmed', async () => {
+    const manual = paperSelection('oficio', 'manual', 'none', 216 / 356);
+    useScannerStore.setState({
+      pages: [fakePage({ id: 'p1', recipe: createInitialRecipe(A_SERIES_CORNERS, 'unknown', manual) })],
+    });
+    warpMock.mockResolvedValue(fakeWarpResult(fakeBitmap(700, 1000)));
+
+    renderAdjustScreen();
+    await waitFor(() => expect(screen.getByTestId('adjust-warped-preview')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('adjust-crop'));
+    await waitFor(() => expect(screen.getByTestId('corner-editor-canvas')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('adjust-crop-done'));
+
+    await waitFor(() => expect(warpMock).toHaveBeenCalledTimes(1));
+    expect(warpMock.mock.calls[0]?.[2]).toEqual({ mode: 'fixed', portraitRatio: 216 / 356 });
+    await waitFor(() => expect(useScannerStore.getState().activeWorking).toBeNull());
+    expect(useScannerStore.getState().pages[0]?.recipe.paper).toEqual(manual);
   });
 
   it('dragging a corner into a non-convex position disables Listo (CropOverlay -> AdjustScreen draft-corner wiring)', async () => {
