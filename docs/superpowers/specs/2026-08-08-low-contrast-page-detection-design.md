@@ -74,7 +74,9 @@ this change.
 Create reusable channels from the 640 px source:
 
 - luminance normalized for uneven illumination;
-- local-contrast luminance using bounded CLAHE;
+- local-contrast luminance using a locally estimated background and bounded
+  blur/division or morphological normalization; the installed OpenCV.js runtime
+  does not expose CLAHE even though its generated typings declare it;
 - selected chroma or normalized color differences when luminance alone is weak;
 - gradient magnitude and polarity-independent edge evidence.
 
