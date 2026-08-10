@@ -101,13 +101,39 @@ Production review takes days, and a rejection costs a full cycle. Never let a
 build reach production without having run it from an internal-testing install
 first.
 
-### 6. Promote to production
+### 6. Closed testing — 12 testers for 14 days, and it is mandatory
 
-Once the internal build behaves on-device: Release → Production → create a
-release, promote the same bundle, write the release notes, submit.
+**This is the long pole, and it is worth knowing before promising anyone a
+date.** A personal developer account cannot request production access until it
+has run a closed test meeting Google's criteria. Console states them plainly:
 
-First-time review is typically a few days and can ask follow-up questions —
-most often about the camera permission, which the justification below answers.
+1. Publish a closed testing release.
+2. **At least 12 testers opted in** to the closed test.
+3. **Run it with those 12 for at least 14 continuous days.**
+
+Twelve real people who install and stay opted in for two weeks — if someone
+opts out mid-way the count drops and the clock is affected. Recruit more than
+twelve.
+
+Closed testing is also locked until the app setup above is finished ("Para
+iniciar una prueba cerrada, termina de configurar la app").
+
+Internal testing does not count toward this. It is still worth doing first, for
+device QA, because it is instant.
+
+### 7. Request production access, then promote
+
+After the 14 days, Release → Production → request access. Google asks questions
+about how the closed test went and what you changed as a result — answer from
+what actually happened, since the whole mechanism exists to check the app was
+genuinely exercised.
+
+Then create the production release, promote the bundle, write the notes, submit.
+Review is typically a few days and can ask follow-ups — most often about the
+camera permission, which the justification below answers.
+
+**Realistic timeline from an empty console: about three weeks minimum**, most
+of it waiting on the closed test rather than on anything technical.
 
 ## Store listing
 
