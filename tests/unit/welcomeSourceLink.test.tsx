@@ -27,6 +27,17 @@ afterEach(() => {
 });
 
 describe('WelcomeScreen — AGPL source offer', () => {
+  it('uses "Escanear" as the Spanish primary action label', () => {
+    window.localStorage.setItem('nitidoc.locale', 'es');
+    render(
+      <LocaleProvider>
+        <WelcomeScreen onStart={noop} onImportFile={noopImport} />
+      </LocaleProvider>,
+    );
+
+    expect(screen.getByTestId('open-scanner')).toHaveTextContent('Escanear');
+  });
+
   it('links to the public repository, opening safely in a new tab', () => {
     render(<WelcomeScreen onStart={noop} onImportFile={noopImport} />);
 

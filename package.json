@@ -1,7 +1,7 @@
 {
   "name": "nitidoc",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.2",
   "type": "module",
   "description": "Nitidoc — free, offline-first document scanner PWA",
   "license": "AGPL-3.0-or-later",
