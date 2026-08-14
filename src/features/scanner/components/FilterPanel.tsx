@@ -40,10 +40,9 @@ import { FILTER } from '@/features/scanner/lib/filterConstants';
 import { buildCssFilter } from '@/features/scanner/lib/filterPipeline';
 import { makeThumbnail } from '@/features/scanner/lib/pageResources';
 import { getSharedWorkerClient } from '@/features/scanner/lib/workerClient';
-import { automaticPaperSelection, manualPaperSelection } from '@/features/scanner/lib/paperFormats';
 import type { FilteredResult, FilterVariant, ImageDataLike } from '@/features/scanner/worker/messages';
 import type { FilterParams, FilterPreset } from '@/shared/types/scanner';
-import type { PaperConfidence, PaperFormatAlias, PaperSelection } from '@/shared/types/paper';
+import type { PaperSelection } from '@/shared/types/paper';
 
 const CSS_PRESETS: readonly FilterPreset[] = ['original', 'enhanced', 'grayscale'];
 const ADAPTIVE_PRESETS: readonly FilterPreset[] = ['bw', 'bw-high-contrast', 'eco'];
@@ -56,7 +55,6 @@ const ALL_PRESETS: readonly FilterPreset[] = [...CSS_PRESETS, ...ADAPTIVE_PRESET
  * request/response indexing below.
  */
 const WORKER_PRESETS: readonly FilterPreset[] = ALL_PRESETS.filter((preset) => preset !== 'original');
-const PAPER_FORMAT_OPTIONS: readonly PaperFormatAlias[] = ['a4', 'letter', 'legal', 'oficio', 'ticket', 'original'];
 
 export interface FilterPanelProps {
   /** UNFILTERED warp base (design section 3, ADR-009) — a small thumbnail is derived from this for previews. */
@@ -66,9 +64,9 @@ export interface FilterPanelProps {
   readonly onChange: (filter: FilterParams) => void;
   /** Document-wide bulk rewrite (D7/ADR-011). Omit to hide the "Apply to all" action entirely. */
   readonly onApplyToAll?: (filter: FilterParams) => void;
-  /** Optional per-page paper selection controls used by the review screen. */
+  /** @deprecated Paper format is selected before capture and never edited in review. */
   readonly paper?: PaperSelection;
-  /** Persists manual paper choices; omitted outside the review screen. */
+  /** @deprecated Paper format is selected before capture and never edited in review. */
   readonly onPaperChange?: (paper: PaperSelection) => void;
   /**
    * `'grid'` (default): the full editor panel — 3-column preset grid +
@@ -108,8 +106,6 @@ export function FilterPanel({
   filter,
   onChange,
   onApplyToAll,
-  paper,
-  onPaperChange,
   orientation = 'grid',
 }: FilterPanelProps): ReactNode {
   const { t } = useTranslation();
@@ -311,85 +307,6 @@ export function FilterPanel({
     setConfirmingApplyAll(false);
   }, [filter, onApplyToAll]);
 
-  const paperLabels: Record<PaperFormatAlias, string> = {
-    a4: t('paper.a4'),
-    letter: t('paper.letter'),
-    legal: t('paper.legal'),
-    oficio: t('paper.oficio'),
-    ticket: t('paper.ticket'),
-    original: t('paper.original'),
-  };
-  const confidenceLabels: Record<PaperConfidence, string> = {
-    high: t('paper.confidenceHigh'),
-    medium: t('paper.confidenceMedium'),
-    low: t('paper.confidenceLow'),
-    none: t('paper.confidenceNone'),
-  };
-  const detectedPaper = paper ? automaticPaperSelection(paper) : null;
-  const detectedPaperLabel =
-    detectedPaper?.id === 'a4' && detectedPaper.evidence.probabilistic
-      ? t('paper.a4Probable')
-      : detectedPaper
-        ? paperLabels[detectedPaper.alias]
-        : '';
-
-  const handlePaperChange = useCallback(
-    (event: ChangeEvent<HTMLSelectElement>) => {
-      if (!paper || !onPaperChange) return;
-      onPaperChange(manualPaperSelection(event.target.value as PaperFormatAlias, paper));
-    },
-    [paper, onPaperChange],
-  );
-
-  const handleClearPaperOverride = useCallback(() => {
-    if (paper && onPaperChange) onPaperChange(automaticPaperSelection(paper));
-  }, [paper, onPaperChange]);
-
-  const paperControls =
-    paper && onPaperChange ? (
-      <div className="flex min-w-[12rem] flex-col gap-1 rounded-lg border border-white/10 bg-surface/80 px-2 py-1.5" data-testid="paper-selection-controls">
-        <label className="text-xs text-text-muted" htmlFor="paper-format-select">
-          {t('paper.format')}
-        </label>
-        <select
-          id="paper-format-select"
-          className="rounded bg-surface px-1 py-0.5 text-sm text-text"
-          value={paper.alias}
-          onChange={handlePaperChange}
-          data-testid="paper-format-select"
-        >
-          {PAPER_FORMAT_OPTIONS.map((alias) => (
-            <option key={alias} value={alias}>
-              {paperLabels[alias]}
-            </option>
-          ))}
-        </select>
-        {detectedPaper && (
-          <p className="text-xs text-text-muted" data-testid="paper-detection">
-            {t('paper.detected', {
-              format: detectedPaperLabel,
-              confidence: confidenceLabels[detectedPaper.confidence],
-            })}
-          </p>
-        )}
-        {paper.source === 'manual' && (
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-primary" data-testid="paper-manual-selection">
-              {t('paper.manual', { format: paperLabels[paper.alias] })}
-            </span>
-            <button
-              type="button"
-              className="text-xs text-primary underline"
-              onClick={handleClearPaperOverride}
-              data-testid="paper-clear-auto"
-            >
-              {t('paper.clearToAuto')}
-            </button>
-          </div>
-        )}
-      </div>
-    ) : null;
-
   // Re-render the tiles whenever the thumbnail or adaptive results change —
   // these version counters exist purely to trigger a re-render off ref
   // mutations (the refs themselves hold the actual bitmaps/results).
@@ -425,7 +342,6 @@ export function FilterPanel({
         data-testid="filter-preset-row"
         aria-label={t('filter.title')}
       >
-        {paperControls}
         {presetTiles}
       </div>
     );
@@ -434,7 +350,6 @@ export function FilterPanel({
   return (
     <div className="flex w-full flex-col gap-4" data-testid="filter-panel">
       <h3 className="text-sm font-medium text-text">{t('filter.title')}</h3>
-      {paperControls}
       <div className="grid grid-cols-3 gap-2" data-testid="filter-preset-grid">
         {presetTiles}
       </div>

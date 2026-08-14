@@ -236,17 +236,17 @@ describe('AdjustScreen inline crop mode (Work Unit 2)', () => {
 
     await waitFor(() => expect(warpMock).toHaveBeenCalledTimes(1));
     const [, corners, geometry] = warpMock.mock.calls[0] as [unknown, Quad, unknown];
-    expect(corners).toEqual(PAGE_CORNERS); // seeded from the page's already-auto-detected recipe corners
-    expect(geometry).toEqual({ mode: 'measured' });
+    expect(corners).toEqual(PAGE_CORNERS); // seeded from the page's existing recipe corners
+    expect(geometry).toEqual({ mode: 'fixed', portraitRatio: 210 / 297 });
 
     // Dirty deactivate recompresses the fresh warped base into blob+thumbnail.
     await waitFor(() => expect(compressBitmapToJpegMock).toHaveBeenCalled());
     await waitFor(() => expect(useScannerStore.getState().activeWorking).toBeNull());
     expect(useScannerStore.getState().pages[0]?.recipe.corners).toEqual(PAGE_CORNERS);
     expect(useScannerStore.getState().pages[0]?.recipe.paper).toMatchObject({
-      id: 'original',
+      id: 'a4',
       source: 'auto',
-      confidence: 'none',
+      confidence: 'low',
     });
     // Ownership of the fresh warped bitmap transferred into the store, which
     // closes it once its pixels are compressed into the persisted blob.
@@ -257,7 +257,7 @@ describe('AdjustScreen inline crop mode (Work Unit 2)', () => {
     expect(screen.queryByTestId('corner-editor-canvas')).toBeNull();
   });
 
-  it('recomputes automatic evidence from confirmed A-series corners before warp and persists A4 probable', async () => {
+  it('keeps automatic paper evidence unchanged when confirmed corners are re-warped', async () => {
     const original = paperSelection('original', 'auto', 'none', 1);
     useScannerStore.setState({
       pages: [fakePage({ id: 'p1', recipe: createInitialRecipe(A_SERIES_CORNERS, 'unknown', original) })],
@@ -271,13 +271,12 @@ describe('AdjustScreen inline crop mode (Work Unit 2)', () => {
     fireEvent.click(screen.getByTestId('adjust-crop-done'));
 
     await waitFor(() => expect(warpMock).toHaveBeenCalledTimes(1));
-    expect(warpMock.mock.calls[0]?.[2]).toEqual({ mode: 'fixed', portraitRatio: 210 / 297 });
+    expect(warpMock.mock.calls[0]?.[2]).toEqual({ mode: 'measured' });
     await waitFor(() => expect(useScannerStore.getState().activeWorking).toBeNull());
     expect(useScannerStore.getState().pages[0]?.recipe.paper).toMatchObject({
-      id: 'a4',
+      id: 'original',
       source: 'auto',
-      confidence: 'low',
-      evidence: { scaleInferred: false, probabilistic: true },
+      confidence: 'none',
     });
   });
 
@@ -290,6 +289,9 @@ describe('AdjustScreen inline crop mode (Work Unit 2)', () => {
 
     renderAdjustScreen();
     await waitFor(() => expect(screen.getByTestId('adjust-warped-preview')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('filter-preset-row')).toBeTruthy());
+    expect(screen.queryByTestId('paper-selection-controls')).toBeNull();
+    expect(screen.queryByTestId('paper-clear-auto')).toBeNull();
     fireEvent.click(screen.getByTestId('adjust-crop'));
     await waitFor(() => expect(screen.getByTestId('corner-editor-canvas')).toBeTruthy());
     fireEvent.click(screen.getByTestId('adjust-crop-done'));

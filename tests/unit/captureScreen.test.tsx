@@ -150,6 +150,49 @@ describe('CaptureScreen (Fase 2.3, capture-ux-redesign.md, Unit 3)', () => {
     expect(screen.queryByTestId('capture-count-thumbnail')).toBeNull();
   });
 
+  it('shows the A4 framing guide and snapshots the selected paper when capturing', async () => {
+    const rawBitmap = fakeBitmap(3000, 4000);
+    captureFullResFrameMock.mockResolvedValue({ bitmap: rawBitmap, width: 3000, height: 4000 });
+
+    renderCaptureScreen();
+
+    expect(screen.getByRole('radiogroup', { name: 'Paper size' })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: 'A4 / A3' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('capture-paper-guide')).toHaveStyle({ aspectRatio: '210 / 297' });
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Legal' }));
+    fireEvent.click(screen.getByTestId('capture-button'));
+
+    await waitFor(() => {
+      expect(materializeRawCaptureMock).toHaveBeenCalledWith(
+        expect.objectContaining({ paper: expect.objectContaining({ alias: 'legal', source: 'manual' }) }),
+      );
+    });
+  });
+
+  it('hides the live guide for free form and snapshots that choice for imports', async () => {
+    useScannerStore.setState({ permission: 'denied' });
+    const decodedBitmap = fakeBitmap(1200, 900);
+    decodeImportedFileMock.mockResolvedValue({ bitmap: decodedBitmap, width: 1200, height: 900 });
+
+    renderCaptureScreen();
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Free form' }));
+    expect(screen.queryByTestId('capture-paper-guide')).toBeNull();
+
+    const input = screen.getByTestId('import-fallback-input') as HTMLInputElement;
+    const file = new File([new Uint8Array([1, 2, 3])], 'doc.png', { type: 'image/png' });
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [file] } });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(materializeRawCaptureMock).toHaveBeenCalledWith(
+      expect.objectContaining({ paper: expect.objectContaining({ alias: 'original', source: 'manual' }) }),
+    );
+  });
+
   it('Next appears once rawCaptures.length > 0, and shows the count badge', () => {
     useScannerStore.setState({ rawCaptures: [fakeRaw('r1', 0)] });
     renderCaptureScreen();

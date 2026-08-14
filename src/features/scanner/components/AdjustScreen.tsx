@@ -82,8 +82,8 @@ import { FilterPanel } from '@/features/scanner/components/FilterPanel';
 import { WarpedPreview } from '@/features/scanner/components/WarpedPreview';
 import { useActivePage } from '@/features/scanner/hooks/useActivePage';
 import { usePageDeletion } from '@/features/scanner/hooks/usePageDeletion';
-import { isConvex, measuredQuadRatio } from '@/features/scanner/lib/geometry';
-import { paperSelectionAfterCornerEdit, resolveWarpGeometry } from '@/features/scanner/lib/paperFormats';
+import { isConvex } from '@/features/scanner/lib/geometry';
+import { resolveWarpGeometry } from '@/features/scanner/lib/paperFormats';
 import { decodeBlobToBitmap } from '@/features/scanner/lib/pageResources';
 import { recipeToCssTransform, rotateLeftRecipe, withFilter } from '@/features/scanner/lib/editRecipe';
 import { buildThumbnailCssFilter } from '@/features/scanner/lib/filterPipeline';
@@ -169,7 +169,6 @@ export function AdjustScreen({
   const { t } = useTranslation();
   const pages = useScannerStore((s) => s.pages);
   const updateRecipe = useScannerStore((s) => s.updateRecipe);
-  const updatePaperSelection = useScannerStore((s) => s.updatePaperSelection);
   const { deletePage } = usePageDeletion();
   // Inline crop mode (Work Unit 2): activates the page's pre-warp
   // `originalBitmap` for `CropOverlay` and persists a re-warp on "Listo" —
@@ -478,14 +477,6 @@ export function AdjustScreen({
     [currentPage, updateRecipe],
   );
 
-  const handlePaperChange = useCallback(
-    (paper: import('@/shared/types/paper').PaperSelection) => {
-      if (!currentPage) return;
-      updatePaperSelection(currentPage.id, paper);
-    },
-    [currentPage, updatePaperSelection],
-  );
-
   const handleRotateLeft = useCallback(() => {
     if (!currentPage) return;
     updateRecipe(currentPage.id, rotateLeftRecipe(currentPage.recipe));
@@ -547,7 +538,7 @@ export function AdjustScreen({
     const session = cropSessionRef.current;
     const corners = draftCorners;
     const baseRecipe = currentPage.recipe;
-    const paperForWarp = paperSelectionAfterCornerEdit(baseRecipe.paper, measuredQuadRatio(corners));
+    const paperForWarp = baseRecipe.paper;
     const originalBitmap = activeWorking.originalBitmap;
 
     warpInFlightRef.current = true;
@@ -882,8 +873,6 @@ export function AdjustScreen({
             baseBitmap={base}
             filter={recipe.filter}
             onChange={handleFilterChange}
-            paper={recipe.paper}
-            onPaperChange={handlePaperChange}
             orientation="row"
           />
         ) : (

@@ -46,10 +46,15 @@ import { useActivePage } from '@/features/scanner/hooks/useActivePage';
 import { decodeImportedFile } from '@/features/scanner/lib/captureFallback';
 import { captureFullResFrame } from '@/features/scanner/lib/captureFrame';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
-import { capturePaperSelection } from '@/features/scanner/lib/paperFormats';
+import {
+  CAPTURE_PAPER_FORMAT_OPTIONS,
+  capturePaperSelection,
+  getPaperFormat,
+} from '@/features/scanner/lib/paperFormats';
 import type { DocumentPage, RawCapture } from '@/features/scanner/store/documentSlice';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
 import { randomId } from '@/shared/lib/randomId';
+import type { PaperFormatAlias } from '@/shared/types/paper';
 
 /**
  * Duration of the post-capture screen-flash feedback. Redesign (HANDOFF-UI.md
@@ -147,6 +152,46 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
 
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const [paperAlias, setPaperAlias] = useState<PaperFormatAlias>('a4');
+
+  const paperLabels: Record<PaperFormatAlias, string> = {
+    a4: t('capture.paperA4A3'),
+    oficio: t('capture.paperOficio'),
+    letter: t('capture.paperLetter'),
+    legal: t('capture.paperLegal'),
+    ticket: t('capture.paperTicket'),
+    original: t('capture.paperOriginal'),
+  };
+  const selectedPaperFormat = getPaperFormat(paperAlias);
+  const selectedPaperLabel = paperLabels[paperAlias];
+  const paperPicker = (
+    <div className="flex min-w-0 flex-col gap-2" data-testid="capture-paper-format">
+      <span className="text-sm font-semibold text-white">{t('capture.paperFormat')}</span>
+      <div
+        role="radiogroup"
+        aria-label={t('capture.paperFormat')}
+        className="flex min-w-0 gap-2 overflow-x-auto pb-1"
+      >
+        {CAPTURE_PAPER_FORMAT_OPTIONS.map((alias) => {
+          const selected = alias === paperAlias;
+          return (
+            <button
+              key={alias}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              onClick={() => setPaperAlias(alias)}
+              className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light focus-visible:ring-offset-2 focus-visible:ring-offset-black ${
+                selected ? 'bg-primary text-[#0f0e0c]' : 'bg-black/45 text-white hover:bg-black/65'
+              }`}
+            >
+              {paperLabels[alias]}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 
   const cameraUsable = permission !== 'denied' && devices.length > 0 && lastCameraError == null;
 
@@ -267,7 +312,7 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
         originalBitmap: owned,
         originalWidth: owned.width,
         originalHeight: owned.height,
-        paper: capturePaperSelection('a4'),
+        paper: capturePaperSelection(paperAlias),
       });
       owned = null;
     } catch {
@@ -291,7 +336,7 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
         setPhase('processing');
       }
     }
-  }, [imageCaptureSupported, isAtCap, materializeRawCapture, setPhase, showToast, t]);
+  }, [imageCaptureSupported, isAtCap, materializeRawCapture, paperAlias, setPhase, showToast, t]);
 
   const handleImportAnother = useCallback(
     async (file: File) => {
@@ -308,7 +353,7 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
           originalBitmap: decoded.bitmap,
           originalWidth: decoded.width,
           originalHeight: decoded.height,
-          paper: capturePaperSelection('a4'),
+          paper: capturePaperSelection(paperAlias),
         });
       } catch (error) {
         setImportError(error instanceof Error ? error.message : t('scanner.couldNotReadImage'));
@@ -316,7 +361,7 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
         setImporting(false);
       }
     },
-    [isAtCap, materializeRawCapture, t],
+    [isAtCap, materializeRawCapture, paperAlias, t],
   );
 
   // Bug 5 fix: by the time the user re-enters 'capturing' via grid/adjust
@@ -350,6 +395,8 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
         <div className="flex w-full items-center justify-start">
           <BackButton onClick={onBack} testId="capture-back" />
         </div>
+
+        <div className="w-full text-text">{paperPicker}</div>
 
         <ImportFallback
           reason={permission === 'denied' ? 'permission-denied' : 'no-camera'}
@@ -399,6 +446,16 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
           flash ? 'opacity-75' : 'opacity-0'
         }`}
       />
+
+      {selectedPaperFormat.portraitRatio && selectedPaperFormat.nominalMm && (
+        <div
+          role="img"
+          aria-label={t('capture.paperGuide', { format: selectedPaperLabel })}
+          data-testid="capture-paper-guide"
+          className="pointer-events-none absolute left-1/2 top-1/2 h-[64%] max-w-[78%] -translate-x-1/2 -translate-y-1/2 border-4 border-dashed border-primary/90"
+          style={{ aspectRatio: `${selectedPaperFormat.nominalMm.width} / ${selectedPaperFormat.nominalMm.height}` }}
+        />
+      )}
 
       {/* Fly-to-tray rect (design 5.2) — the primary capture feedback. Keyed on
           `shutterKey` so each shot remounts and re-plays the one-shot flight;
@@ -457,27 +514,30 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
       </div>
 
       <div
-        className="absolute inset-x-0 bottom-0 grid grid-cols-3 items-center gap-2 bg-gradient-to-t from-[rgba(10,8,6,0.8)] to-transparent p-4"
+        className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[rgba(10,8,6,0.8)] to-transparent p-4"
         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}
       >
-        <div className="flex justify-start" ref={trayRef}>
-          <CaptureCountThumbnail count={displayCount} lastThumbnail={lastThumbnail} onRetakeLast={handleRetakeLast} />
-        </div>
-        <div className="flex justify-center">
-          <CaptureButton onCapture={() => void handleCapture()} disabled={isCapturing || isAtCap} shutterKey={shutterKey} />
-        </div>
+        <div className="mb-3">{paperPicker}</div>
+        <div className="grid grid-cols-3 items-center gap-2">
+          <div className="flex justify-start" ref={trayRef}>
+            <CaptureCountThumbnail count={displayCount} lastThumbnail={lastThumbnail} onRetakeLast={handleRetakeLast} />
+          </div>
+          <div className="flex justify-center">
+            <CaptureButton onCapture={() => void handleCapture()} disabled={isCapturing || isAtCap} shutterKey={shutterKey} />
+          </div>
         {/* "Siguiente" is deliberately NOT `disabled={isCapturing}` any more
             (capture-latency, bug 5): a disabled button swallows the tap
             entirely, which is exactly how the intent got lost. It stays
             tappable, `handleNext` queues the transition, and the label reports
             that it is waiting rather than leaving the user wondering whether
             the tap registered at all. */}
-        <div className="flex justify-end">
-          {rawCaptures.length > 0 && (
-            <Button type="button" variant="primary" onClick={handleNext} data-testid="capture-next">
-              {nextQueued ? t('common.processing') : t('capture.next')}
-            </Button>
-          )}
+          <div className="flex justify-end">
+            {rawCaptures.length > 0 && (
+              <Button type="button" variant="primary" onClick={handleNext} data-testid="capture-next">
+                {nextQueued ? t('common.processing') : t('capture.next')}
+              </Button>
+            )}
+          </div>
         </div>
         {isAtCap && (
           <p className="col-span-3 text-center text-xs text-text-muted" data-testid="capture-cap-hint">
