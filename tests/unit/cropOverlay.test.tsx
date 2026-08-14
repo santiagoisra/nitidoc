@@ -65,8 +65,8 @@ const CORNERS: Quad = [
 
 /** happy-dom's pointer capture is a no-op on a detached-ish element; guard so the handlers under test still run (mirrors cornerEditorWarp.test.tsx). */
 function armHandle(handle: HTMLElement): void {
-  handle.setPointerCapture = () => {};
-  handle.releasePointerCapture = () => {};
+  handle.setPointerCapture = vi.fn();
+  handle.releasePointerCapture = vi.fn();
 }
 
 describe('CropOverlay', () => {
@@ -120,6 +120,98 @@ describe('CropOverlay', () => {
 
     // Drag start (true) then drag end (false) — exactly once each.
     expect(onDragStateChange.mock.calls.map((call) => call[0])).toEqual([true, false]);
+  });
+
+  it.each([
+    ['top', { x: 50, y: 25 }, [{ x: 10, y: 25 }, { x: 90, y: 25 }, { x: 90, y: 90 }, { x: 10, y: 90 }]],
+    ['right', { x: 75, y: 50 }, [{ x: 10, y: 10 }, { x: 75, y: 10 }, { x: 75, y: 90 }, { x: 10, y: 90 }]],
+    ['bottom', { x: 50, y: 75 }, [{ x: 10, y: 10 }, { x: 90, y: 10 }, { x: 90, y: 75 }, { x: 10, y: 75 }]],
+    ['left', { x: 25, y: 50 }, [{ x: 25, y: 10 }, { x: 90, y: 10 }, { x: 90, y: 90 }, { x: 25, y: 90 }]],
+  ] as const)('moves only the constrained %s edge pair', (side, point, expected) => {
+    const onCornersChange = vi.fn();
+    const onDragStateChange = vi.fn();
+    const rectangularCorners: Quad = [
+      { x: 10, y: 10 },
+      { x: 90, y: 10 },
+      { x: 90, y: 90 },
+      { x: 10, y: 90 },
+    ];
+    render(
+      <CropOverlay
+        bitmap={makeBitmap()}
+        width={WIDTH}
+        height={HEIGHT}
+        corners={rectangularCorners}
+        onCornersChange={onCornersChange}
+        onDragStateChange={onDragStateChange}
+      />,
+    );
+
+    const handle = screen.getByTestId(`crop-side-handle-${side}`);
+    armHandle(handle);
+    fireEvent.pointerDown(handle, { pointerId: 9, clientX: 50, clientY: 50 });
+    fireEvent.pointerMove(handle, { pointerId: 9, clientX: point.x, clientY: point.y });
+    fireEvent.pointerUp(handle, { pointerId: 9, clientX: point.x, clientY: point.y });
+
+    expect(onCornersChange).toHaveBeenLastCalledWith(expected);
+    expect(onDragStateChange.mock.calls.map((call) => call[0])).toEqual([true, false]);
+  });
+
+  it('gives each side handle an accessible 44px Pointer Events target and ends its drag on cancellation', () => {
+    const onDragStateChange = vi.fn();
+    render(
+      <CropOverlay
+        bitmap={makeBitmap()}
+        width={WIDTH}
+        height={HEIGHT}
+        corners={CORNERS}
+        onCornersChange={vi.fn()}
+        onDragStateChange={onDragStateChange}
+      />,
+    );
+
+    for (const side of ['top', 'right', 'bottom', 'left'] as const) {
+      const handle = screen.getByTestId(`crop-side-handle-${side}`);
+      expect(handle).toHaveAccessibleName();
+      expect(handle.style.width).toBe('44px');
+      expect(handle.style.height).toBe('44px');
+      expect(handle.style.touchAction).toBe('none');
+    }
+
+    const top = screen.getByTestId('crop-side-handle-top');
+    armHandle(top);
+    fireEvent.pointerDown(top, { pointerId: 8, clientX: 150, clientY: 10 });
+    fireEvent.pointerCancel(top, { pointerId: 8, clientX: 150, clientY: 10 });
+
+    expect(top.setPointerCapture).toHaveBeenCalledWith(8);
+    expect(top.releasePointerCapture).toHaveBeenCalledWith(8);
+    expect(onDragStateChange.mock.calls.map((call) => call[0])).toEqual([true, false]);
+  });
+
+  it('does not report a side drag that collapses the quad at the opposite edge', () => {
+    const onCornersChange = vi.fn();
+    const rectangularCorners: Quad = [
+      { x: 10, y: 10 },
+      { x: 90, y: 10 },
+      { x: 90, y: 90 },
+      { x: 10, y: 90 },
+    ];
+    render(
+      <CropOverlay
+        bitmap={makeBitmap()}
+        width={WIDTH}
+        height={HEIGHT}
+        corners={rectangularCorners}
+        onCornersChange={onCornersChange}
+      />,
+    );
+
+    const top = screen.getByTestId('crop-side-handle-top');
+    armHandle(top);
+    fireEvent.pointerDown(top, { pointerId: 10, clientX: 50, clientY: 10 });
+    fireEvent.pointerMove(top, { pointerId: 10, clientX: 50, clientY: 90 });
+
+    expect(onCornersChange).not.toHaveBeenCalled();
   });
 
   it('does not call onCornersChange for a bare tap (pointerdown + pointerup, no move)', () => {

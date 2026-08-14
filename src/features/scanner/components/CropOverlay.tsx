@@ -53,6 +53,7 @@ import {
   computeLetterboxMapping,
   sourceToDisplay,
   displayToSource,
+  isConvex,
   type LetterboxMapping,
 } from '@/features/scanner/lib/geometry';
 import type { Point, Quad } from '@/shared/types/geometry';
@@ -61,6 +62,11 @@ import type { Point, Quad } from '@/shared/types/geometry';
 const MAGNIFIER_SIZE = 120;
 const MAGNIFIER_ZOOM = 2.5;
 const HANDLE_HIT_SIZE = 44; // touch target >= 44px
+
+type CropSide = 'top' | 'right' | 'bottom' | 'left';
+type DragTarget = 0 | 1 | 2 | 3 | CropSide;
+
+const CROP_SIDES: readonly CropSide[] = ['top', 'right', 'bottom', 'left'];
 
 export interface CropOverlayProps {
   /** Full-res, immutable bitmap drawn as the crop background. Never mutated or closed by this component — ownership stays with the caller. */
@@ -89,7 +95,7 @@ export function CropOverlay({
 }: CropOverlayProps): ReactNode {
   const { t } = useTranslation();
 
-  const [draggingIndex, setDraggingIndex] = useState<0 | 1 | 2 | 3 | null>(null);
+  const [draggingTarget, setDraggingTarget] = useState<DragTarget | null>(null);
   const [dragPoint, setDragPoint] = useState<Point | null>(null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -178,10 +184,10 @@ export function CropOverlay({
   );
 
   const handlePointerDown = useCallback(
-    (index: 0 | 1 | 2 | 3) => (event: ReactPointerEvent<HTMLButtonElement>) => {
+    (target: DragTarget) => (event: ReactPointerEvent<HTMLButtonElement>) => {
       event.currentTarget.setPointerCapture(event.pointerId);
       activePointerIdRef.current = event.pointerId;
-      setDraggingIndex(index);
+      setDraggingTarget(target);
       onDragStateChange?.(true);
       const point = toSourcePoint(event.clientX, event.clientY);
       if (point) setDragPoint(point);
@@ -190,41 +196,65 @@ export function CropOverlay({
   );
 
   const handlePointerMove = useCallback(
-    (index: 0 | 1 | 2 | 3) => (event: ReactPointerEvent<HTMLButtonElement>) => {
-      if (draggingIndex !== index || activePointerIdRef.current !== event.pointerId) {
+    (target: DragTarget) => (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (draggingTarget !== target || activePointerIdRef.current !== event.pointerId) {
         return;
       }
       const point = toSourcePoint(event.clientX, event.clientY);
       if (!point) return;
       setDragPoint(point);
-      // Task 5.1.4: report the updated quad on every move (so the handle
-      // tracks the pointer) via `onCornersChange` — this component never
-      // decides whether to warp, it only reports the new geometry.
       const next = [...corners] as [Point, Point, Point, Point];
-      next[index] = point;
-      onCornersChange(next as Quad);
+      if (typeof target === 'number') {
+        next[target] = point;
+        // Corner handles intentionally remain unconstrained: callers use the
+        // resulting invalid state to show the existing convexity guidance.
+        onCornersChange(next as Quad);
+        return;
+      } else if (target === 'top') {
+        next[0] = { ...next[0], y: point.y };
+        next[1] = { ...next[1], y: point.y };
+      } else if (target === 'right') {
+        next[1] = { ...next[1], x: point.x };
+        next[2] = { ...next[2], x: point.x };
+      } else if (target === 'bottom') {
+        next[2] = { ...next[2], y: point.y };
+        next[3] = { ...next[3], y: point.y };
+      } else {
+        next[3] = { ...next[3], x: point.x };
+        next[0] = { ...next[0], x: point.x };
+      }
+
+      // Side drags move a pair together, so never report a degenerate or
+      // concave candidate. A valid candidate is emitted in full on every move.
+      if (isConvex(next)) onCornersChange(next as Quad);
     },
-    [draggingIndex, toSourcePoint, corners, onCornersChange],
+    [draggingTarget, toSourcePoint, corners, onCornersChange],
   );
 
   const handlePointerUp = useCallback(
-    (index: 0 | 1 | 2 | 3) => (event: ReactPointerEvent<HTMLButtonElement>) => {
+    () => (event: ReactPointerEvent<HTMLButtonElement>) => {
       if (activePointerIdRef.current === event.pointerId) {
         event.currentTarget.releasePointerCapture(event.pointerId);
       }
       activePointerIdRef.current = null;
-      setDraggingIndex(null);
+      setDraggingTarget(null);
       setDragPoint(null);
       onDragStateChange?.(false);
-      void index;
     },
     [onDragStateChange],
   );
 
   const magnifierRect =
-    draggingIndex !== null && dragPoint
+    draggingTarget !== null && dragPoint
       ? magnifierSampleRect(dragPoint.x, dragPoint.y, MAGNIFIER_SIZE, MAGNIFIER_ZOOM, width, height)
       : null;
+
+  const sideMidpoints: Record<CropSide, Point> = {
+    top: midpoint(corners[0], corners[1]),
+    right: midpoint(corners[1], corners[2]),
+    bottom: midpoint(corners[2], corners[3]),
+    left: midpoint(corners[3], corners[0]),
+  };
 
   return (
     <div
@@ -264,8 +294,8 @@ export function CropOverlay({
             data-testid={`corner-handle-${index}`}
             onPointerDown={handlePointerDown(index as 0 | 1 | 2 | 3)}
             onPointerMove={handlePointerMove(index as 0 | 1 | 2 | 3)}
-            onPointerUp={handlePointerUp(index as 0 | 1 | 2 | 3)}
-            onPointerCancel={handlePointerUp(index as 0 | 1 | 2 | 3)}
+            onPointerUp={handlePointerUp()}
+            onPointerCancel={handlePointerUp()}
             style={{
               left: `${display.x}px`,
               top: `${display.y}px`,
@@ -280,6 +310,37 @@ export function CropOverlay({
         );
       })}
 
+      {CROP_SIDES.map((side) => {
+        const display = sourceToDisplay(sideMidpoints[side], letterboxMapping ?? { scale: 1, offsetX: 0, offsetY: 0 });
+        return (
+          <button
+            key={side}
+            type="button"
+            aria-label={t('editor.cornerHandle', { n: side })}
+            data-testid={`crop-side-handle-${side}`}
+            onPointerDown={handlePointerDown(side)}
+            onPointerMove={handlePointerMove(side)}
+            onPointerUp={handlePointerUp()}
+            onPointerCancel={handlePointerUp()}
+            style={{
+              left: `${display.x}px`,
+              top: `${display.y}px`,
+              width: HANDLE_HIT_SIZE,
+              height: HANDLE_HIT_SIZE,
+              touchAction: 'none',
+            }}
+            className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full bg-transparent
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light"
+          >
+            <span
+              aria-hidden="true"
+              className={`pointer-events-none absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 bg-surface/80
+                ${valid ? 'border-primary-light' : 'border-danger'}`}
+            />
+          </button>
+        );
+      })}
+
       {magnifierRect && dragPoint && (
         <Magnifier
           source={bitmap}
@@ -290,6 +351,10 @@ export function CropOverlay({
       )}
     </div>
   );
+}
+
+function midpoint(a: Point, b: Point): Point {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 }
 
 interface MagnifierProps {
