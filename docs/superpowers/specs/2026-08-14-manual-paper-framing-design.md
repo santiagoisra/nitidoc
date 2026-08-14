@@ -14,7 +14,9 @@ The capture screen exposes six choices: **A4/A3**, **Oficio**, **Carta**,
 **Legal**, **Tarjeta/DNI**, and **Forma libre**. The selected value is a
 per-shot input: the capture control may retain its last value for convenience,
 but `RawCapture` snapshots it and processing never reads a later UI value.
-`Forma libre` is the initial value and applies no aspect constraint.
+**A4/A3** is the initial, effective selection so the default capture receives
+framing geometry without requiring an extra tap. `Forma libre` remains an
+explicit option and applies no aspect constraint.
 
 This change does not modify B&W filtering, OpenCV edge/quad detection,
 uncertain-quad review behavior, signed releases, deployment, or unrelated
@@ -52,7 +54,7 @@ rather than reclassified.
 
 ## Capture framing
 
-`CaptureScreen` owns a selected `PaperFormatAlias`, initially `original`, and
+`CaptureScreen` owns a selected `PaperFormatAlias`, initially `a4`, and
 renders an accessible selector above the shutter controls. Its framing guide
 is a presentation-only overlay over `CameraView`: a centered, contained
 rectangle using the selected fixed portrait ratio; no guide is drawn for

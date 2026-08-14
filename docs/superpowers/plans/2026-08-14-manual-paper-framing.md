@@ -16,6 +16,7 @@
 - New captures use only manual provenance; do not call `classifyPaperRatio` or `automaticPaperSelection` during capture processing or re-warp.
 - Keep document-edge/quad detection and its review fallback unchanged.
 - Picker values are `a4`, `oficio`, `letter`, `legal`, `ticket`, and `original`; display them as A4/A3, Oficio, Carta, Legal, Tarjeta/DNI, and Forma libre.
+- The initial effective picker value is `a4` (A4/A3), so the default capture has fixed geometry; `original` (Forma libre) is an explicit unconstrained choice.
 - A4/A3 uses the ISO A-series portrait ratio and exports as provisional A4; Tarjeta/DNI uses the ISO/IEC 7810 ID-1 portrait ratio (53.98 / 85.60); Forma libre has measured, unconstrained geometry.
 - Preserve B&W filtering, signed releases, deployment, and unrelated UI.
 - Use shared TypeScript/React behavior for web and Capacitor Android; no native-only implementation.
@@ -123,12 +124,12 @@ git commit -m "feat(scanner): persist manual capture paper format"
 Render `CaptureScreen` with mocked camera/materializer and assert:
 
 ```tsx
-expect(screen.getByTestId('capture-paper-format')).toHaveValue('original');
-expect(screen.queryByTestId('capture-paper-guide')).not.toBeInTheDocument();
-await user.selectOptions(screen.getByTestId('capture-paper-format'), 'a4');
+expect(screen.getByTestId('capture-paper-format')).toHaveValue('a4');
 expect(screen.getByTestId('capture-paper-guide')).toHaveStyle({ aspectRatio: `${210} / ${297}` });
 await user.click(screen.getByRole('button', { name: /capture/i }));
 expect(materializeRawCapture).toHaveBeenCalledWith(expect.objectContaining({ paper: expect.objectContaining({ alias: 'a4', source: 'manual' }) }));
+await user.selectOptions(screen.getByTestId('capture-paper-format'), 'original');
+expect(screen.queryByTestId('capture-paper-guide')).not.toBeInTheDocument();
 ```
 
 Add an import-path test for the same snapshot behavior. Extend the Adjust Borders test so it changes crop geometry for a page with `paperSelection('oficio', 'manual')` and asserts re-warp receives `resolveWarpGeometry` for that manual selection and saves the same provenance. Assert `paper-selection-controls` and `paper-clear-auto` are absent from review.
@@ -141,7 +142,7 @@ Expected: FAIL because the capture selector/guide are absent, materialization ha
 
 - [ ] **Step 3: Implement picker, guide, and review cleanup**
 
-In `CaptureScreen`, add `const [paperAlias, setPaperAlias] = useState<PaperFormatAlias>('original')`. Render its localized six-option selector in the camera controls before the shutter, and render a pointer-events-none guide only when `getPaperFormat(paperAlias).portraitRatio` exists. Size the guide with CSS `aspect-ratio` from the selected portrait ratio and contain it within the live camera frame. Pass `capturePaperSelection(paperAlias)` to both camera and import `materializeRawCapture` calls.
+In `CaptureScreen`, add `const [paperAlias, setPaperAlias] = useState<PaperFormatAlias>('a4')`. Render its localized six-option selector in the camera controls before the shutter, and render a pointer-events-none guide only when `getPaperFormat(paperAlias).portraitRatio` exists. Size the guide with CSS `aspect-ratio` from the selected portrait ratio and contain it within the live camera frame. Pass `capturePaperSelection(paperAlias)` to both camera and import `materializeRawCapture` calls.
 
 Remove `FilterPanel`'s `paper`, `onPaperChange`, automatic recommendation, clear-to-auto, and format `<select>` surface; remove its callers from `AdjustScreen`. Replace both uses of `paperSelectionAfterCornerEdit` in `AdjustScreen` and `CornerEditor` with the page/recipe's existing `paper` selection, then resolve geometry from that unchanged selection. This preserves both new manual provenance and legacy history without any reclassification. Add the English and Spanish labels for the picker, options, and guide description.
 
