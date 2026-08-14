@@ -170,9 +170,14 @@ describe('CropOverlay', () => {
       />,
     );
 
-    for (const side of ['top', 'right', 'bottom', 'left'] as const) {
+    for (const [side, label] of [
+      ['top', 'Move top edge'],
+      ['right', 'Move right edge'],
+      ['bottom', 'Move bottom edge'],
+      ['left', 'Move left edge'],
+    ] as const) {
       const handle = screen.getByTestId(`crop-side-handle-${side}`);
-      expect(handle).toHaveAccessibleName();
+      expect(handle).toHaveAccessibleName(label);
       expect(handle.style.width).toBe('44px');
       expect(handle.style.height).toBe('44px');
       expect(handle.style.touchAction).toBe('none');

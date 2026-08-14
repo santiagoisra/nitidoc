@@ -182,7 +182,7 @@ describe('exportPagesToPdf', () => {
     expect(filteredBitmap.close).toHaveBeenCalledTimes(1);
   });
 
-  it('writes an A4 MediaBox from catalog millimeters regardless of portrait camera pixel size', async () => {
+  it('writes the combined manual A4/A3 control canonical a4 alias as a provisional 210 x 297 mm MediaBox', async () => {
     decodeBlobToBitmapMock.mockResolvedValue(makeBitmap(3024, 4032));
     await exportPagesToPdf([makePage('a4', 0, makeRecipe({ paper: paperSelection('a4', 'manual') }))]);
     expectMm(mediaBoxesInPoints(deliveredPdf())[0]!, 210, 297);

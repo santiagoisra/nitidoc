@@ -36,6 +36,10 @@ export const es = {
   'scanner.exportPdfError': 'No se pudo exportar el PDF.',
 
   'editor.cornerHandle': 'Manija de esquina {n}',
+  'editor.moveTopEdge': 'Mover borde superior',
+  'editor.moveRightEdge': 'Mover borde derecho',
+  'editor.moveBottomEdge': 'Mover borde inferior',
+  'editor.moveLeftEdge': 'Mover borde izquierdo',
   'editor.convexWarning': 'Las esquinas deben formar una figura convexa. Ajustá una manija para continuar.',
   'editor.rotate': 'Rotar 90 grados',
   'editor.flipHorizontal': 'Voltear horizontalmente',

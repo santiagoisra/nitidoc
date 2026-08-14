@@ -36,6 +36,10 @@ export const en = {
   'scanner.exportPdfError': 'Could not export PDF.',
 
   'editor.cornerHandle': 'Corner handle {n}',
+  'editor.moveTopEdge': 'Move top edge',
+  'editor.moveRightEdge': 'Move right edge',
+  'editor.moveBottomEdge': 'Move bottom edge',
+  'editor.moveLeftEdge': 'Move left edge',
   'editor.convexWarning': 'Corners must form a convex shape. Adjust a handle to continue.',
   'editor.rotate': 'Rotate 90 degrees',
   'editor.flipHorizontal': 'Flip horizontal',

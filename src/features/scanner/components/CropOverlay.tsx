@@ -65,8 +65,20 @@ const HANDLE_HIT_SIZE = 44; // touch target >= 44px
 
 type CropSide = 'top' | 'right' | 'bottom' | 'left';
 type DragTarget = 0 | 1 | 2 | 3 | CropSide;
+type SideHandleLabelKey =
+  | 'editor.moveTopEdge'
+  | 'editor.moveRightEdge'
+  | 'editor.moveBottomEdge'
+  | 'editor.moveLeftEdge';
 
 const CROP_SIDES: readonly CropSide[] = ['top', 'right', 'bottom', 'left'];
+
+const SIDE_HANDLE_LABEL_KEYS: Record<CropSide, SideHandleLabelKey> = {
+  top: 'editor.moveTopEdge',
+  right: 'editor.moveRightEdge',
+  bottom: 'editor.moveBottomEdge',
+  left: 'editor.moveLeftEdge',
+};
 
 export interface CropOverlayProps {
   /** Full-res, immutable bitmap drawn as the crop background. Never mutated or closed by this component — ownership stays with the caller. */
@@ -316,7 +328,7 @@ export function CropOverlay({
           <button
             key={side}
             type="button"
-            aria-label={t('editor.cornerHandle', { n: side })}
+            aria-label={t(SIDE_HANDLE_LABEL_KEYS[side])}
             data-testid={`crop-side-handle-${side}`}
             onPointerDown={handlePointerDown(side)}
             onPointerMove={handlePointerMove(side)}
