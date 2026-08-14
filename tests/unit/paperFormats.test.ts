@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CAPTURE_PAPER_FORMAT_OPTIONS,
   PAPER_FORMATS,
+  capturePaperSelection,
   classifyPaperRatio,
   getPaperFormat,
   paperSelection,
@@ -9,6 +11,14 @@ import {
 } from '@/features/scanner/lib/paperFormats';
 
 describe('paper format catalog', () => {
+  it('provides the manual capture picker aliases and their fixed or measured warp geometry', () => {
+    expect(CAPTURE_PAPER_FORMAT_OPTIONS).toEqual(['a4', 'oficio', 'letter', 'legal', 'ticket', 'original']);
+    expect(capturePaperSelection('a4')).toMatchObject({ alias: 'a4', source: 'manual' });
+    expect(resolveWarpGeometry(capturePaperSelection('a4'))).toEqual({ mode: 'fixed', portraitRatio: 210 / 297 });
+    expect(resolveWarpGeometry(capturePaperSelection('ticket'))).toEqual({ mode: 'fixed', portraitRatio: 53.98 / 85.6 });
+    expect(resolveWarpGeometry(capturePaperSelection('original'))).toEqual({ mode: 'measured' });
+  });
+
   it('keeps Oficio as the Legal family with its nominal 216 x 356 mm size', () => {
     expect(getPaperFormat('oficio')).toMatchObject({
       id: 'legal',

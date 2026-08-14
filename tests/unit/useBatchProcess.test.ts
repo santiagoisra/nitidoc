@@ -2,6 +2,8 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkerClient } from '@/features/scanner/lib/workerClient';
 import { frameCorners } from '@/features/scanner/lib/editRecipe';
+import * as paperFormats from '@/features/scanner/lib/paperFormats';
+import { paperSelection, resolveWarpGeometry } from '@/features/scanner/lib/paperFormats';
 import type { RawCapture } from '@/features/scanner/store/documentSlice';
 import type { DetectResponse, WarpResponse } from '@/features/scanner/worker/messages';
 
@@ -21,6 +23,13 @@ import type { DetectResponse, WarpResponse } from '@/features/scanner/worker/mes
 const decodeBlobToBitmapMock = vi.fn();
 const makeThumbnailMock = vi.fn();
 const compressBitmapToJpegMock = vi.fn();
+
+vi.mock('@/features/scanner/lib/paperFormats', async () => {
+  const actual = await vi.importActual<typeof import('@/features/scanner/lib/paperFormats')>(
+    '@/features/scanner/lib/paperFormats',
+  );
+  return { ...actual, classifyPaperRatio: vi.fn(actual.classifyPaperRatio) };
+});
 
 vi.mock('@/features/scanner/lib/pageResources', () => ({
   decodeBlobToBitmap: (...args: unknown[]) => decodeBlobToBitmapMock(...args),
@@ -45,6 +54,7 @@ function fakeRawCapture(overrides: Partial<RawCapture> = {}): RawCapture {
     thumbnail: overrides.thumbnail ?? fakeBitmap(100, 100),
     originalWidth: overrides.originalWidth ?? 1000,
     originalHeight: overrides.originalHeight ?? 1400,
+    paper: overrides.paper ?? paperSelection('a4', 'manual'),
   };
 }
 
@@ -212,6 +222,47 @@ describe('useBatchProcess — frameCorners fallback on missing/non-convex detect
     const page = useScannerStore.getState().pages[0];
     expect(page?.needsReview).toBe(true);
     expect(page?.recipe.corners).toEqual(frameCorners(1000, 1400));
+  });
+});
+
+describe('useBatchProcess — manual capture paper propagation', () => {
+  it('warps and persists the queued manual selection without reclassifying its ratio', async () => {
+    const paper = paperSelection('letter', 'manual');
+    const raw = fakeRawCapture({ paper });
+    useScannerStore.setState({ rawCaptures: [raw] });
+    const workerClient = makeWorkerClient();
+
+    const { result } = renderHook(() => useBatchProcess({ ensureOpenCvInit: vi.fn(async () => {}), workerClient }));
+
+    await act(async () => {
+      await result.current.run();
+    });
+
+    expect(workerClient.warp).toHaveBeenCalledWith(expect.anything(), expect.anything(), resolveWarpGeometry(raw.paper));
+    expect(useScannerStore.getState().pages[0]?.recipe.paper).toBe(raw.paper);
+  });
+
+  it('keeps the original manual selection on the degraded warp fallback without ratio classification', async () => {
+    const raw = fakeRawCapture({ paper: paperSelection('original', 'manual') });
+    useScannerStore.setState({ rawCaptures: [raw] });
+    const classifyPaperRatioSpy = vi.mocked(paperFormats.classifyPaperRatio);
+    classifyPaperRatioSpy.mockClear();
+    const workerClient = makeWorkerClient({
+      warp: vi.fn(async () => {
+        throw new Error('WARP_FAILED');
+      }),
+    });
+
+    const { result } = renderHook(() => useBatchProcess({ ensureOpenCvInit: vi.fn(async () => {}), workerClient }));
+
+    await act(async () => {
+      await result.current.run();
+    });
+
+    const page = useScannerStore.getState().pages[0];
+    expect(page?.needsReview).toBe(true);
+    expect(page?.recipe.paper).toBe(raw.paper);
+    expect(classifyPaperRatioSpy).not.toHaveBeenCalled();
   });
 });
 

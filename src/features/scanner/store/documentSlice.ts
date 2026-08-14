@@ -92,6 +92,8 @@ export interface RawCapture {
   readonly thumbnail: ImageBitmap;
   readonly originalWidth: number;
   readonly originalHeight: number;
+  /** Manual paper selection snapshot captured before deferred processing begins. */
+  readonly paper: PaperSelection;
 }
 
 /**

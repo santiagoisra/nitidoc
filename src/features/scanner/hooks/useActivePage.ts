@@ -35,6 +35,7 @@ import { compressBitmapToJpeg, decodeBlobToBitmap, makeThumbnail } from '@/featu
 import { encodeCapture } from '@/features/scanner/lib/encodeClient';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
 import type { EditRecipe } from '@/shared/types/scanner';
+import type { PaperSelection } from '@/shared/types/paper';
 
 /**
  * Input for `materializeRawCapture` (Fase 2.3, capture-ux-redesign.md "Memory"
@@ -49,6 +50,7 @@ export interface MaterializeRawCaptureInput {
   readonly originalBitmap: ImageBitmap;
   readonly originalWidth: number;
   readonly originalHeight: number;
+  readonly paper: PaperSelection;
 }
 
 export interface MaterializeRawCaptureResult {
@@ -145,6 +147,7 @@ export function useActivePage(): UseActivePageResult {
         thumbnail,
         originalWidth: input.originalWidth,
         originalHeight: input.originalHeight,
+        paper: input.paper,
       });
 
       return { status: 'added' };

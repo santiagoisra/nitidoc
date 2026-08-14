@@ -93,6 +93,7 @@ function fakeRaw(overrides: Partial<RawCapture> = {}): RawCapture {
     thumbnail: overrides.thumbnail ?? fakeBitmap(),
     originalWidth: overrides.originalWidth ?? 1000,
     originalHeight: overrides.originalHeight ?? 1400,
+    paper: overrides.paper ?? paperSelection('a4', 'manual'),
   };
 }
 
@@ -125,6 +126,16 @@ describe('documentSlice.addRawCapture — COMBINED cap (Fase 2.3, capture-ux-red
     const raw = fakeRaw({ order: 0 });
     useStore.getState().addRawCapture(raw);
     expect(useStore.getState().rawCaptures).toEqual([raw]);
+  });
+
+  it('retains the manual paper selection snapshot on a queued raw capture', () => {
+    const useStore = createTestStore();
+    const paper = paperSelection('letter', 'manual');
+    const raw = fakeRaw({ order: 0, paper });
+
+    useStore.getState().addRawCapture(raw);
+
+    expect(useStore.getState().rawCaptures[0]?.paper).toBe(paper);
   });
 
   it('no-ops when pages.length + rawCaptures.length is already at the combined cap', () => {
