@@ -55,6 +55,7 @@ import { ToastHost } from '@/shared/ui';
 import { useScannerStore, scannerStoreInitialState } from '@/features/scanner/store/scannerStore';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
 import { createInitialRecipe } from '@/features/scanner/lib/editRecipe';
+import { paperSelection } from '@/features/scanner/lib/paperFormats';
 import type { DocumentPage, RawCapture } from '@/features/scanner/store/documentSlice';
 import type { Quad } from '@/shared/types/geometry';
 
@@ -70,6 +71,7 @@ function fakeRaw(id: string, order: number): RawCapture {
     thumbnail: fakeBitmap(150, 200),
     originalWidth: 1000,
     originalHeight: 1400,
+    paper: paperSelection('a4', 'manual'),
   };
 }
 
@@ -181,6 +183,7 @@ describe('CaptureScreen (Fase 2.3, capture-ux-redesign.md, Unit 3)', () => {
       expect.objectContaining({
         originalBitmap: rawBitmap,
         originalWidth: rawBitmap.width,
+        paper: expect.objectContaining({ alias: 'a4', source: 'manual' }),
         originalHeight: rawBitmap.height,
       }),
     );
@@ -391,7 +394,12 @@ describe('CaptureScreen (Fase 2.3, capture-ux-redesign.md, Unit 3)', () => {
 
       expect(decodeImportedFileMock).toHaveBeenCalledTimes(1);
       expect(materializeRawCaptureMock).toHaveBeenCalledWith(
-        expect.objectContaining({ originalBitmap: decodedBitmap, originalWidth: 1200, originalHeight: 900 }),
+        expect.objectContaining({
+          originalBitmap: decodedBitmap,
+          originalWidth: 1200,
+          originalHeight: 900,
+          paper: expect.objectContaining({ alias: 'a4', source: 'manual' }),
+        }),
       );
       // Stays on the no-camera variant — the OLD DETECT/CornerEditor pipeline
       // is gone; this is now purely the lightweight raw-capture pipeline.

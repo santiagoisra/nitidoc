@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Quad } from '@/shared/types/geometry';
 import { createInitialRecipe } from '@/features/scanner/lib/editRecipe';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
+import { paperSelection } from '@/features/scanner/lib/paperFormats';
 import type { DocumentPage } from '@/features/scanner/store/documentSlice';
 
 /**
@@ -88,6 +89,7 @@ describe('useActivePage.materializeRawCapture (Fase 2.3, capture-ux-redesign.md 
         originalBitmap,
         originalWidth: 2000,
         originalHeight: 3000,
+        paper: paperSelection('letter', 'manual'),
       });
     });
 
@@ -95,6 +97,7 @@ describe('useActivePage.materializeRawCapture (Fase 2.3, capture-ux-redesign.md 
     expect(useScannerStore.getState().rawCaptures).toHaveLength(1);
     expect(useScannerStore.getState().rawCaptures[0]?.id).toBe('raw-1');
     expect(useScannerStore.getState().rawCaptures[0]?.order).toBe(0);
+    expect(useScannerStore.getState().rawCaptures[0]?.paper).toMatchObject({ alias: 'letter', source: 'manual' });
     // Thumbnail + compress both derive from the ORIGINAL bitmap — no warpedBase exists yet.
     expect(makeThumbnailMock).toHaveBeenCalledWith(originalBitmap, FILTER.THUMBNAIL_MAX_EDGE);
     expect(compressBitmapToJpegMock).toHaveBeenCalledWith(originalBitmap, FILTER.JPEG_QUALITY);
@@ -115,6 +118,7 @@ describe('useActivePage.materializeRawCapture (Fase 2.3, capture-ux-redesign.md 
         thumbnail: fakeBitmap(150, 150),
         originalWidth: 1000,
         originalHeight: 1400,
+        paper: paperSelection('a4', 'manual'),
       });
     }
 
@@ -131,6 +135,7 @@ describe('useActivePage.materializeRawCapture (Fase 2.3, capture-ux-redesign.md 
         originalBitmap,
         originalWidth: 100,
         originalHeight: 100,
+        paper: paperSelection('a4', 'manual'),
       });
     });
 
@@ -153,6 +158,7 @@ describe('useActivePage.materializeRawCapture (Fase 2.3, capture-ux-redesign.md 
         originalBitmap,
         originalWidth: 2000,
         originalHeight: 3000,
+        paper: paperSelection('a4', 'manual'),
       }),
     ).rejects.toThrow('thumbnail failed');
 
@@ -174,6 +180,7 @@ describe('useActivePage.isAtCap / canAddPage — combined pages+rawCaptures coun
         thumbnail: fakeBitmap(150, 150),
         originalWidth: 1000,
         originalHeight: 1400,
+        paper: paperSelection('a4', 'manual'),
       });
     }
 
@@ -191,6 +198,7 @@ describe('useActivePage.isAtCap / canAddPage — combined pages+rawCaptures coun
         thumbnail: fakeBitmap(150, 150),
         originalWidth: 1000,
         originalHeight: 1400,
+        paper: paperSelection('a4', 'manual'),
       });
     }
 

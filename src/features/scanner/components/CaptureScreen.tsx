@@ -46,6 +46,7 @@ import { useActivePage } from '@/features/scanner/hooks/useActivePage';
 import { decodeImportedFile } from '@/features/scanner/lib/captureFallback';
 import { captureFullResFrame } from '@/features/scanner/lib/captureFrame';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
+import { capturePaperSelection } from '@/features/scanner/lib/paperFormats';
 import type { DocumentPage, RawCapture } from '@/features/scanner/store/documentSlice';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
 import { randomId } from '@/shared/lib/randomId';
@@ -266,6 +267,7 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
         originalBitmap: owned,
         originalWidth: owned.width,
         originalHeight: owned.height,
+        paper: capturePaperSelection('a4'),
       });
       owned = null;
     } catch {
@@ -306,6 +308,7 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
           originalBitmap: decoded.bitmap,
           originalWidth: decoded.width,
           originalHeight: decoded.height,
+          paper: capturePaperSelection('a4'),
         });
       } catch (error) {
         setImportError(error instanceof Error ? error.message : t('scanner.couldNotReadImage'));

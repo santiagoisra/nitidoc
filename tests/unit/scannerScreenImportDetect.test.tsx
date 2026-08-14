@@ -33,9 +33,11 @@ const materializeRawCaptureMock = vi.fn(
   async ({
     id,
     originalBitmap,
+    paper,
   }: {
     id: string;
     originalBitmap: { width: number; height: number; close: () => void };
+    paper: ReturnType<typeof import('@/features/scanner/lib/paperFormats').paperSelection>;
   }) => {
     originalBitmap.close();
     useScannerStore.getState().addRawCapture({
@@ -45,6 +47,7 @@ const materializeRawCaptureMock = vi.fn(
       thumbnail: { width: 100, height: 100, close: vi.fn() } as unknown as ImageBitmap,
       originalWidth: originalBitmap.width,
       originalHeight: originalBitmap.height,
+      paper,
     });
     return { status: 'added' as const };
   },
@@ -139,6 +142,7 @@ describe('ScannerScreen import fallback (no-camera variant, Fase 2.3 Unit 3): pe
     });
 
     expect(materializeRawCaptureMock).toHaveBeenCalledTimes(1);
+    expect(materializeRawCaptureMock).toHaveBeenCalledWith(expect.objectContaining({ paper: expect.objectContaining({ alias: 'a4', source: 'manual' }) }));
     expect(useScannerStore.getState().rawCaptures).toHaveLength(1);
     expect(useScannerStore.getState().phase).toBe('capturing');
 
