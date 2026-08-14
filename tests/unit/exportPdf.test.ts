@@ -182,7 +182,7 @@ describe('exportPagesToPdf', () => {
     expect(filteredBitmap.close).toHaveBeenCalledTimes(1);
   });
 
-  it('writes the combined manual A4/A3 control canonical a4 alias as a provisional 210 x 297 mm MediaBox', async () => {
+  it('writes the combined manual A4/A3 control canonical selection/value as a provisional 210 x 297 mm MediaBox', async () => {
     decodeBlobToBitmapMock.mockResolvedValue(makeBitmap(3024, 4032));
     await exportPagesToPdf([makePage('a4', 0, makeRecipe({ paper: paperSelection('a4', 'manual') }))]);
     expectMm(mediaBoxesInPoints(deliveredPdf())[0]!, 210, 297);
@@ -192,6 +192,18 @@ describe('exportPagesToPdf', () => {
     decodeBlobToBitmapMock.mockResolvedValue(makeBitmap(3024, 4032));
     await exportPagesToPdf([makePage('ticket', 0, makeRecipe({ paper: paperSelection('ticket', 'manual') }))]);
     expectMm(mediaBoxesInPoints(deliveredPdf())[0]!, 53.98, 85.6);
+  });
+
+  it('keeps automatic Ticket exports on raster MediaBox geometry', async () => {
+    decodeBlobToBitmapMock.mockResolvedValue(makeBitmap(540, 1080));
+    await exportPagesToPdf([makePage('ticket-auto', 0, makeRecipe({ paper: paperSelection('ticket', 'auto') }))]);
+    expectMm(mediaBoxesInPoints(deliveredPdf())[0]!, 540 * (25.4 / 54), 1080 * (25.4 / 54));
+  });
+
+  it('keeps legacy Ticket exports on raster MediaBox geometry', async () => {
+    decodeBlobToBitmapMock.mockResolvedValue(makeBitmap(540, 1080));
+    await exportPagesToPdf([makePage('ticket-legacy', 0, makeRecipe({ paper: paperSelection('ticket', 'legacy') }))]);
+    expectMm(mediaBoxesInPoints(deliveredPdf())[0]!, 540 * (25.4 / 54), 1080 * (25.4 / 54));
   });
 
   it('keeps automatic probabilistic A4 on raster geometry without claiming nominal millimeters', async () => {

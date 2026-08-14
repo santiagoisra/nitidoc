@@ -203,11 +203,12 @@ interface PdfPageGeometry {
 /**
  * The explicit probabilistic marker is the compatibility boundary: an
  * automatic shape recommendation cannot authorize physical PDF dimensions.
- * Manual choices and persisted non-probabilistic selections retain their
- * established nominal behavior.
+ * Ticket's ID-1 millimeters are authoritative only after an explicit manual
+ * choice; automatic and legacy Ticket classifications retain raster geometry.
  */
 function hasAuthoritativeNominalSize(page: DocumentPage): boolean {
   const { paper } = page.recipe;
+  if (paper.alias === 'ticket') return paper.source === 'manual';
   return paper.source !== 'auto' || paper.evidence.probabilistic !== true;
 }
 

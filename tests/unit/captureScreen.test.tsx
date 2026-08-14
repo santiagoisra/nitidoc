@@ -158,7 +158,7 @@ describe('CaptureScreen (Fase 2.3, capture-ux-redesign.md, Unit 3)', () => {
 
     expect(screen.getByRole('radiogroup', { name: 'Paper size' })).toBeTruthy();
     expect(screen.getByRole('radio', { name: 'A4 / A3' })).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByTestId('capture-paper-guide')).toHaveStyle({ aspectRatio: '210 / 297' });
+    expect(screen.getByTestId('capture-paper-guide').closest('svg')).toHaveAttribute('viewBox', '0 0 210 297');
 
     fireEvent.click(screen.getByRole('radio', { name: 'Legal' }));
     fireEvent.click(screen.getByTestId('capture-button'));

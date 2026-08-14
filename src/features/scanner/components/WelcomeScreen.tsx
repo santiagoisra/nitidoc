@@ -20,6 +20,8 @@ import { useCallback, useRef, useState } from 'react';
 import { Button, BrandGlyph } from '@/shared/ui';
 import { useTranslation } from '@/shared/i18n';
 import { InstallAppButton } from '@/features/pwa/InstallAppButton';
+import { PaperFormatPicker } from '@/features/scanner/components/PaperFormatPicker';
+import type { PaperFormatAlias } from '@/shared/types/paper';
 
 /** Where the AGPL section 13 source offer points. */
 const SOURCE_URL = 'https://github.com/santiagoisra/nitidoc';
@@ -28,7 +30,7 @@ export interface WelcomeScreenProps {
   /** Opens the camera directly (ScannerScreen's `handleStart`). */
   readonly onStart: () => void;
   /** Decodes + materializes an imported image and advances to processing. Rejects on failure. */
-  readonly onImportFile: (file: File) => Promise<void>;
+  readonly onImportFile: (file: File, paperAlias: PaperFormatAlias) => Promise<void>;
   /** Opens the scan history. Omitted by callers that do not mount the history (tests, embeds). */
   readonly onOpenHistory?: () => void;
 }
@@ -38,6 +40,7 @@ export function WelcomeScreen({ onStart, onImportFile, onOpenHistory }: WelcomeS
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const [paperAlias, setPaperAlias] = useState<PaperFormatAlias>('a4');
 
   const handlePickFile = useCallback(() => {
     inputRef.current?.click();
@@ -52,14 +55,14 @@ export function WelcomeScreen({ onStart, onImportFile, onOpenHistory }: WelcomeS
       setImportError(null);
       setImporting(true);
       try {
-        await onImportFile(file);
+        await onImportFile(file, paperAlias);
       } catch (error) {
         setImportError(error instanceof Error ? error.message : t('scanner.couldNotReadImage'));
       } finally {
         setImporting(false);
       }
     },
-    [onImportFile, t],
+    [onImportFile, paperAlias, t],
   );
 
   return (
@@ -108,6 +111,9 @@ export function WelcomeScreen({ onStart, onImportFile, onOpenHistory }: WelcomeS
       </div>
 
       <div className="flex flex-col items-center gap-2">
+        <div className="w-full max-w-md text-text">
+          <PaperFormatPicker value={paperAlias} onChange={setPaperAlias} testId="welcome-paper-format" />
+        </div>
         <input
           ref={inputRef}
           type="file"

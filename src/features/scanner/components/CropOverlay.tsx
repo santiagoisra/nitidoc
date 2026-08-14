@@ -197,6 +197,7 @@ export function CropOverlay({
 
   const handlePointerDown = useCallback(
     (target: DragTarget) => (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (activePointerIdRef.current !== null) return;
       event.currentTarget.setPointerCapture(event.pointerId);
       activePointerIdRef.current = event.pointerId;
       setDraggingTarget(target);
@@ -245,15 +246,53 @@ export function CropOverlay({
 
   const handlePointerUp = useCallback(
     () => (event: ReactPointerEvent<HTMLButtonElement>) => {
-      if (activePointerIdRef.current === event.pointerId) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
+      if (activePointerIdRef.current !== event.pointerId) return;
+      event.currentTarget.releasePointerCapture(event.pointerId);
       activePointerIdRef.current = null;
       setDraggingTarget(null);
       setDragPoint(null);
       onDragStateChange?.(false);
     },
     [onDragStateChange],
+  );
+
+  const handleSideKeyDown = useCallback(
+    (side: CropSide) => (event: React.KeyboardEvent<HTMLButtonElement>) => {
+      const movement =
+        (side === 'top' && event.key === 'ArrowUp') ||
+        (side === 'bottom' && event.key === 'ArrowUp') ||
+        (side === 'left' && event.key === 'ArrowLeft') ||
+        (side === 'right' && event.key === 'ArrowLeft')
+          ? -1
+          : (side === 'top' && event.key === 'ArrowDown') ||
+              (side === 'bottom' && event.key === 'ArrowDown') ||
+              (side === 'left' && event.key === 'ArrowRight') ||
+              (side === 'right' && event.key === 'ArrowRight')
+            ? 1
+            : 0;
+      if (movement === 0) return;
+      event.preventDefault();
+      const next = [...corners] as [Point, Point, Point, Point];
+      const step = (side === 'top' || side === 'bottom' ? height : width) * 0.01 * movement;
+      if (side === 'top') {
+        next[0] = { ...next[0], y: next[0].y + step };
+        next[1] = { ...next[1], y: next[1].y + step };
+      } else if (side === 'right') {
+        next[1] = { ...next[1], x: next[1].x + step };
+        next[2] = { ...next[2], x: next[2].x + step };
+      } else if (side === 'bottom') {
+        next[2] = { ...next[2], y: next[2].y + step };
+        next[3] = { ...next[3], y: next[3].y + step };
+      } else {
+        next[3] = { ...next[3], x: next[3].x + step };
+        next[0] = { ...next[0], x: next[0].x + step };
+      }
+      if (!isConvex(next)) return;
+      onDragStateChange?.(true);
+      onCornersChange(next as Quad);
+      onDragStateChange?.(false);
+    },
+    [corners, height, onCornersChange, onDragStateChange, width],
   );
 
   const magnifierRect =
@@ -334,6 +373,7 @@ export function CropOverlay({
             onPointerMove={handlePointerMove(side)}
             onPointerUp={handlePointerUp()}
             onPointerCancel={handlePointerUp()}
+            onKeyDown={handleSideKeyDown(side)}
             style={{
               left: `${display.x}px`,
               top: `${display.y}px`,

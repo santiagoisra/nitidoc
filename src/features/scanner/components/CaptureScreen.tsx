@@ -32,7 +32,7 @@
  * the screen stays put — capture failures must never strand the user.
  */
 
-import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Flashlight, FlashlightOff } from 'lucide-react';
 import { BackButton, Button, useToast } from '@/shared/ui';
@@ -42,15 +42,12 @@ import { CameraView } from '@/features/scanner/components/CameraView';
 import { CaptureButton } from '@/features/scanner/components/CaptureButton';
 import { CaptureCountThumbnail } from '@/features/scanner/components/CaptureCountThumbnail';
 import { ImportFallback } from '@/features/scanner/components/ImportFallback';
+import { PaperFormatPicker } from '@/features/scanner/components/PaperFormatPicker';
 import { useActivePage } from '@/features/scanner/hooks/useActivePage';
 import { decodeImportedFile } from '@/features/scanner/lib/captureFallback';
 import { captureFullResFrame } from '@/features/scanner/lib/captureFrame';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
-import {
-  CAPTURE_PAPER_FORMAT_OPTIONS,
-  capturePaperSelection,
-  getPaperFormat,
-} from '@/features/scanner/lib/paperFormats';
+import { capturePaperSelection, getPaperFormat } from '@/features/scanner/lib/paperFormats';
 import type { DocumentPage, RawCapture } from '@/features/scanner/store/documentSlice';
 import { useScannerStore } from '@/features/scanner/store/scannerStore';
 import { randomId } from '@/shared/lib/randomId';
@@ -153,8 +150,6 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [paperAlias, setPaperAlias] = useState<PaperFormatAlias>('a4');
-  const paperOptionRefs = useRef<Partial<Record<PaperFormatAlias, HTMLButtonElement | null>>>({});
-
   const paperLabels: Record<PaperFormatAlias, string> = {
     a4: t('capture.paperA4A3'),
     oficio: t('capture.paperOficio'),
@@ -165,70 +160,7 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
   };
   const selectedPaperFormat = getPaperFormat(paperAlias);
   const selectedPaperLabel = paperLabels[paperAlias];
-  const handlePaperPickerKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLButtonElement>) => {
-      const currentIndex = CAPTURE_PAPER_FORMAT_OPTIONS.indexOf(paperAlias);
-      let nextIndex: number | null = null;
-      switch (event.key) {
-        case 'ArrowLeft':
-        case 'ArrowUp':
-          nextIndex = (currentIndex - 1 + CAPTURE_PAPER_FORMAT_OPTIONS.length) % CAPTURE_PAPER_FORMAT_OPTIONS.length;
-          break;
-        case 'ArrowRight':
-        case 'ArrowDown':
-          nextIndex = (currentIndex + 1) % CAPTURE_PAPER_FORMAT_OPTIONS.length;
-          break;
-        case 'Home':
-          nextIndex = 0;
-          break;
-        case 'End':
-          nextIndex = CAPTURE_PAPER_FORMAT_OPTIONS.length - 1;
-          break;
-        default:
-          return;
-      }
-
-      event.preventDefault();
-      const nextAlias = CAPTURE_PAPER_FORMAT_OPTIONS[nextIndex];
-      if (!nextAlias) return;
-      setPaperAlias(nextAlias);
-      paperOptionRefs.current[nextAlias]?.focus();
-    },
-    [paperAlias],
-  );
-  const paperPicker = (
-    <div className="flex min-w-0 flex-col gap-2" data-testid="capture-paper-format">
-      <span className="text-sm font-semibold text-white">{t('capture.paperFormat')}</span>
-      <div
-        role="radiogroup"
-        aria-label={t('capture.paperFormat')}
-        className="flex min-w-0 gap-2 overflow-x-auto pb-1"
-      >
-        {CAPTURE_PAPER_FORMAT_OPTIONS.map((alias) => {
-          const selected = alias === paperAlias;
-          return (
-            <button
-              key={alias}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              tabIndex={selected ? 0 : -1}
-              ref={(element) => {
-                paperOptionRefs.current[alias] = element;
-              }}
-              onClick={() => setPaperAlias(alias)}
-              onKeyDown={handlePaperPickerKeyDown}
-              className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light focus-visible:ring-offset-2 focus-visible:ring-offset-black ${
-                selected ? 'bg-primary text-[#0f0e0c]' : 'bg-black/45 text-white hover:bg-black/65'
-              }`}
-            >
-              {paperLabels[alias]}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
+  const paperPicker = <PaperFormatPicker value={paperAlias} onChange={setPaperAlias} />;
 
   const cameraUsable = permission !== 'denied' && devices.length > 0 && lastCameraError == null;
 
@@ -485,13 +417,18 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
       />
 
       {selectedPaperFormat.portraitRatio && selectedPaperFormat.nominalMm && (
-        <div
+        <div className="pointer-events-none absolute inset-x-[11%] inset-y-[18%] flex items-center justify-center">
+          <svg
           role="img"
           aria-label={t('capture.paperGuide', { format: selectedPaperLabel })}
-          data-testid="capture-paper-guide"
-          className="pointer-events-none absolute left-1/2 top-1/2 h-[64%] max-w-[78%] -translate-x-1/2 -translate-y-1/2 border-4 border-dashed border-primary/90"
-          style={{ aspectRatio: `${selectedPaperFormat.nominalMm.width} / ${selectedPaperFormat.nominalMm.height}` }}
-        />
+            data-testid="capture-paper-guide-container"
+            viewBox={`0 0 ${selectedPaperFormat.nominalMm.width} ${selectedPaperFormat.nominalMm.height}`}
+            preserveAspectRatio="xMidYMid meet"
+            className="h-full max-w-full"
+          >
+            <rect data-testid="capture-paper-guide" x="2" y="2" width={selectedPaperFormat.nominalMm.width - 4} height={selectedPaperFormat.nominalMm.height - 4} fill="none" stroke="rgba(45, 212, 191, 0.9)" strokeWidth="4" strokeDasharray="12 8" />
+          </svg>
+        </div>
       )}
 
       {/* Fly-to-tray rect (design 5.2) — the primary capture feedback. Keyed on

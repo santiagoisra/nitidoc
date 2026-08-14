@@ -219,6 +219,80 @@ describe('CropOverlay', () => {
     expect(onCornersChange).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['top', 'ArrowUp', [{ x: 10, y: 6 }, { x: 90, y: 6 }, { x: 90, y: 90 }, { x: 10, y: 90 }]],
+    ['right', 'ArrowRight', [{ x: 10, y: 10 }, { x: 93, y: 10 }, { x: 93, y: 90 }, { x: 10, y: 90 }]],
+    ['bottom', 'ArrowDown', [{ x: 10, y: 10 }, { x: 90, y: 10 }, { x: 90, y: 94 }, { x: 10, y: 94 }]],
+    ['left', 'ArrowLeft', [{ x: 7, y: 10 }, { x: 90, y: 10 }, { x: 90, y: 90 }, { x: 7, y: 90 }]],
+  ] as const)('moves the %s side by one percent of its source axis from the keyboard', (side, key, expected) => {
+    const onCornersChange = vi.fn();
+    const onDragStateChange = vi.fn();
+    const rectangularCorners: Quad = [
+      { x: 10, y: 10 },
+      { x: 90, y: 10 },
+      { x: 90, y: 90 },
+      { x: 10, y: 90 },
+    ];
+    render(
+      <CropOverlay
+        bitmap={makeBitmap()}
+        width={WIDTH}
+        height={HEIGHT}
+        corners={rectangularCorners}
+        onCornersChange={onCornersChange}
+        onDragStateChange={onDragStateChange}
+      />,
+    );
+
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+    screen.getByTestId(`crop-side-handle-${side}`).dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(onCornersChange).toHaveBeenCalledWith(expected);
+    expect(onDragStateChange.mock.calls.map((call) => call[0])).toEqual([true, false]);
+  });
+
+  it('ignores perpendicular side-handle arrow keys and rejects non-convex keyboard candidates', () => {
+    const onCornersChange = vi.fn();
+    const onDragStateChange = vi.fn();
+    const rectangularCorners: Quad = [
+      { x: 10, y: 10 },
+      { x: 90, y: 10 },
+      { x: 90, y: 90 },
+      { x: 10, y: 90 },
+    ];
+    const { rerender } = render(
+      <CropOverlay bitmap={makeBitmap()} width={WIDTH} height={HEIGHT} corners={rectangularCorners} onCornersChange={onCornersChange} onDragStateChange={onDragStateChange} />,
+    );
+
+    fireEvent.keyDown(screen.getByTestId('crop-side-handle-top'), { key: 'ArrowLeft' });
+    expect(onCornersChange).not.toHaveBeenCalled();
+    expect(onDragStateChange).not.toHaveBeenCalled();
+
+    rerender(
+      <CropOverlay bitmap={makeBitmap()} width={WIDTH} height={HEIGHT} corners={[{ x: 10, y: 10 }, { x: 90, y: 10 }, { x: 90, y: 14 }, { x: 10, y: 14 }]} onCornersChange={onCornersChange} onDragStateChange={onDragStateChange} />,
+    );
+    fireEvent.keyDown(screen.getByTestId('crop-side-handle-top'), { key: 'ArrowDown' });
+    expect(onCornersChange).not.toHaveBeenCalled();
+    expect(onDragStateChange).not.toHaveBeenCalled();
+  });
+
+  it('ignores competing pointers and mismatched completion events while the active pointer owns the drag', () => {
+    const onDragStateChange = vi.fn();
+    render(<CropOverlay bitmap={makeBitmap()} width={WIDTH} height={HEIGHT} corners={CORNERS} onCornersChange={vi.fn()} onDragStateChange={onDragStateChange} />);
+    const top = screen.getByTestId('crop-side-handle-top');
+    armHandle(top);
+
+    fireEvent.pointerDown(top, { pointerId: 1, clientX: 150, clientY: 10 });
+    fireEvent.pointerDown(top, { pointerId: 2, clientX: 150, clientY: 10 });
+    fireEvent.pointerUp(top, { pointerId: 2, clientX: 150, clientY: 10 });
+    fireEvent.pointerCancel(top, { pointerId: 2, clientX: 150, clientY: 10 });
+    expect(onDragStateChange.mock.calls.map((call) => call[0])).toEqual([true]);
+
+    fireEvent.pointerUp(top, { pointerId: 1, clientX: 150, clientY: 10 });
+    expect(onDragStateChange.mock.calls.map((call) => call[0])).toEqual([true, false]);
+  });
+
   it('does not call onCornersChange for a bare tap (pointerdown + pointerup, no move)', () => {
     const onCornersChange = vi.fn();
     const onDragStateChange = vi.fn();

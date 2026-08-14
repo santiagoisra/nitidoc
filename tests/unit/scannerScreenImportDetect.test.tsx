@@ -154,4 +154,25 @@ describe('ScannerScreen import fallback (no-camera variant, Fase 2.3 Unit 3): pe
     // "Siguiente" becomes available once at least one raw capture exists.
     expect(screen.getByTestId('capture-next')).toBeTruthy();
   });
+
+  it('uses the Welcome paper choice when importing before the camera is opened', async () => {
+    render(
+      <ToastHost>
+        <ScannerScreen />
+      </ToastHost>,
+    );
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Letter' }));
+    const input = screen.getByTestId('welcome-import-input');
+    const file = new File([new Uint8Array([1, 2, 3])], 'letter.png', { type: 'image/png' });
+
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [file] } });
+      for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    });
+
+    expect(materializeRawCaptureMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ paper: expect.objectContaining({ alias: 'letter', source: 'manual' }) }),
+    );
+  });
 });

@@ -49,6 +49,7 @@ import { WelcomeScreen } from '@/features/scanner/components/WelcomeScreen';
 import { useSaveToHistory } from '@/features/history/hooks/useSaveToHistory';
 import { decodeImportedFile } from '@/features/scanner/lib/captureFallback';
 import { capturePaperSelection } from '@/features/scanner/lib/paperFormats';
+import type { PaperFormatAlias } from '@/shared/types/paper';
 import { useActivePage } from '@/features/scanner/hooks/useActivePage';
 import { useExportPdf } from '@/features/scanner/hooks/useExportPdf';
 import { usePageDeletion } from '@/features/scanner/hooks/usePageDeletion';
@@ -208,14 +209,14 @@ export function ScannerScreen({ onOpenHistory }: ScannerScreenProps = {}): React
    * error inline and stay put.
    */
   const handleImportFromWelcome = useCallback(
-    async (file: File) => {
+    async (file: File, paperAlias: PaperFormatAlias) => {
       const decoded = await decodeImportedFile(file);
       await materializeRawCapture({
         id: randomId(),
         originalBitmap: decoded.bitmap,
         originalWidth: decoded.width,
         originalHeight: decoded.height,
-        paper: capturePaperSelection('a4'),
+        paper: capturePaperSelection(paperAlias),
       });
       setPhase('processing');
     },
