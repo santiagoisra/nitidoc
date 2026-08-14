@@ -70,7 +70,7 @@ android {
          * `versionName` comes from `package.json`.
          * See docs/RELEASING.md.
          */
-        versionCode 5
+        versionCode 6
         versionName appVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
