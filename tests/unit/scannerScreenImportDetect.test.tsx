@@ -155,16 +155,16 @@ describe('ScannerScreen import fallback (no-camera variant, Fase 2.3 Unit 3): pe
     expect(screen.getByTestId('capture-next')).toBeTruthy();
   });
 
-  it('uses the Welcome paper choice when importing before the camera is opened', async () => {
+  it('uses the free-form original selection when importing before the camera is opened', async () => {
     render(
       <ToastHost>
         <ScannerScreen />
       </ToastHost>,
     );
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Letter' }));
+    expect(screen.queryByTestId('welcome-paper-format')).toBeNull();
     const input = screen.getByTestId('welcome-import-input');
-    const file = new File([new Uint8Array([1, 2, 3])], 'letter.png', { type: 'image/png' });
+    const file = new File([new Uint8Array([1, 2, 3])], 'original.png', { type: 'image/png' });
 
     await act(async () => {
       fireEvent.change(input, { target: { files: [file] } });
@@ -172,7 +172,7 @@ describe('ScannerScreen import fallback (no-camera variant, Fase 2.3 Unit 3): pe
     });
 
     expect(materializeRawCaptureMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ paper: expect.objectContaining({ alias: 'letter', source: 'manual' }) }),
+      expect.objectContaining({ paper: expect.objectContaining({ alias: 'original', source: 'manual' }) }),
     );
   });
 });

@@ -226,6 +226,68 @@ describe('useBatchProcess — frameCorners fallback on missing/non-convex detect
 });
 
 describe('useBatchProcess — manual capture paper propagation', () => {
+  it('keeps a valid manual guide crop when OpenCV initialization is degraded', async () => {
+    const guideQuad = [{ x: 200, y: 300 }, { x: 800, y: 300 }, { x: 800, y: 1150 }, { x: 200, y: 1150 }] as const;
+    const raw = fakeRawCapture({ originalWidth: 1000, originalHeight: 1400 }) as RawCapture & { readonly guideQuad: typeof guideQuad };
+    Object.defineProperty(raw, 'guideQuad', { value: guideQuad, enumerable: true });
+    useScannerStore.setState({ rawCaptures: [raw] });
+    const original = fakeBitmap(1000, 1400);
+    decodeBlobToBitmapMock.mockResolvedValueOnce(original);
+
+    const { result } = renderHook(() => useBatchProcess({ ensureOpenCvInit: vi.fn(async () => { throw new Error('INIT_FAILED'); }), workerClient: makeWorkerClient() }));
+    await act(async () => { await result.current.run(); });
+
+    expect(fakeCtx.drawImage).toHaveBeenCalledWith(original, 200, 300, 600, 850, 0, 0, 600, 850);
+    expect(useScannerStore.getState().pages[0]?.recipe.corners).toEqual(guideQuad);
+    expect(useScannerStore.getState().pages[0]?.warpedWidth).toBe(600);
+    expect(useScannerStore.getState().pages[0]?.warpedHeight).toBe(850);
+  });
+
+  it('keeps a valid manual guide crop when WARP throws', async () => {
+    const guideQuad = [{ x: 200, y: 300 }, { x: 800, y: 300 }, { x: 800, y: 1150 }, { x: 200, y: 1150 }] as const;
+    const raw = fakeRawCapture({ originalWidth: 1000, originalHeight: 1400 }) as RawCapture & { readonly guideQuad: typeof guideQuad };
+    Object.defineProperty(raw, 'guideQuad', { value: guideQuad, enumerable: true });
+    useScannerStore.setState({ rawCaptures: [raw] });
+    const original = fakeBitmap(1000, 1400);
+    decodeBlobToBitmapMock.mockResolvedValueOnce(original);
+    const workerClient = makeWorkerClient({ warp: vi.fn(async () => { throw new Error('WARP_FAILED'); }) });
+
+    const { result } = renderHook(() => useBatchProcess({ ensureOpenCvInit: vi.fn(async () => {}), workerClient }));
+    await act(async () => { await result.current.run(); });
+
+    expect(fakeCtx.drawImage).toHaveBeenCalledWith(original, 200, 300, 600, 850, 0, 0, 600, 850);
+    expect(useScannerStore.getState().pages[0]?.recipe.corners).toEqual(guideQuad);
+    expect(useScannerStore.getState().pages[0]?.warpedWidth).toBe(600);
+    expect(useScannerStore.getState().pages[0]?.warpedHeight).toBe(850);
+  });
+
+  it('uses a camera guide quad ahead of DETECT and sends that exact crop to WARP', async () => {
+    const guideQuad = [
+      { x: 200, y: 300 },
+      { x: 800, y: 300 },
+      { x: 800, y: 1150 },
+      { x: 200, y: 1150 },
+    ] as const;
+    const raw = fakeRawCapture({
+      originalWidth: 1000,
+      originalHeight: 1400,
+    }) as RawCapture & { readonly guideQuad: typeof guideQuad };
+    Object.defineProperty(raw, 'guideQuad', { value: guideQuad, enumerable: true });
+    useScannerStore.setState({ rawCaptures: [raw] });
+    decodeBlobToBitmapMock.mockResolvedValueOnce(fakeBitmap(1000, 1400));
+    const detectImageData = vi.fn(async () => ({ id: 0, type: 'DETECT_RESULT' as const, corners: null, evidence: null, quality: null }));
+    const workerClient = makeWorkerClient({ detectImageData });
+
+    const { result } = renderHook(() => useBatchProcess({ ensureOpenCvInit: vi.fn(async () => {}), workerClient }));
+    await act(async () => {
+      await result.current.run();
+    });
+
+    expect(detectImageData).not.toHaveBeenCalled();
+    expect(workerClient.warp).toHaveBeenCalledWith(expect.anything(), guideQuad, resolveWarpGeometry(raw.paper));
+    expect(useScannerStore.getState().pages[0]?.recipe.corners).toEqual(guideQuad);
+  });
+
   it('warps and persists the queued manual selection without reclassifying its ratio', async () => {
     const paper = paperSelection('letter', 'manual');
     const raw = fakeRawCapture({ paper });

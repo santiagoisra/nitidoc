@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WelcomeScreen } from '@/features/scanner/components/WelcomeScreen';
 import { LocaleProvider } from '@/shared/i18n';
@@ -27,6 +27,19 @@ afterEach(() => {
 });
 
 describe('WelcomeScreen — AGPL source offer', () => {
+  it('keeps paper selection out of Welcome and imports as free-form original', async () => {
+    const onImportFile = vi.fn(async () => {});
+    render(<WelcomeScreen onStart={noop} onImportFile={onImportFile} />);
+
+    expect(screen.queryByTestId('welcome-paper-format')).toBeNull();
+    expect(screen.queryByRole('radiogroup', { name: 'Paper size' })).toBeNull();
+
+    const file = new File(['image'], 'receipt.jpg', { type: 'image/jpeg' });
+    fireEvent.change(screen.getByTestId('welcome-import-input'), { target: { files: [file] } });
+
+    await waitFor(() => expect(onImportFile).toHaveBeenCalledWith(file));
+  });
+
   it('links to the public repository, opening safely in a new tab', () => {
     render(<WelcomeScreen onStart={noop} onImportFile={noopImport} />);
 

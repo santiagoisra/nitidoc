@@ -112,7 +112,7 @@ function renderCaptureScreen(props: Partial<{
   setTorch: () => Promise<void>;
   onBack: () => void;
 }> = {}) {
-  return render(
+  const rendered = render(
     <ToastHost>
       <CaptureScreen
         openCamera={props.openCamera ?? vi.fn(async () => {})}
@@ -122,11 +122,28 @@ function renderCaptureScreen(props: Partial<{
       />
     </ToastHost>,
   );
+  const video = rendered.queryByTestId('camera-view-video');
+  if (video) {
+    Object.defineProperties(video, {
+      videoWidth: { configurable: true, value: 1920 },
+      videoHeight: { configurable: true, value: 1080 },
+    });
+  }
+  return rendered;
 }
 
 describe('CaptureScreen (Fase 2.3, capture-ux-redesign.md, Unit 3)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function measuredCameraLayout(this: HTMLElement) {
+      if (this.dataset.testid === 'camera-view-video') {
+        return { left: 0, top: 0, width: 390, height: 844, right: 390, bottom: 844 } as DOMRect;
+      }
+      if (this.dataset.testid === 'capture-paper-guide-frame') {
+        return { left: 40, top: 160, width: 310, height: 440, right: 350, bottom: 600 } as DOMRect;
+      }
+      return { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0 } as DOMRect;
+    });
     isAtCapValue = false;
     materializeRawCaptureMock.mockResolvedValue({ status: 'added' });
     useScannerStore.setState({
@@ -139,6 +156,7 @@ describe('CaptureScreen (Fase 2.3, capture-ux-redesign.md, Unit 3)', () => {
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
   });
 
   it('renders the capture button; Next is hidden with zero captures', () => {
@@ -168,6 +186,110 @@ describe('CaptureScreen (Fase 2.3, capture-ux-redesign.md, Unit 3)', () => {
         expect.objectContaining({ paper: expect.objectContaining({ alias: 'legal', source: 'manual' }) }),
       );
     });
+  });
+
+  it('persists the exact source quad represented by the measured camera guide at shutter time', async () => {
+    const rawBitmap = fakeBitmap(1920, 1080);
+    captureFullResFrameMock.mockResolvedValue({ bitmap: rawBitmap, width: 1920, height: 1080 });
+    renderCaptureScreen();
+
+    vi.spyOn(screen.getByTestId('camera-view-video'), 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 390, height: 844, right: 390, bottom: 844,
+    } as DOMRect);
+    vi.spyOn(screen.getByTestId('capture-paper-guide-frame'), 'getBoundingClientRect').mockReturnValue({
+      left: 40, top: 160, width: 310, height: 440, right: 350, bottom: 600,
+    } as DOMRect);
+
+    fireEvent.click(screen.getByTestId('capture-button'));
+
+    await waitFor(() => expect(materializeRawCaptureMock).toHaveBeenCalledWith(expect.objectContaining({
+      guideQuad: [
+        { x: 761.6587677725119, y: 204.739336492891 },
+        { x: 1158.341232227488, y: 204.739336492891 },
+        { x: 1158.341232227488, y: 767.7725118483413 },
+        { x: 761.6587677725119, y: 767.7725118483413 },
+      ],
+    })));
+  });
+
+  it('does not materialize a named-paper capture when the guide cannot be measured', async () => {
+    captureFullResFrameMock.mockResolvedValue({ bitmap: fakeBitmap(1920, 1080), width: 1920, height: 1080 });
+    renderCaptureScreen();
+    vi.spyOn(screen.getByTestId('camera-view-video'), 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0,
+    } as DOMRect);
+    vi.spyOn(screen.getByTestId('capture-paper-guide-frame'), 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0,
+    } as DOMRect);
+
+    fireEvent.click(screen.getByTestId('capture-button'));
+
+    await waitFor(() => expect(screen.getByTestId('toast-host')).toHaveTextContent('Could not capture the page. Try again.'));
+    expect(captureFullResFrameMock).not.toHaveBeenCalled();
+    expect(materializeRawCaptureMock).not.toHaveBeenCalled();
+  });
+
+  it('captures a visibly laid-out Safari preview even while its intrinsic dimensions are transiently zero', async () => {
+    const rawBitmap = fakeBitmap(1920, 1080);
+    captureFullResFrameMock.mockResolvedValue({ bitmap: rawBitmap, width: 1920, height: 1080 });
+    renderCaptureScreen();
+    const video = screen.getByTestId('camera-view-video');
+    Object.defineProperties(video, {
+      videoWidth: { configurable: true, value: 0 },
+      videoHeight: { configurable: true, value: 0 },
+    });
+
+    fireEvent.click(screen.getByTestId('capture-button'));
+
+    await waitFor(() => expect(materializeRawCaptureMock).toHaveBeenCalledWith(expect.objectContaining({
+      originalBitmap: rawBitmap,
+      guideQuad: [
+        { x: 761.6587677725119, y: 204.739336492891 },
+        { x: 1158.341232227488, y: 204.739336492891 },
+        { x: 1158.341232227488, y: 767.7725118483413 },
+        { x: 761.6587677725119, y: 767.7725118483413 },
+      ],
+    })));
+    expect(screen.getByTestId('toast-host')).toBeEmptyDOMElement();
+  });
+
+  it('snapshots guide geometry and selected paper before an async capture resolves', async () => {
+    let resolveFrame!: (value: { bitmap: ImageBitmap; width: number; height: number }) => void;
+    captureFullResFrameMock.mockImplementation(() => new Promise((resolve) => { resolveFrame = resolve; }));
+    renderCaptureScreen();
+    const video = screen.getByTestId('camera-view-video');
+    const guide = screen.getByTestId('capture-paper-guide-frame');
+    vi.spyOn(video, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 390, height: 844 } as DOMRect);
+    vi.spyOn(guide, 'getBoundingClientRect').mockReturnValue({ left: 40, top: 160, width: 310, height: 440 } as DOMRect);
+
+    fireEvent.click(screen.getByTestId('capture-button'));
+    expect(screen.getByRole('radio', { name: 'Legal' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('radio', { name: 'Legal' }));
+    vi.spyOn(video, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 1, height: 1 } as DOMRect);
+    vi.spyOn(guide, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 1, height: 1 } as DOMRect);
+    resolveFrame({ bitmap: fakeBitmap(1920, 1080), width: 1920, height: 1080 });
+
+    await waitFor(() => expect(materializeRawCaptureMock).toHaveBeenCalledWith(expect.objectContaining({
+      paper: expect.objectContaining({ alias: 'a4' }),
+      guideQuad: expect.arrayContaining([expect.objectContaining({ x: 761.6587677725119 })]),
+    })));
+  });
+
+  it('uses the displayed video-frame capture path for named paper guides', async () => {
+    captureFullResFrameMock.mockResolvedValue({ bitmap: fakeBitmap(), width: 3000, height: 4000 });
+    renderCaptureScreen();
+    fireEvent.click(screen.getByTestId('capture-button'));
+    await waitFor(() => expect(captureFullResFrameMock).toHaveBeenCalledWith(expect.anything(), expect.anything(), false, true));
+  });
+
+  it('renders a Safari-safe dimmed outside guide with a thin dashed border', () => {
+    renderCaptureScreen();
+
+    const guide = screen.getByTestId('capture-paper-guide');
+    expect(screen.getByTestId('capture-paper-guide-mask')).toHaveStyle({ boxShadow: '0 0 0 9999px rgb(0 0 0 / 55%)' });
+    expect(guide).toHaveAttribute('stroke-width', '2');
+    expect(guide).toHaveAttribute('pointer-events', 'none');
+    expect(guide).toHaveAttribute('vector-effect', 'non-scaling-stroke');
   });
 
   it('moves the roving radio selection and focus with the paper-picker keyboard shortcuts', () => {

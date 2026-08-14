@@ -46,6 +46,7 @@ import { PaperFormatPicker } from '@/features/scanner/components/PaperFormatPick
 import { useActivePage } from '@/features/scanner/hooks/useActivePage';
 import { decodeImportedFile } from '@/features/scanner/lib/captureFallback';
 import { captureFullResFrame } from '@/features/scanner/lib/captureFrame';
+import { mapObjectCoverGuideToSourceQuad } from '@/features/scanner/lib/cameraGuideGeometry';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
 import { capturePaperSelection, getPaperFormat } from '@/features/scanner/lib/paperFormats';
 import type { DocumentPage, RawCapture } from '@/features/scanner/store/documentSlice';
@@ -124,6 +125,7 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
   const setPhase = useScannerStore((s) => s.setPhase);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const guideRef = useRef<HTMLDivElement | null>(null);
   // Wraps the count tile so `handleCapture` can read its screen position and
   // aim the fly-to-tray animation at it (design 5.2).
   const trayRef = useRef<HTMLDivElement | null>(null);
@@ -160,7 +162,7 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
   };
   const selectedPaperFormat = getPaperFormat(paperAlias);
   const selectedPaperLabel = paperLabels[paperAlias];
-  const paperPicker = <PaperFormatPicker value={paperAlias} onChange={setPaperAlias} />;
+  const paperPicker = <PaperFormatPicker value={paperAlias} onChange={setPaperAlias} disabled={isCapturing} />;
 
   const cameraUsable = permission !== 'denied' && devices.length > 0 && lastCameraError == null;
 
@@ -228,6 +230,32 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
       return;
     }
 
+    // Snapshot manual-crop inputs before changing UI state or awaiting a
+    // hardware frame. The guide can reflow while a capture is in flight.
+    const capturePaperAlias = paperAlias;
+    const capturePaperFormat = getPaperFormat(capturePaperAlias);
+    const videoRect = video.getBoundingClientRect();
+    const guideRect = guideRef.current?.getBoundingClientRect();
+    const requiresGuide = capturePaperFormat.portraitRatio !== undefined;
+    const hasMeasuredGuide =
+      guideRect != null &&
+      Number.isFinite(videoRect.width) &&
+      Number.isFinite(videoRect.height) &&
+      Number.isFinite(guideRect.width) &&
+      Number.isFinite(guideRect.height) &&
+      videoRect.width > 0 &&
+      videoRect.height > 0 &&
+      guideRect.width > 0 &&
+      guideRect.height > 0;
+
+    // A named-paper capture promises that the visible guide is its crop.
+    // Reject synchronously before a camera read or animation when the layout
+    // has not been measured (for example during a resize/reflow).
+    if (requiresGuide && !hasMeasuredGuide) {
+      showToast({ message: t('capture.captureFailed'), variant: 'danger' });
+      return;
+    }
+
     inFlightRef.current = true;
     setIsCapturing(true);
     setPendingBumps((n) => n + 1);
@@ -249,7 +277,6 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
     // Aimed here, on the tap, from the CURRENT on-screen geometry; the counter
     // then pops (`count-pop`) when the rect lands. Skipped if the tile isn't
     // laid out yet (defensive) — the flash + shutter ring still fire.
-    const videoRect = video.getBoundingClientRect();
     const trayRect = trayRef.current?.getBoundingClientRect();
     if (trayRect) {
       const startCx = videoRect.left + videoRect.width / 2;
@@ -273,15 +300,35 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
     // leak a live bitmap on a thrown capture).
     let owned: ImageBitmap | null = null;
     try {
-      const fullRes = await captureFullResFrame(video, track, imageCaptureSupported);
+      // Manual guide geometry is measured against the displayed video. A
+      // still may use another orientation/aspect, so use the video-frame
+      // capture path whenever a named guide is active.
+      const fullRes = await captureFullResFrame(
+        video,
+        track,
+        imageCaptureSupported && !requiresGuide,
+        requiresGuide,
+      );
       owned = fullRes.bitmap;
 
+      const guideQuad =
+        guideRect && requiresGuide
+          ? mapObjectCoverGuideToSourceQuad(
+              { width: owned.width, height: owned.height },
+              videoRect,
+              guideRect,
+            )
+          : null;
+      if (requiresGuide && !guideQuad) {
+        throw new Error('capture: manual guide could not be measured.');
+      }
       await materializeRawCapture({
         id: randomId(),
         originalBitmap: owned,
         originalWidth: owned.width,
         originalHeight: owned.height,
-        paper: capturePaperSelection(paperAlias),
+        paper: capturePaperSelection(capturePaperAlias),
+        ...(guideQuad ? { guideQuad } : {}),
       });
       owned = null;
     } catch {
@@ -398,7 +445,7 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
   }
 
   return (
-    <div className="relative h-full min-h-[70dvh] w-full overflow-hidden bg-black" data-testid="capture-screen">
+    <div className="relative grid h-full min-h-[70dvh] w-full grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-black" data-testid="capture-screen">
       <div
         className={`absolute inset-0 transition-transform duration-150 ease-out ${
           isCapturing ? 'scale-[0.97]' : 'scale-100'
@@ -415,21 +462,6 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
           flash ? 'opacity-75' : 'opacity-0'
         }`}
       />
-
-      {selectedPaperFormat.portraitRatio && selectedPaperFormat.nominalMm && (
-        <div className="pointer-events-none absolute inset-x-[11%] inset-y-[18%] flex items-center justify-center">
-          <svg
-          role="img"
-          aria-label={t('capture.paperGuide', { format: selectedPaperLabel })}
-            data-testid="capture-paper-guide-container"
-            viewBox={`0 0 ${selectedPaperFormat.nominalMm.width} ${selectedPaperFormat.nominalMm.height}`}
-            preserveAspectRatio="xMidYMid meet"
-            className="h-full max-w-full"
-          >
-            <rect data-testid="capture-paper-guide" x="2" y="2" width={selectedPaperFormat.nominalMm.width - 4} height={selectedPaperFormat.nominalMm.height - 4} fill="none" stroke="rgba(45, 212, 191, 0.9)" strokeWidth="4" strokeDasharray="12 8" />
-          </svg>
-        </div>
-      )}
 
       {/* Fly-to-tray rect (design 5.2) — the primary capture feedback. Keyed on
           `shutterKey` so each shot remounts and re-plays the one-shot flight;
@@ -456,7 +488,7 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
 
       <div
         data-testid="capture-toolbar"
-        className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 bg-gradient-to-b from-[rgba(10,8,6,0.72)] to-transparent py-3 pl-[calc(env(safe-area-inset-left)_+_0.75rem)] pr-[calc(env(safe-area-inset-right)_+_0.75rem)]"
+        className="pointer-events-none z-10 flex min-w-0 items-start justify-between gap-2 bg-gradient-to-b from-[rgba(10,8,6,0.72)] to-transparent py-3 pl-[calc(env(safe-area-inset-left)_+_0.75rem)] pr-[calc(env(safe-area-inset-right)_+_0.75rem)]"
         style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)' }}
       >
         <div
@@ -487,8 +519,38 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
         )}
       </div>
 
+      <div className="pointer-events-none relative z-10 min-h-0 min-w-0 overflow-hidden px-4" data-testid="capture-guide-layout">
+        {selectedPaperFormat.portraitRatio && selectedPaperFormat.nominalMm && (
+          <div
+            ref={guideRef}
+            data-testid="capture-paper-guide-frame"
+            className="absolute left-1/2 top-1/2 h-auto w-[calc(100%-2rem)] max-h-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2"
+            style={{ aspectRatio: selectedPaperFormat.portraitRatio }}
+          >
+            {/* A single guide box is the geometry source for both its visible border and the outside dimmer.
+                The oversized shadow is clipped by the guide row, leaving this rectangle fully transparent. */}
+            <div
+              aria-hidden="true"
+              data-testid="capture-paper-guide-mask"
+              className="absolute inset-0"
+              style={{ boxShadow: '0 0 0 9999px rgb(0 0 0 / 55%)' }}
+            />
+            <svg
+              role="img"
+              aria-label={t('capture.paperGuide', { format: selectedPaperLabel })}
+              data-testid="capture-paper-guide-container"
+              viewBox={`0 0 ${selectedPaperFormat.nominalMm.width} ${selectedPaperFormat.nominalMm.height}`}
+              preserveAspectRatio="none"
+              className="absolute inset-0 h-full w-full"
+            >
+              <rect data-testid="capture-paper-guide" x="1" y="1" width={selectedPaperFormat.nominalMm.width - 2} height={selectedPaperFormat.nominalMm.height - 2} fill="none" stroke="rgba(45, 212, 191, 0.9)" strokeWidth="2" strokeDasharray="8 6" pointerEvents="none" vectorEffect="non-scaling-stroke" />
+            </svg>
+          </div>
+        )}
+      </div>
+
       <div
-        className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[rgba(10,8,6,0.8)] to-transparent p-4"
+        className="z-10 min-w-0 bg-gradient-to-t from-[rgba(10,8,6,0.8)] to-transparent p-4"
         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}
       >
         <div className="mb-3">{paperPicker}</div>

@@ -7,11 +7,12 @@ import type { PaperFormatAlias } from '@/shared/types/paper';
 export interface PaperFormatPickerProps {
   readonly value: PaperFormatAlias;
   readonly onChange: (alias: PaperFormatAlias) => void;
+  readonly disabled?: boolean;
   readonly testId?: string;
 }
 
 /** Shared pre-capture/import paper selection with roving radio keyboard support. */
-export function PaperFormatPicker({ value, onChange, testId = 'capture-paper-format' }: PaperFormatPickerProps): ReactNode {
+export function PaperFormatPicker({ value, onChange, testId = 'capture-paper-format', disabled = false }: PaperFormatPickerProps): ReactNode {
   const { t } = useTranslation();
   const optionRefs = useRef<Partial<Record<PaperFormatAlias, HTMLButtonElement | null>>>({});
   const labels: Record<PaperFormatAlias, string> = {
@@ -35,14 +36,14 @@ export function PaperFormatPicker({ value, onChange, testId = 'capture-paper-for
               : event.key === 'End'
                 ? CAPTURE_PAPER_FORMAT_OPTIONS.length - 1
                 : null;
-      if (nextIndex === null) return;
+      if (disabled || nextIndex === null) return;
       event.preventDefault();
       const nextAlias = CAPTURE_PAPER_FORMAT_OPTIONS[nextIndex];
       if (!nextAlias) return;
       onChange(nextAlias);
       optionRefs.current[nextAlias]?.focus();
     },
-    [onChange, value],
+    [disabled, onChange, value],
   );
 
   return (
@@ -55,6 +56,7 @@ export function PaperFormatPicker({ value, onChange, testId = 'capture-paper-for
             <button
               key={alias}
               type="button"
+              disabled={disabled}
               role="radio"
               aria-checked={selected}
               tabIndex={selected ? 0 : -1}

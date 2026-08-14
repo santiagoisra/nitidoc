@@ -36,6 +36,7 @@ import { encodeCapture } from '@/features/scanner/lib/encodeClient';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
 import type { EditRecipe } from '@/shared/types/scanner';
 import type { PaperSelection } from '@/shared/types/paper';
+import type { Quad } from '@/shared/types/geometry';
 
 /**
  * Input for `materializeRawCapture` (Fase 2.3, capture-ux-redesign.md "Memory"
@@ -46,11 +47,13 @@ import type { PaperSelection } from '@/shared/types/paper';
 export interface MaterializeRawCaptureInput {
   /** `randomId()`, assigned by the caller before calling this — flows into the resulting page's id at conversion (Unit 4). */
   readonly id: string;
-  /** Live, from the capture sequence (already cropped to the visible object-cover rect, D-4). OWNERSHIP TRANSFERS to this call — closed once compressed+thumbnailed. */
+  /** Full source from the capture sequence. OWNERSHIP TRANSFERS to this call — closed once compressed+thumbnailed. */
   readonly originalBitmap: ImageBitmap;
   readonly originalWidth: number;
   readonly originalHeight: number;
   readonly paper: PaperSelection;
+  /** Exact source pixels inside the live-camera guide, if one was present at shutter time. */
+  readonly guideQuad?: Quad;
 }
 
 export interface MaterializeRawCaptureResult {
@@ -148,6 +151,7 @@ export function useActivePage(): UseActivePageResult {
         originalWidth: input.originalWidth,
         originalHeight: input.originalHeight,
         paper: input.paper,
+        guideQuad: input.guideQuad,
       });
 
       return { status: 'added' };

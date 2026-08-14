@@ -13,9 +13,9 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   webServer: {
-    command: 'npm run preview -- --port 4173 --strictPort',
+    command: 'npm run build:e2e && npm run preview -- --port 4173 --strictPort',
     url: `http://localhost:${PORT}`,
-    reuseExistingServer: !process.env['CI'],
+    reuseExistingServer: false,
     timeout: 30_000,
   },
   projects: [
@@ -51,6 +51,13 @@ export default defineConfig({
     {
       name: 'toolbar-webkit',
       testMatch: '**/captureToolbar.spec.ts',
+      use: {
+        ...devices['Desktop Safari'],
+      },
+    },
+    {
+      name: 'manual-guide-webkit',
+      testMatch: '**/manualPaperGuide.spec.ts',
       use: {
         ...devices['Desktop Safari'],
       },

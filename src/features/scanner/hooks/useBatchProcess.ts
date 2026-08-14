@@ -17,9 +17,10 @@
  * Degraded fallback (mandatory — never silently drops a page): if the
  * caller's `ensureOpenCvInit()` rejected (OpenCV never loaded this session)
  * OR a per-page `workerClient.warp` call throws, that page is built WITHOUT
- * the worker instead — the original is drawn onto a main-thread canvas as an
- * IDENTITY "warp" base, `corners` falls back to `frameCorners`, and
- * `needsReview` is forced true. A `DocumentPage` is ALWAYS produced for
+ * the worker instead. Manual camera guides use an exact axis-aligned canvas
+ * crop, preserving their authoritative pixels; all other captures use the
+ * original as an identity base with `frameCorners`. `needsReview` is forced
+ * true. A `DocumentPage` is ALWAYS produced for
  * every raw capture that can be decoded at all (an undecodable/corrupt blob
  * — not expected in practice since it was produced by our own
  * `compressBitmapToJpeg` moments earlier — is the one case nothing further
@@ -157,7 +158,7 @@ async function paintImageDataLikeToBitmap(image: ImageDataLike): Promise<ImageBi
   }
 }
 
-/** Degraded/warp-fail fallback (mandatory — see module doc comment): draws `originalBitmap` onto a plain `<canvas>` UNCHANGED, i.e. an identity "warp", so a page is still produced without the worker. */
+/** Degraded/warp-fail fallback for non-manual captures: preserves the full source as an identity warp. */
 async function buildIdentityWarpedBase(originalBitmap: ImageBitmap): Promise<ImageBitmap> {
   const canvas = document.createElement('canvas');
   canvas.width = originalBitmap.width;
@@ -167,6 +168,75 @@ async function buildIdentityWarpedBase(originalBitmap: ImageBitmap): Promise<Ima
     throw new Error('useBatchProcess: failed to acquire 2d context for the degraded identity warp.');
   }
   ctx.drawImage(originalBitmap, 0, 0);
+  try {
+    return await createImageBitmap(canvas);
+  } finally {
+    canvas.width = 0;
+    canvas.height = 0;
+  }
+}
+
+interface AxisAlignedCrop {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/**
+ * Camera guide quads are measured rectangles, so a worker-less fallback can
+ * preserve their exact source pixels without inventing a perspective warp.
+ * Refuse malformed persisted data rather than silently expanding it to the
+ * full frame: the guide remains authoritative whenever it is valid.
+ */
+function axisAlignedGuideCrop(quad: Quad, sourceWidth: number, sourceHeight: number): AxisAlignedCrop | null {
+  if (!Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight) || sourceWidth <= 0 || sourceHeight <= 0) {
+    return null;
+  }
+
+  const [topLeft, topRight, bottomRight, bottomLeft] = quad;
+  const points = [topLeft, topRight, bottomRight, bottomLeft];
+  if (points.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y))) {
+    return null;
+  }
+
+  // A guide comes from one DOMRect, so only accept a rectangle (within the
+  // fractional-pixel rounding introduced by object-cover coordinate mapping).
+  const epsilon = 0.01;
+  if (
+    Math.abs(topLeft.y - topRight.y) > epsilon ||
+    Math.abs(bottomLeft.y - bottomRight.y) > epsilon ||
+    Math.abs(topLeft.x - bottomLeft.x) > epsilon ||
+    Math.abs(topRight.x - bottomRight.x) > epsilon
+  ) {
+    return null;
+  }
+
+  const x = Math.max(0, Math.min(topLeft.x, bottomLeft.x));
+  const y = Math.max(0, Math.min(topLeft.y, topRight.y));
+  const right = Math.min(sourceWidth, Math.max(topRight.x, bottomRight.x));
+  const bottom = Math.min(sourceHeight, Math.max(bottomLeft.y, bottomRight.y));
+  const width = right - x;
+  const height = bottom - y;
+
+  return width > 0 && height > 0 ? { x, y, width, height } : null;
+}
+
+/** Builds a worker-less manual-guide fallback that excludes every outside-guide pixel. */
+async function buildGuideCropWarpedBase(originalBitmap: ImageBitmap, guideQuad: Quad): Promise<ImageBitmap> {
+  const crop = axisAlignedGuideCrop(guideQuad, originalBitmap.width, originalBitmap.height);
+  if (!crop) {
+    throw new Error('useBatchProcess: manual guide fallback requires a valid axis-aligned source crop.');
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(crop.width));
+  canvas.height = Math.max(1, Math.round(crop.height));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('useBatchProcess: failed to acquire 2d context for manual guide fallback.');
+  }
+  ctx.drawImage(originalBitmap, crop.x, crop.y, crop.width, crop.height, 0, 0, canvas.width, canvas.height);
   try {
     return await createImageBitmap(canvas);
   } finally {
@@ -209,11 +279,11 @@ async function processOneRawCapture(raw: RawCapture, deps: ProcessOneRawCaptureD
     deps.tracker.originalBitmap = originalBitmap;
     checkCancelled();
 
-    // ── b/c. DETECT on a downscaled copy, scale back up, fall back to frameCorners ──
-    let corners: Quad = frameCorners(originalBitmap.width, originalBitmap.height);
+    // ── b/c. A camera guide is authoritative; otherwise DETECT and frame fallback ──
+    let corners: Quad = raw.guideQuad ?? frameCorners(originalBitmap.width, originalBitmap.height);
     let needsReview = false;
 
-    if (!deps.openCvDegraded) {
+    if (!raw.guideQuad && !deps.openCvDegraded) {
       try {
         const detectionBitmap = await createImageBitmap(originalBitmap, {
           resizeWidth: Math.min(DETECTION.DOWNSCALE_WIDTH, originalBitmap.width),
@@ -264,7 +334,7 @@ async function processOneRawCapture(raw: RawCapture, deps: ProcessOneRawCaptureD
         // frameCorners, same contract as a missing/non-convex detection.
         needsReview = true;
       }
-    } else {
+    } else if (!raw.guideQuad) {
       needsReview = true;
     }
 
@@ -290,16 +360,22 @@ async function processOneRawCapture(raw: RawCapture, deps: ProcessOneRawCaptureD
         deps.tracker.warpedBase = warpedBase;
       } catch (error) {
         if (error instanceof BatchCancelledError) throw error;
-        // Per-page WARP failure (mandatory fallback — never drop the page):
-        // build an identity warp base instead, and force frameCorners since
-        // no real warp ran against the previously-detected quad.
-        corners = frameCorners(originalBitmap.width, originalBitmap.height);
+        // Per-page WARP failure: a manual camera guide must still crop to
+        // exactly the guide pixels; only non-manual captures use full-frame
+        // identity fallback and frame corners.
         needsReview = true;
-        warpedBase = await buildIdentityWarpedBase(originalBitmap);
+        if (raw.guideQuad) {
+          warpedBase = await buildGuideCropWarpedBase(originalBitmap, raw.guideQuad);
+        } else {
+          corners = frameCorners(originalBitmap.width, originalBitmap.height);
+          warpedBase = await buildIdentityWarpedBase(originalBitmap);
+        }
         deps.tracker.warpedBase = warpedBase;
       }
     } else {
-      warpedBase = await buildIdentityWarpedBase(originalBitmap);
+      warpedBase = raw.guideQuad
+        ? await buildGuideCropWarpedBase(originalBitmap, raw.guideQuad)
+        : await buildIdentityWarpedBase(originalBitmap);
       deps.tracker.warpedBase = warpedBase;
     }
 

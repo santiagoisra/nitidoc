@@ -1,5 +1,6 @@
 import type { EditRecipe, FilterParams } from '@/shared/types/scanner';
 import type { PaperSelection } from '@/shared/types/paper';
+import type { Quad } from '@/shared/types/geometry';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
 import { randomId } from '@/shared/lib/randomId';
 
@@ -94,6 +95,8 @@ export interface RawCapture {
   readonly originalHeight: number;
   /** Manual paper selection snapshot captured before deferred processing begins. */
   readonly paper: PaperSelection;
+  /** Exact source pixels inside the camera guide, when this was a live camera capture. */
+  readonly guideQuad?: Quad;
 }
 
 /**

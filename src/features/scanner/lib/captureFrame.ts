@@ -118,14 +118,20 @@ async function captureViaImageCapture(track: MediaStreamTrack): Promise<Captured
   }
 }
 
-/** Fallback: draws the live `<video>` element onto a canvas at its real (getSettings()) size. */
+/**
+ * Fallback: draws the live `<video>` element onto a canvas. Manual guide
+ * captures opt into its decoded preview dimensions, which are the coordinate
+ * space used by the object-cover mapper; ordinary captures retain the
+ * track-settings full-source behaviour.
+ */
 async function captureViaDrawImage(
   video: HTMLVideoElement,
   track: MediaStreamTrack,
+  usePreviewDimensions = false,
 ): Promise<CapturedFrameResult> {
   const settings = track.getSettings();
-  const sourceWidth = settings.width ?? video.videoWidth;
-  const sourceHeight = settings.height ?? video.videoHeight;
+  const sourceWidth = usePreviewDimensions && video.videoWidth > 0 ? video.videoWidth : settings.width ?? video.videoWidth;
+  const sourceHeight = usePreviewDimensions && video.videoHeight > 0 ? video.videoHeight : settings.height ?? video.videoHeight;
 
   const target = capCaptureDimensions(sourceWidth, sourceHeight);
   const bitmap = await resizeToBitmap(video, sourceWidth, sourceHeight, target);
@@ -136,12 +142,14 @@ async function captureViaDrawImage(
  * Captures the current frame at full resolution, applying the 16MP cap.
  * Picks `ImageCapture` when `preferImageCapture` is true (i.e.
  * `CameraSlice.imageCaptureSupported`), otherwise falls back to
- * `drawImage(video)`.
+ * `drawImage(video)`. `usePreviewDimensions` makes the drawImage result use
+ * the decoded video coordinate space and is required for manual guide crops.
  */
 export async function captureFullResFrame(
   video: HTMLVideoElement,
   track: MediaStreamTrack,
   preferImageCapture: boolean,
+  usePreviewDimensions = false,
 ): Promise<CapturedFrameResult> {
   if (preferImageCapture && getImageCaptureConstructor()) {
     try {
@@ -151,11 +159,11 @@ export async function captureFullResFrame(
       // failed at runtime (seen on some partial implementations) — fall
       // through to the always-available drawImage path rather than failing
       // the capture outright.
-      return captureViaDrawImage(video, track);
+      return captureViaDrawImage(video, track, usePreviewDimensions);
     }
   }
 
-  return captureViaDrawImage(video, track);
+  return captureViaDrawImage(video, track, usePreviewDimensions);
 }
 
 /**
