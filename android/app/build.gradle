@@ -65,12 +65,12 @@ android {
          * 10000 with no way back, on the strength of a guess about future
          * needs.
          *
-         * So: bump it by hand on every upload to Play, which rejects a re-used
-         * one. v1.0.0 shipped as 1, so the next release is 2 — independently of
-         * `versionName`, which now comes from `package.json`.
+         * Bump `versionCode` by hand on every upload. Play requires a value
+         * greater than the highest value previously uploaded.
+         * `versionName` comes from `package.json`.
          * See docs/RELEASING.md.
          */
-        versionCode 2
+        versionCode 5
         versionName appVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
