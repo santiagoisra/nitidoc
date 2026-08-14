@@ -160,14 +160,22 @@ async function flushInitialMountWarp(): Promise<void> {
 }
 
 /**
- * Fase 2.1 punch-list item 2: the aspect-ratio selector now lives in the
- * 'adjust' step, reached via "Next" from 'corners' (design: two-step editor).
+ * The filter/rotate review step is reached via "Next" from 'corners'.
  * "Next" is only enabled once a warp has already landed (mirrors the OLD
  * single-step "Confirm" gate), which `flushInitialMountWarp` above already
  * guarantees before this is called.
  */
 function goToAdjustStep(): void {
   fireEvent.click(screen.getByTestId('corner-editor-next'));
+}
+
+function dragCorner(pointerId: number, clientX: number, clientY: number): void {
+  const handle = screen.getByTestId('corner-handle-0');
+  handle.setPointerCapture = () => {};
+  handle.releasePointerCapture = () => {};
+  fireEvent.pointerDown(handle, { pointerId, clientX: 0, clientY: 0 });
+  fireEvent.pointerMove(handle, { pointerId, clientX, clientY });
+  fireEvent.pointerUp(handle, { pointerId, clientX, clientY });
 }
 
 describe('CornerEditor warp concurrency + bitmap hygiene (C1/C2)', () => {
@@ -203,13 +211,11 @@ describe('CornerEditor warp concurrency + bitmap hygiene (C1/C2)', () => {
     );
 
     await flushInitialMountWarp();
-    goToAdjustStep();
 
-    // Fire warp A (choose "letter"), then warp B (choose "ticket") BEFORE A
-    // resolves. handleAspectChange runs runWarp because the seeded quad is
-    // convex.
-    fireEvent.click(screen.getByTestId('aspect-ratio-letter'));
-    fireEvent.click(screen.getByTestId('aspect-ratio-ticket'));
+    // Fire two corner re-warps before either returns. Geometry editing must
+    // retain the same race protections after preset controls are removed.
+    dragCorner(1, 20, 20);
+    dragCorner(2, 30, 30);
 
     await waitFor(() => expect(warpDeferreds.length).toBe(2));
 
@@ -237,6 +243,7 @@ describe('CornerEditor warp concurrency + bitmap hygiene (C1/C2)', () => {
     // B's bitmap is live in the component, NOT closed.
     expect((bitmapB as unknown as { close: ReturnType<typeof vi.fn> }).close).not.toHaveBeenCalled();
 
+    goToAdjustStep();
     // Confirming now hands B (the winner) to the caller — proof that only B
     // reached the component's live state, not A.
     fireEvent.click(screen.getByTestId('corner-editor-confirm'));
@@ -259,9 +266,8 @@ describe('CornerEditor warp concurrency + bitmap hygiene (C1/C2)', () => {
     );
 
     await flushInitialMountWarp();
-    goToAdjustStep();
 
-    fireEvent.click(screen.getByTestId('aspect-ratio-letter'));
+    dragCorner(1, 20, 20);
     await waitFor(() => expect(warpDeferreds.length).toBe(1));
 
     // Unmount (simulates the user hitting Back / the screen navigating away)
@@ -282,7 +288,7 @@ describe('CornerEditor warp concurrency + bitmap hygiene (C1/C2)', () => {
     expect(onConfirmMock).not.toHaveBeenCalled();
   });
 
-  it('preserves a manual Oficio selection on re-warp until the editor receives a new override', async () => {
+  it('preserves a manual Oficio selection and exposes no post-capture aspect presets', async () => {
     const oficio = paperSelection('oficio', 'manual');
     const initialRecipe = createInitialRecipe(CONVEX_CORNERS, 'unknown', oficio);
 
@@ -311,8 +317,9 @@ describe('CornerEditor warp concurrency + bitmap hygiene (C1/C2)', () => {
     });
 
     goToAdjustStep();
-    // The measured quad is 2800 x 3800, deliberately not 216/356. The
-    // preview must match the same fixed Legal geometry sent to the worker.
+    expect(screen.queryByTestId('aspect-ratio-selector')).toBeNull();
+    // The measured quad is 2800 x 3800, deliberately not 216/356. The preview
+    // must match the captured fixed Legal geometry sent to the worker.
     expect(screen.getByTestId('warped-preview-box').style.aspectRatio).toBe('2306 / 3800');
     fireEvent.click(screen.getByTestId('corner-editor-confirm'));
     expect(onConfirmMock).toHaveBeenCalledWith(
@@ -320,7 +327,7 @@ describe('CornerEditor warp concurrency + bitmap hygiene (C1/C2)', () => {
     );
   });
 
-  it('reclassifies non-manual confirmed A-series corners as A4 probable before warp', async () => {
+  it('keeps automatic paper evidence unchanged through a corner re-warp', async () => {
     const initialRecipe = createInitialRecipe(
       A_SERIES_CORNERS,
       'unknown',
@@ -341,7 +348,7 @@ describe('CornerEditor warp concurrency + bitmap hygiene (C1/C2)', () => {
 
     await waitFor(() => expect(warpMock).toHaveBeenCalledTimes(1));
     const firstWarpArgs = warpMock.mock.calls[0] as unknown as [unknown, Quad, unknown];
-    expect(firstWarpArgs[2]).toEqual({ mode: 'fixed', portraitRatio: 210 / 297 });
+    expect(firstWarpArgs[2]).toEqual({ mode: 'measured' });
     const initial = warpDeferreds[0];
     if (!initial) throw new Error('expected initial A-series warp');
     await act(async () => {
@@ -354,12 +361,7 @@ describe('CornerEditor warp concurrency + bitmap hygiene (C1/C2)', () => {
     expect(onConfirmMock).toHaveBeenCalledWith(
       expect.objectContaining({
         recipe: expect.objectContaining({
-          paper: expect.objectContaining({
-            id: 'a4',
-            source: 'auto',
-            confidence: 'low',
-            evidence: expect.objectContaining({ scaleInferred: false, probabilistic: true }),
-          }),
+          paper: initialRecipe.paper,
         }),
       }),
     );

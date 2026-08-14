@@ -60,10 +60,11 @@
  *    commits the page via `onConfirm` exactly as before (recipe includes
  *    whatever filter was selected here — Fase 2.1 item 3, "filter actually
  *    applies"). Secondary is "Back", which returns to `'corners'` WITHOUT
- *    discarding the in-progress recipe (aspect/rotation/flip/filter edits
- *    made so far are preserved in local state).
- * Aspect changes still re-warp via `runWarp` (unchanged `handleAspectChange`);
- * filter changes NEVER re-warp (`handleFilterChange` only rewrites local
+ *    discarding the in-progress recipe (rotation/flip/filter edits made so
+ *    far are preserved in local state).
+ * Corner changes re-warp via `runWarp`; the captured paper selection stays
+ * immutable, and no post-capture aspect presets are offered. Filter changes
+ * NEVER re-warp (`handleFilterChange` only rewrites local
  * recipe state) — both invariants are preserved verbatim across the step
  * split, only their presentation moved.
  *
@@ -126,10 +127,8 @@ import {
   withFilter,
 } from '@/features/scanner/lib/editRecipe';
 import { getSharedWorkerClient } from '@/features/scanner/lib/workerClient';
-import type { AspectRatioName, Quad } from '@/shared/types/geometry';
+import type { Quad } from '@/shared/types/geometry';
 import type { EditRecipe, FilterParams } from '@/shared/types/scanner';
-
-const ASPECT_RATIO_OPTIONS: readonly AspectRatioName[] = ['a4', 'letter', 'ticket', 'unknown'];
 
 export interface CornerEditorConfirmResult {
   /** Fresh, UNFILTERED warp base. Ownership transfers to the caller (`rewarpActivePage` owns closing it). */
@@ -204,12 +203,6 @@ export function CornerEditor({
   onApplyToAll,
 }: CornerEditorProps): ReactNode {
   const { t } = useTranslation();
-  const ASPECT_RATIO_LABELS: Record<AspectRatioName, string> = {
-    a4: t('editor.aspectA4'),
-    letter: t('editor.aspectLetter'),
-    ticket: t('editor.aspectTicket'),
-    unknown: t('editor.aspectOriginal'),
-  };
   // Local state replaces F1's legacy warpedImage/recipe store fields — this
   // component is a controlled component over its props; the caller
   // (ScannerScreen) decides what to do with the confirmed result.
@@ -236,10 +229,6 @@ export function CornerEditor({
   );
 
   const [corners, setCornersState] = useState<Quad>(seedCorners);
-  // This is an editor-session action, not a mirror of the deprecated persisted
-  // compatibility field. Without a fresh user choice, an existing manual
-  // PaperSelection (including Oficio) must survive a re-warp unchanged.
-  const [aspectOverride, setAspectOverride] = useState<AspectRatioName | null>(null);
   const [isWarping, setIsWarping] = useState(false);
   const [warpError, setWarpError] = useState(false);
   /** Fase 2.1 item 2: internal two-step flow, presentation-only (see module doc comment). */
@@ -298,11 +287,9 @@ export function CornerEditor({
   );
 
   const valid = isConvex(corners);
-  const inferred = useMemo(() => inferAspectRatio(corners), [corners]);
-  const effectiveAspect = aspectOverride ?? inferred.name;
 
   const runWarp = useCallback(
-    async (finalCorners: Quad, aspectOverrideArg?: AspectRatioName) => {
+    async (finalCorners: Quad) => {
       // Fix H1: convexity is a HARD invariant of runWarp, not just a call-site
       // check. Even if a caller forgets to gate on `isConvex` (or gates on a
       // stale closure value), runWarp itself must never warp a non-convex
@@ -324,15 +311,11 @@ export function CornerEditor({
         if (!sourceImageData) {
           throw new Error('CornerEditor: source ImageData unavailable for warp.');
         }
-        // `aspectOverrideArg` lets callers that just changed the override in
-        // the SAME event handler (handleAspectChange) pass the fresh value
-        // directly, avoiding a stale read of `aspectOverride` from this
-        // callback's closure before React commits the state update.
-        const aspectForWarp = aspectOverrideArg ?? aspectOverride ?? inferAspectRatio(finalCorners).name;
-        const paperForWarp =
-          aspectOverrideArg !== undefined || aspectOverride !== null
-            ? paperSelection(aspectForWarp === 'unknown' ? 'original' : aspectForWarp, 'manual')
-            : initialRecipe?.paper ?? paperSelection('original', 'auto', 'none');
+        const aspectForWarp = inferAspectRatio(finalCorners).name;
+        // Captured paper provenance is immutable after shutter/import. Corner
+        // editing changes geometry only; it must never replace the recipe's
+        // paper selection or expose a later format preset.
+        const paperForWarp = initialRecipe?.paper ?? paperSelection('original', 'auto', 'none');
         const workerClient = getSharedWorkerClient();
         // Fix H2: clone a fresh buffer per warp for the transfer. The worker
         // transfers (detaches) the buffer it receives, so transferring the
@@ -408,7 +391,7 @@ export function CornerEditor({
         if (isLatest()) setIsWarping(false);
       }
     },
-    [aspectOverride, sourceImageData, initialRecipe, applyWarpedImage],
+    [sourceImageData, initialRecipe, applyWarpedImage],
   );
 
   // Run one warp as soon as the editor opens so the user immediately sees the
@@ -482,16 +465,6 @@ export function CornerEditor({
     onCancel();
   }, [warpedImage, onCancel]);
 
-  const handleAspectChange = useCallback(
-    (name: AspectRatioName) => {
-      setAspectOverride(name);
-      if (valid) {
-        void runWarp(corners, name);
-      }
-    },
-    [corners, runWarp, valid],
-  );
-
   const handleRotate = useCallback(() => {
     setRecipeState((prev) => (prev ? rotateRecipe(prev) : prev));
   }, []);
@@ -553,21 +526,6 @@ export function CornerEditor({
 
       {step === 'adjust' && warpedImage && recipe && (
         <>
-          <div className="flex w-full items-center justify-center gap-2" data-testid="aspect-ratio-selector">
-            {ASPECT_RATIO_OPTIONS.map((name) => (
-              <Button
-                key={name}
-                type="button"
-                variant={effectiveAspect === name ? 'primary' : 'secondary'}
-                onClick={() => handleAspectChange(name)}
-                aria-pressed={effectiveAspect === name}
-                data-testid={`aspect-ratio-${name}`}
-              >
-                {ASPECT_RATIO_LABELS[name]}
-              </Button>
-            ))}
-          </div>
-
           <div className="flex w-full flex-col items-center gap-3" data-testid="warp-preview">
             <div className="w-full max-w-xs overflow-hidden rounded-xl bg-surface">
               <WarpedPreview

@@ -42,7 +42,6 @@ import { makeThumbnail } from '@/features/scanner/lib/pageResources';
 import { getSharedWorkerClient } from '@/features/scanner/lib/workerClient';
 import type { FilteredResult, FilterVariant, ImageDataLike } from '@/features/scanner/worker/messages';
 import type { FilterParams, FilterPreset } from '@/shared/types/scanner';
-import type { PaperSelection } from '@/shared/types/paper';
 
 const CSS_PRESETS: readonly FilterPreset[] = ['original', 'enhanced', 'grayscale'];
 const ADAPTIVE_PRESETS: readonly FilterPreset[] = ['bw', 'bw-high-contrast', 'eco'];
@@ -64,10 +63,6 @@ export interface FilterPanelProps {
   readonly onChange: (filter: FilterParams) => void;
   /** Document-wide bulk rewrite (D7/ADR-011). Omit to hide the "Apply to all" action entirely. */
   readonly onApplyToAll?: (filter: FilterParams) => void;
-  /** @deprecated Paper format is selected before capture and never edited in review. */
-  readonly paper?: PaperSelection;
-  /** @deprecated Paper format is selected before capture and never edited in review. */
-  readonly onPaperChange?: (paper: PaperSelection) => void;
   /**
    * `'grid'` (default): the full editor panel — 3-column preset grid +
    * brightness/contrast/sharpness sliders + optional "Apply to all"

@@ -32,7 +32,7 @@
  * the screen stays put — capture failures must never strand the user.
  */
 
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Flashlight, FlashlightOff } from 'lucide-react';
 import { BackButton, Button, useToast } from '@/shared/ui';
@@ -153,6 +153,7 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [paperAlias, setPaperAlias] = useState<PaperFormatAlias>('a4');
+  const paperOptionRefs = useRef<Partial<Record<PaperFormatAlias, HTMLButtonElement | null>>>({});
 
   const paperLabels: Record<PaperFormatAlias, string> = {
     a4: t('capture.paperA4A3'),
@@ -164,6 +165,37 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
   };
   const selectedPaperFormat = getPaperFormat(paperAlias);
   const selectedPaperLabel = paperLabels[paperAlias];
+  const handlePaperPickerKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLButtonElement>) => {
+      const currentIndex = CAPTURE_PAPER_FORMAT_OPTIONS.indexOf(paperAlias);
+      let nextIndex: number | null = null;
+      switch (event.key) {
+        case 'ArrowLeft':
+        case 'ArrowUp':
+          nextIndex = (currentIndex - 1 + CAPTURE_PAPER_FORMAT_OPTIONS.length) % CAPTURE_PAPER_FORMAT_OPTIONS.length;
+          break;
+        case 'ArrowRight':
+        case 'ArrowDown':
+          nextIndex = (currentIndex + 1) % CAPTURE_PAPER_FORMAT_OPTIONS.length;
+          break;
+        case 'Home':
+          nextIndex = 0;
+          break;
+        case 'End':
+          nextIndex = CAPTURE_PAPER_FORMAT_OPTIONS.length - 1;
+          break;
+        default:
+          return;
+      }
+
+      event.preventDefault();
+      const nextAlias = CAPTURE_PAPER_FORMAT_OPTIONS[nextIndex];
+      if (!nextAlias) return;
+      setPaperAlias(nextAlias);
+      paperOptionRefs.current[nextAlias]?.focus();
+    },
+    [paperAlias],
+  );
   const paperPicker = (
     <div className="flex min-w-0 flex-col gap-2" data-testid="capture-paper-format">
       <span className="text-sm font-semibold text-white">{t('capture.paperFormat')}</span>
@@ -180,7 +212,12 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
               type="button"
               role="radio"
               aria-checked={selected}
+              tabIndex={selected ? 0 : -1}
+              ref={(element) => {
+                paperOptionRefs.current[alias] = element;
+              }}
               onClick={() => setPaperAlias(alias)}
+              onKeyDown={handlePaperPickerKeyDown}
               className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light focus-visible:ring-offset-2 focus-visible:ring-offset-black ${
                 selected ? 'bg-primary text-[#0f0e0c]' : 'bg-black/45 text-white hover:bg-black/65'
               }`}

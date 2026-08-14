@@ -170,6 +170,31 @@ describe('CaptureScreen (Fase 2.3, capture-ux-redesign.md, Unit 3)', () => {
     });
   });
 
+  it('moves the roving radio selection and focus with the paper-picker keyboard shortcuts', () => {
+    renderCaptureScreen();
+
+    const a4 = screen.getByRole('radio', { name: 'A4 / A3' });
+    const oficio = screen.getByRole('radio', { name: 'Oficio' });
+    const freeForm = screen.getByRole('radio', { name: 'Free form' });
+    expect(a4).toHaveAttribute('tabindex', '0');
+    expect(oficio).toHaveAttribute('tabindex', '-1');
+
+    a4.focus();
+    fireEvent.keyDown(a4, { key: 'ArrowRight' });
+    expect(oficio).toHaveFocus();
+    expect(oficio).toHaveAttribute('aria-checked', 'true');
+    expect(oficio).toHaveAttribute('tabindex', '0');
+
+    fireEvent.keyDown(oficio, { key: 'End' });
+    expect(freeForm).toHaveFocus();
+    expect(freeForm).toHaveAttribute('aria-checked', 'true');
+    expect(screen.queryByTestId('capture-paper-guide')).toBeNull();
+
+    fireEvent.keyDown(freeForm, { key: 'Home' });
+    expect(a4).toHaveFocus();
+    expect(a4).toHaveAttribute('aria-checked', 'true');
+  });
+
   it('hides the live guide for free form and snapshots that choice for imports', async () => {
     useScannerStore.setState({ permission: 'denied' });
     const decodedBitmap = fakeBitmap(1200, 900);

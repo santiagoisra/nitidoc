@@ -6,8 +6,6 @@ import { FILTER } from '@/features/scanner/lib/filterConstants';
 import type { ApplyFilterResponse } from '@/features/scanner/worker/messages';
 import type { FilterParams } from '@/shared/types/scanner';
 import { NEUTRAL_FILTER } from '@/shared/types/scanner';
-import { paperSelection } from '@/features/scanner/lib/paperFormats';
-import type { PaperSelection } from '@/shared/types/paper';
 
 /**
  * Group 4 / PR7 unit tests for `FilterPanel` (design section 3.4/5.4, spec
@@ -90,18 +88,13 @@ function Harness({
   onChangeSpy,
   onApplyToAllSpy,
   initialFilter = NEUTRAL_FILTER,
-  initialPaper,
-  onPaperChangeSpy,
 }: {
   readonly baseBitmap: ImageBitmap;
   readonly onChangeSpy: (filter: FilterParams) => void;
   readonly onApplyToAllSpy?: (filter: FilterParams) => void;
   readonly initialFilter?: FilterParams;
-  readonly initialPaper?: PaperSelection;
-  readonly onPaperChangeSpy?: (paper: PaperSelection) => void;
 }): ReactNode {
   const [filter, setFilter] = useState<FilterParams>(initialFilter);
-  const [paper, setPaper] = useState<PaperSelection | undefined>(initialPaper);
   return (
     <FilterPanel
       baseBitmap={baseBitmap}
@@ -111,15 +104,6 @@ function Harness({
         onChangeSpy(next);
       }}
       onApplyToAll={onApplyToAllSpy}
-      paper={paper}
-      onPaperChange={
-        onPaperChangeSpy
-          ? (next) => {
-              setPaper(next);
-              onPaperChangeSpy(next);
-            }
-          : undefined
-      }
     />
   );
 }
@@ -245,62 +229,14 @@ describe('FilterPanel (Group 4 / PR7, design section 3.4/5.4)', () => {
     expect(screen.queryByTestId('apply-to-all-button')).toBeNull();
   });
 
-  it('shows detected confidence, persists a manual Oficio choice, and clears it back to automatic detection', async () => {
-    const onChangeSpy = vi.fn();
-    const onPaperChangeSpy = vi.fn();
-    render(
-      <Harness
-        baseBitmap={makeBitmap()}
-        onChangeSpy={onChangeSpy}
-        onPaperChangeSpy={onPaperChangeSpy}
-        initialPaper={paperSelection('letter', 'auto', 'high', 215.9 / 279.4)}
-      />,
-    );
+  it('keeps paper detection and override controls out of the filter panel', async () => {
+    render(<Harness baseBitmap={makeBitmap()} onChangeSpy={vi.fn()} />);
 
-    await waitFor(() => expect(screen.getByTestId('paper-detection')).toHaveTextContent('Detected: Letter (high confidence)'));
+    await waitFor(() => expect(makeThumbnailMock).toHaveBeenCalledTimes(1));
 
-    fireEvent.change(screen.getByTestId('paper-format-select'), { target: { value: 'oficio' } });
-
-    expect(onPaperChangeSpy).toHaveBeenLastCalledWith(
-      expect.objectContaining({ id: 'legal', alias: 'oficio', source: 'manual', confidence: 'none' }),
-    );
-    expect(screen.getByTestId('paper-manual-selection')).toHaveTextContent('Manual: Oficio');
-    expect(screen.getByTestId('paper-format-select')).toHaveValue('oficio');
-
-    fireEvent.click(screen.getByTestId('paper-clear-auto'));
-
-    expect(onPaperChangeSpy).toHaveBeenLastCalledWith(
-      expect.objectContaining({ id: 'letter', alias: 'letter', source: 'auto', confidence: 'high' }),
-    );
-    expect(screen.queryByTestId('paper-manual-selection')).toBeNull();
-    expect(screen.getByTestId('paper-format-select')).toHaveValue('letter');
-  });
-
-  it('labels automatic A-series evidence as A4 probable in English', async () => {
-    render(
-      <Harness
-        baseBitmap={makeBitmap()}
-        onChangeSpy={vi.fn()}
-        onPaperChangeSpy={vi.fn()}
-        initialPaper={paperSelection('a4', 'auto', 'low', 210 / 297)}
-      />,
-    );
-
-    await waitFor(() => expect(screen.getByTestId('paper-detection')).toHaveTextContent('Detected: A4 probable (low confidence)'));
-  });
-
-  it('keeps a persisted canonical Legal alias selectable instead of leaving the control unmatched', async () => {
-    const onChangeSpy = vi.fn();
-    render(
-      <Harness
-        baseBitmap={makeBitmap()}
-        onChangeSpy={onChangeSpy}
-        onPaperChangeSpy={vi.fn()}
-        initialPaper={paperSelection('legal', 'auto', 'high', 216 / 356)}
-      />,
-    );
-
-    await waitFor(() => expect(screen.getByTestId('paper-format-select')).toHaveValue('legal'));
-    expect(screen.getByRole('option', { name: 'Legal' })).toHaveValue('legal');
+    expect(screen.queryByTestId('paper-selection-controls')).toBeNull();
+    expect(screen.queryByTestId('paper-detection')).toBeNull();
+    expect(screen.queryByTestId('paper-format-select')).toBeNull();
+    expect(screen.queryByTestId('paper-clear-auto')).toBeNull();
   });
 });
