@@ -22,6 +22,7 @@ function Harness(): ReactNode {
       <span data-testid="locale">{locale}</span>
       <span data-testid="scan-complete-plural">{t('scanner.scanComplete', { n: 2 })}</span>
       <span data-testid="scan-complete-singular">{t('scanner.scanComplete', { n: 1 })}</span>
+      <span data-testid="welcome-open-camera">{t('welcome.openCamera')}</span>
       <span data-testid="a4-probable">{t('paper.a4Probable')}</span>
       <button type="button" onClick={() => setLocale('en')} data-testid="set-en">
         en
@@ -73,6 +74,7 @@ describe('i18n (Fase 2.1 punch-list item 5, Spanish-default with English toggle)
     );
     expect(screen.getByTestId('locale').textContent).toBe('es');
     expect(screen.getByTestId('scan-complete-plural').textContent).toBe('Escaneo completo — 2 páginas.');
+    expect(screen.getByTestId('welcome-open-camera').textContent).toBe('Escanear');
     expect(screen.getByTestId('a4-probable').textContent).toBe('A4 probable');
   });
 
