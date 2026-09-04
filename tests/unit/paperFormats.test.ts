@@ -15,7 +15,8 @@ describe('paper format catalog', () => {
     expect(CAPTURE_PAPER_FORMAT_OPTIONS).toEqual(['a4', 'oficio', 'letter', 'legal', 'ticket', 'original']);
     expect(capturePaperSelection('a4')).toMatchObject({ alias: 'a4', source: 'manual' });
     expect(resolveWarpGeometry(capturePaperSelection('a4'))).toEqual({ mode: 'fixed', portraitRatio: 210 / 297 });
-    expect(resolveWarpGeometry(capturePaperSelection('ticket'))).toEqual({ mode: 'fixed', portraitRatio: 53.98 / 85.6 });
+    expect(getPaperFormat('ticket')).toMatchObject({ nominalMm: { width: 85.6, height: 53.98 }, portraitRatio: 85.6 / 53.98 });
+    expect(resolveWarpGeometry(capturePaperSelection('ticket'))).toEqual({ mode: 'fixed', portraitRatio: 85.6 / 53.98 });
     expect(resolveWarpGeometry(capturePaperSelection('original'))).toEqual({ mode: 'measured' });
   });
 

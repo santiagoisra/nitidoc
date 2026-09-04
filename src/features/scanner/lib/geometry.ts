@@ -328,12 +328,14 @@ export function outputSize(
     ratio = wMeasured / (hMeasured || Number.EPSILON);
   }
 
+  const minorToMajorRatio = ratio > 1 ? 1 / ratio : ratio;
+
   if (portrait) {
     const outH = Math.round(hMeasured);
-    return { outW: Math.round(outH * ratio), outH };
+    return { outW: Math.round(outH * minorToMajorRatio), outH };
   }
   const outW = Math.round(wMeasured);
-  return { outW, outH: Math.round(outW * ratio) };
+  return { outW, outH: Math.round(outW * minorToMajorRatio) };
 }
 
 /**

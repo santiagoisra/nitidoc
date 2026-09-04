@@ -51,6 +51,8 @@ vi.mock('@/features/scanner/components/CameraView', () => ({
 }));
 
 import { CaptureScreen } from '@/features/scanner/components/CaptureScreen';
+import { PaperFormatPicker } from '@/features/scanner/components/PaperFormatPicker';
+import { LocaleProvider } from '@/shared/i18n';
 import { ToastHost } from '@/shared/ui';
 import { useScannerStore, scannerStoreInitialState } from '@/features/scanner/store/scannerStore';
 import { FILTER } from '@/features/scanner/lib/filterConstants';
@@ -186,6 +188,36 @@ describe('CaptureScreen (Fase 2.3, capture-ux-redesign.md, Unit 3)', () => {
         expect.objectContaining({ paper: expect.objectContaining({ alias: 'legal', source: 'manual' }) }),
       );
     });
+  });
+
+  it('keeps the Ticket guide landscape and reveals later paper choices through a horizontal scroll row', () => {
+    renderCaptureScreen();
+
+    const picker = screen.getByRole('radiogroup', { name: 'Paper size' });
+    expect(picker).toHaveClass('flex', 'min-w-0', 'gap-2', 'overflow-x-auto', 'pb-1');
+    expect(screen.getAllByRole('radio')).toHaveLength(6);
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Card / ID' }));
+
+    expect(screen.getByRole('radio', { name: 'Card / ID' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('capture-paper-guide').closest('svg')).toHaveAttribute('viewBox', '0 0 85.6 53.98');
+  });
+
+  it('keeps the longest Spanish paper labels as intrinsic-width tappable pills in the horizontal row at a 320px viewport', () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 320 });
+    window.localStorage.setItem('nitidoc.locale', 'es');
+    render(
+      <LocaleProvider>
+        <div style={{ width: '288px' }}>
+          <PaperFormatPicker value="a4" onChange={vi.fn()} />
+        </div>
+      </LocaleProvider>,
+    );
+
+    const picker = screen.getByRole('radiogroup', { name: 'Tamaño de la hoja' });
+    expect(picker).toHaveClass('flex', 'min-w-0', 'gap-2', 'overflow-x-auto', 'pb-1');
+    expect(screen.getByRole('radio', { name: 'Tarjeta / DNI' })).toHaveClass('shrink-0', 'px-4');
+    expect(screen.getByRole('radio', { name: 'Forma libre' })).toHaveClass('shrink-0', 'px-4');
   });
 
   it('persists the exact source quad represented by the measured camera guide at shutter time', async () => {

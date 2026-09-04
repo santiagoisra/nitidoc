@@ -188,10 +188,10 @@ describe('exportPagesToPdf', () => {
     expectMm(mediaBoxesInPoints(deliveredPdf())[0]!, 210, 297);
   });
 
-  it('writes the manual Tarjeta/DNI MediaBox from its ID-1 catalog millimeters', async () => {
-    decodeBlobToBitmapMock.mockResolvedValue(makeBitmap(3024, 4032));
+  it('writes a manually selected landscape Tarjeta/DNI as a landscape ID-1 MediaBox', async () => {
+    decodeBlobToBitmapMock.mockResolvedValue(makeBitmap(4032, 3024));
     await exportPagesToPdf([makePage('ticket', 0, makeRecipe({ paper: paperSelection('ticket', 'manual') }))]);
-    expectMm(mediaBoxesInPoints(deliveredPdf())[0]!, 53.98, 85.6);
+    expectMm(mediaBoxesInPoints(deliveredPdf())[0]!, 85.6, 53.98);
   });
 
   it('keeps automatic Ticket exports on raster MediaBox geometry', async () => {

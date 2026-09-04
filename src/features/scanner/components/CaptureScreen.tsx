@@ -519,13 +519,16 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
         )}
       </div>
 
-      <div className="pointer-events-none relative z-10 min-h-0 min-w-0 overflow-hidden px-4" data-testid="capture-guide-layout">
+      <div className="pointer-events-none relative z-10 min-h-0 min-w-0 overflow-hidden px-4 [container-type:size]" data-testid="capture-guide-layout">
         {selectedPaperFormat.portraitRatio && selectedPaperFormat.nominalMm && (
           <div
             ref={guideRef}
             data-testid="capture-paper-guide-frame"
-            className="absolute left-1/2 top-1/2 h-auto w-[calc(100%-2rem)] max-h-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2"
-            style={{ aspectRatio: selectedPaperFormat.portraitRatio }}
+            className="absolute left-1/2 top-1/2 h-auto -translate-x-1/2 -translate-y-1/2"
+            style={{
+              aspectRatio: selectedPaperFormat.portraitRatio,
+              width: `min(calc(100cqw - 2rem), calc((100cqh - 2rem) * ${selectedPaperFormat.portraitRatio}))`,
+            }}
           >
             {/* A single guide box is the geometry source for both its visible border and the outside dimmer.
                 The oversized shadow is clipped by the guide row, leaving this rectangle fully transparent. */}
@@ -550,7 +553,7 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
       </div>
 
       <div
-        className="z-10 min-w-0 bg-gradient-to-t from-[rgba(10,8,6,0.8)] to-transparent p-4"
+        className="z-10 min-w-0 bg-[rgba(10,8,6,0.95)] p-4"
         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}
       >
         <div className="mb-3">{paperPicker}</div>

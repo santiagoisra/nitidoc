@@ -214,9 +214,9 @@ function hasAuthoritativeNominalSize(page: DocumentPage): boolean {
 
 /**
  * Resolves the nominal MediaBox independently from camera pixels for known
- * authoritative paper formats. Probabilistic recommendations, Ticket, and
- * Original retain the pixel-based fallback because they have no trustworthy
- * nominal physical dimensions.
+ * authoritative paper formats. Probabilistic recommendations and Original
+ * retain the pixel-based fallback because they have no trustworthy nominal
+ * physical dimensions.
  */
 function resolvePdfPageGeometry(page: DocumentPage, rendered: RenderedPage): PdfPageGeometry {
   const nominalMm = hasAuthoritativeNominalSize(page)
@@ -226,15 +226,17 @@ function resolvePdfPageGeometry(page: DocumentPage, rendered: RenderedPage): Pdf
   // already includes the recipe rotation, so it is the final authoritative
   // orientation for both known nominal pages and their contained image.
   const useLandscape = rendered.width >= rendered.height;
+  const nominalIsLandscape = nominalMm != null && nominalMm.width >= nominalMm.height;
+  const matchesNominalOrientation = nominalMm != null && useLandscape === nominalIsLandscape;
   const width = nominalMm
-    ? useLandscape
-      ? nominalMm.height
-      : nominalMm.width
-    : rendered.width * LEGACY_MM_PER_PIXEL;
-  const height = nominalMm
-    ? useLandscape
+    ? matchesNominalOrientation
       ? nominalMm.width
       : nominalMm.height
+    : rendered.width * LEGACY_MM_PER_PIXEL;
+  const height = nominalMm
+    ? matchesNominalOrientation
+      ? nominalMm.height
+      : nominalMm.width
     : rendered.height * LEGACY_MM_PER_PIXEL;
   return { width, height, orientation: width >= height ? 'l' : 'p' };
 }

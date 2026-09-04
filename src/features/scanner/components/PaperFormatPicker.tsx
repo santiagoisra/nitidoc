@@ -66,7 +66,7 @@ export function PaperFormatPicker({ value, onChange, testId = 'capture-paper-for
               onClick={() => onChange(alias)}
               onKeyDown={handleKeyDown}
               className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-light focus-visible:ring-offset-2 focus-visible:ring-offset-black ${
-                selected ? 'bg-primary text-[#0f0e0c]' : 'bg-black/45 text-white hover:bg-black/65'
+                selected ? 'bg-primary text-[#0f0e0c]' : 'bg-[rgba(10,8,6,0.95)] text-white hover:bg-[rgba(10,8,6,0.98)]'
               }`}
             >
               {labels[alias]}

@@ -10,7 +10,7 @@ import type {
 const A4_RATIO = 210 / 297;
 const LETTER_RATIO = 215.9 / 279.4;
 const LEGAL_RATIO = 216 / 356;
-const TICKET_RATIO = 53.98 / 85.6;
+const TICKET_RATIO = 85.6 / 53.98;
 
 export const CAPTURE_PAPER_FORMAT_OPTIONS = ['a4', 'oficio', 'letter', 'legal', 'ticket', 'original'] as const;
 
@@ -18,7 +18,7 @@ export const PAPER_FORMATS: readonly PaperFormat[] = [
   { id: 'a4', aliases: ['a4'], label: 'A4', nominalMm: { width: 210, height: 297 }, portraitRatio: A4_RATIO },
   { id: 'letter', aliases: ['letter'], label: 'Letter', nominalMm: { width: 215.9, height: 279.4 }, portraitRatio: LETTER_RATIO },
   { id: 'legal', aliases: ['legal', 'oficio'], label: 'Legal', nominalMm: { width: 216, height: 356 }, portraitRatio: LEGAL_RATIO },
-  { id: 'ticket', aliases: ['ticket'], label: 'Ticket', nominalMm: { width: 53.98, height: 85.6 }, portraitRatio: TICKET_RATIO },
+  { id: 'ticket', aliases: ['ticket'], label: 'Ticket', nominalMm: { width: 85.6, height: 53.98 }, portraitRatio: TICKET_RATIO },
   { id: 'original', aliases: ['original'], label: 'Original' },
 ] as const;
 

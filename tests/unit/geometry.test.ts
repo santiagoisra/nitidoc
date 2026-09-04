@@ -529,6 +529,20 @@ describe('outputSize (bug M1 review)', () => {
     expect(outW / outH).toBeCloseTo(1 / LETTER_RATIO, 2);
   });
 
+  it('keeps a landscape fixed-ratio Ticket guide landscape in its warp output', () => {
+    const q = quad([
+      { x: 0, y: 0 },
+      { x: 856, y: 0 },
+      { x: 856, y: 540 },
+      { x: 0, y: 540 },
+    ]);
+
+    const { outW, outH } = outputSize(q, { mode: 'fixed', portraitRatio: 85.6 / 53.98 });
+
+    expect(outW).toBeGreaterThan(outH);
+    expect(outW / outH).toBeCloseTo(85.6 / 53.98, 2);
+  });
+
   it('preserves measured proportions as-is for "unknown" aspect', () => {
     const q = quad([
       { x: 0, y: 0 },
