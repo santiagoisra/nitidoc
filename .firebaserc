@@ -1,5 +1,12 @@
 {
   "projects": {
     "default": "nitidoc"
+  },
+  "targets": {
+    "nitidoc": {
+      "hosting": {
+        "nitidoc": ["nitidoc"]
+      }
+    }
   }
 }

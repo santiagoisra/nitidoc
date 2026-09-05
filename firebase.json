@@ -1,8 +1,12 @@
 {
   "hosting": [
     {
-      "site": "nitidoc",
+      "target": "nitidoc",
       "public": "dist",
+      "predeploy": [
+        "npm test -- tests/unit/i18n.test.tsx tests/unit/welcomeSourceLink.test.tsx",
+        "npm run build"
+      ],
       "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
       "rewrites": [{ "source": "**", "destination": "/index.html" }]
     },

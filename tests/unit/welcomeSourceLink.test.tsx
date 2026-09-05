@@ -69,4 +69,15 @@ describe('WelcomeScreen — AGPL source offer', () => {
     );
     expect(screen.getByTestId('welcome-source-link')).toHaveTextContent('Código abierto · AGPL-3.0');
   });
+
+  it('renders the Spanish scan CTA label', () => {
+    window.localStorage.setItem('nitidoc.locale', 'es');
+    render(
+      <LocaleProvider>
+        <WelcomeScreen onStart={noop} onImportFile={noopImport} />
+      </LocaleProvider>,
+    );
+
+    expect(screen.getByTestId('open-scanner')).toHaveTextContent('Escanear');
+  });
 });
