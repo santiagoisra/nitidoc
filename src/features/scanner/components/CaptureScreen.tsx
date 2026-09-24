@@ -355,7 +355,7 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
   }, [imageCaptureSupported, isAtCap, materializeRawCapture, paperAlias, setPhase, showToast, t]);
 
   const handleImportAnother = useCallback(
-    async (file: File) => {
+    async (files: readonly File[]) => {
       if (isAtCap) {
         setImportError(t('common.documentLimitReached', { cap: FILTER.PAGE_CAP }));
         return;
@@ -363,16 +363,26 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
       setImportError(null);
       setImporting(true);
       try {
-        const decoded = await decodeImportedFile(file);
-        await materializeRawCapture({
-          id: randomId(),
-          originalBitmap: decoded.bitmap,
-          originalWidth: decoded.width,
-          originalHeight: decoded.height,
-          paper: capturePaperSelection(paperAlias),
-        });
-      } catch (error) {
-        setImportError(error instanceof Error ? error.message : t('scanner.couldNotReadImage'));
+        // One file at a time so only one full-res bitmap is alive at once. A
+        // file that fails to decode is reported but does not stop the rest.
+        for (const file of files) {
+          try {
+            const decoded = await decodeImportedFile(file);
+            const { status } = await materializeRawCapture({
+              id: randomId(),
+              originalBitmap: decoded.bitmap,
+              originalWidth: decoded.width,
+              originalHeight: decoded.height,
+              paper: capturePaperSelection(paperAlias),
+            });
+            if (status === 'blocked-cap') {
+              setImportError(t('common.documentLimitReached', { cap: FILTER.PAGE_CAP }));
+              break;
+            }
+          } catch (error) {
+            setImportError(error instanceof Error ? error.message : t('scanner.couldNotReadImage'));
+          }
+        }
       } finally {
         setImporting(false);
       }
@@ -416,7 +426,7 @@ export function CaptureScreen({ openCamera, switchCamera, setTorch, onBack }: Ca
 
         <ImportFallback
           reason={permission === 'denied' ? 'permission-denied' : 'no-camera'}
-          onFileSelected={(file) => void handleImportAnother(file)}
+          onFilesSelected={(files) => void handleImportAnother(files)}
           errorMessage={importError}
           busy={importing}
         />

@@ -98,14 +98,13 @@ test.describe('Phase 1 acceptance: import fallback -> batch process -> adjust (t
       await expect(fallback).toBeVisible({ timeout: 10_000 });
       await expect(page.getByTestId('permission-denied-instructions')).toBeVisible();
 
-      // Task 6.3.3 negative-behavior contract, verified inline here: the
-      // fallback's file input has neither `multiple` nor any drag&drop
-      // wiring — checked directly on the DOM element this test is about to
+      // The fallback's file input is multi-select (several gallery images in
+      // one go) — checked directly on the DOM element this test is about to
       // drive, not just asserted in isolation elsewhere.
       const input = page.getByTestId('import-fallback-input');
       await expect(input).toHaveAttribute('type', 'file');
       const hasMultiple = await input.evaluate((el: HTMLInputElement) => el.multiple);
-      expect(hasMultiple).toBe(false);
+      expect(hasMultiple).toBe(true);
 
       // Task 6.3.1/6.3.2: select the fixture through the real file input.
       // Deferred capture (Fase 2.3): this decodes and materializes a
