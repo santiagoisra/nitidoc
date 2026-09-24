@@ -628,6 +628,27 @@ describe('CaptureScreen (Fase 2.3, capture-ux-redesign.md, Unit 3)', () => {
       expect(screen.queryByTestId('corner-editor')).toBeNull();
     });
 
+    it('"Import another" accepts several images at once and materializes each one', async () => {
+      useScannerStore.setState({ permission: 'denied' });
+      decodeImportedFileMock.mockImplementation(async () => ({ bitmap: fakeBitmap(1200, 900), width: 1200, height: 900 }));
+      materializeRawCaptureMock.mockResolvedValue({ status: 'added' });
+
+      renderCaptureScreen();
+      const input = screen.getByTestId('import-fallback-input') as HTMLInputElement;
+      expect(input.multiple).toBe(true);
+
+      const files = ['a.png', 'b.png', 'c.png'].map(
+        (name) => new File([new Uint8Array([1, 2, 3])], name, { type: 'image/png' }),
+      );
+      await act(async () => {
+        fireEvent.change(input, { target: { files } });
+        for (let i = 0; i < 16; i += 1) await Promise.resolve();
+      });
+
+      expect(decodeImportedFileMock).toHaveBeenCalledTimes(3);
+      expect(materializeRawCaptureMock).toHaveBeenCalledTimes(3);
+    });
+
     it('shows accumulated raw captures + "Siguiente" even without a camera', () => {
       useScannerStore.setState({ permission: 'denied', rawCaptures: [fakeRaw('r1', 0)] });
       renderCaptureScreen();

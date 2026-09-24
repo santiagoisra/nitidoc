@@ -204,20 +204,34 @@ export function ScannerScreen({ onOpenHistory }: ScannerScreenProps = {}): React
    * the welcome screen this needed a second `setStarted(true)` kept carefully
    * in the right order; deriving the screen from `phase` alone removes that
    * whole class of ordering bug.)
-   * Rejects on decode/materialize failure so `WelcomeScreen` can surface the
-   * error inline and stay put.
+   * Several files are materialized one at a time (only one full-res bitmap is
+   * alive at once) and stop early at the page cap. A file that fails to decode
+   * is skipped as long as another one succeeded; only when NONE could be
+   * imported does this reject, so `WelcomeScreen` can surface the error inline
+   * and stay put.
    */
   const handleImportFromWelcome = useCallback(
-    async (file: File) => {
-      const decoded = await decodeImportedFile(file);
-      await materializeRawCapture({
-        id: randomId(),
-        originalBitmap: decoded.bitmap,
-        originalWidth: decoded.width,
-        originalHeight: decoded.height,
-        paper: capturePaperSelection('original'),
-      });
-      setPhase('processing');
+    async (files: readonly File[]) => {
+      let added = 0;
+      let firstError: unknown = null;
+      for (const file of files) {
+        try {
+          const decoded = await decodeImportedFile(file);
+          const { status } = await materializeRawCapture({
+            id: randomId(),
+            originalBitmap: decoded.bitmap,
+            originalWidth: decoded.width,
+            originalHeight: decoded.height,
+            paper: capturePaperSelection('original'),
+          });
+          if (status === 'blocked-cap') break;
+          added += 1;
+        } catch (error) {
+          firstError ??= error;
+        }
+      }
+      if (added === 0 && firstError !== null) throw firstError;
+      if (added > 0) setPhase('processing');
     },
     [materializeRawCapture, setPhase],
   );

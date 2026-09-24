@@ -4,10 +4,10 @@
  * "Permiso denegado"; scanner spec "Fallback de import de imagen (desktop
  * sin camara)" and "Permiso de camara denegado").
  *
- * Deliberately a single `<input type="file" accept="image/*">` with NO
- * `multiple` attribute and NO drag&drop handlers (scanner spec "Import de
- * imagen no ofrece funcionalidad fuera de alcance" — task 6.3.3's negative
- * behavior contract). Browser-specific unblock instructions (6.1.1) are
+ * A single multi-select `<input type="file" accept="image/*" multiple>` so
+ * several gallery images can be imported in one go, and still NO drag&drop
+ * handlers (scanner spec "Import de imagen no ofrece funcionalidad fuera de
+ * alcance" — task 6.3.3's negative behavior contract). Browser-specific unblock instructions (6.1.1) are
  * shown only in the `reason === 'permission-denied'` variant; the
  * `reason === 'no-camera'` variant skips them since there is no permission
  * to re-grant.
@@ -25,7 +25,7 @@ export type ImportFallbackReason = 'permission-denied' | 'no-camera';
 
 export interface ImportFallbackProps {
   readonly reason: ImportFallbackReason;
-  readonly onFileSelected: (file: File) => void;
+  readonly onFilesSelected: (files: readonly File[]) => void;
   readonly errorMessage?: string | null;
   /**
    * LOW-2: true while the selected file is being processed (decode + optional
@@ -60,7 +60,7 @@ function detectBrowserInstructionsKey(): TranslationKey {
 
 export function ImportFallback({
   reason,
-  onFileSelected,
+  onFilesSelected,
   errorMessage,
   busy = false,
 }: ImportFallbackProps): ReactNode {
@@ -69,18 +69,15 @@ export function ImportFallback({
 
   const handleChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
-      // Task 6.3.3: only ever read files[0]. No `multiple` attribute is set
-      // on the input below, so browsers already restrict the picker to a
-      // single file, but this guard keeps the negative contract explicit
-      // even if that attribute were ever removed by mistake.
-      const file = event.target.files?.[0];
-      if (file) {
-        onFileSelected(file);
-      }
-      // Reset so re-selecting the SAME file path fires `onChange` again.
+      // Copy before resetting: clearing `value` empties the live FileList.
+      const files = Array.from(event.target.files ?? []);
+      // Reset so re-selecting the SAME files fires `onChange` again.
       event.target.value = '';
+      if (files.length > 0) {
+        onFilesSelected(files);
+      }
     },
-    [onFileSelected],
+    [onFilesSelected],
   );
 
   const handlePickFile = useCallback(() => {
@@ -143,8 +140,8 @@ export function ImportFallback({
       </p>
 
       {/*
-        Single file, no `multiple`, no drag&drop handlers anywhere on this
-        component (task 6.3.3). `sr-only` + a visible trigger Button above
+        Multi-select, but no drag&drop handlers anywhere on this component
+        (task 6.3.3). `sr-only` + a visible trigger Button above
         gives a larger, styled hit target than the native input chrome while
         keeping the input itself focusable/operable for assistive tech.
       */}
@@ -152,6 +149,7 @@ export function ImportFallback({
         ref={inputRef}
         type="file"
         accept={IMPORT_FALLBACK_ACCEPT}
+        multiple
         onChange={handleChange}
         className="sr-only"
         data-testid="import-fallback-input"
