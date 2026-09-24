@@ -37,7 +37,7 @@ describe('WelcomeScreen — AGPL source offer', () => {
     const file = new File(['image'], 'receipt.jpg', { type: 'image/jpeg' });
     fireEvent.change(screen.getByTestId('welcome-import-input'), { target: { files: [file] } });
 
-    await waitFor(() => expect(onImportFile).toHaveBeenCalledWith(file));
+    await waitFor(() => expect(onImportFile).toHaveBeenCalledWith([file]));
   });
 
   it('links to the public repository, opening safely in a new tab', () => {

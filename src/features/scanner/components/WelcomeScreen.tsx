@@ -9,10 +9,10 @@
  * scanner through it, so the id must survive this redesign (handoff section 6:
  * "Los tests E2E dependen de data-testid — no tocarlos").
  *
- * Import wiring: the file picker hands the chosen file up via `onImportFile`
- * (ScannerScreen decodes → materializes → jumps to processing). Decode/
- * materialize failures reject that promise and surface inline here without
- * leaving the welcome screen.
+ * Import wiring: the file picker (multi-select) hands the chosen files up via
+ * `onImportFile` (ScannerScreen decodes → materializes each → jumps to
+ * processing). When none of them can be imported the promise rejects and the
+ * error surfaces inline here without leaving the welcome screen.
  */
 
 import type { ChangeEvent, ReactNode } from 'react';
@@ -27,8 +27,8 @@ const SOURCE_URL = 'https://github.com/santiagoisra/nitidoc';
 export interface WelcomeScreenProps {
   /** Opens the camera directly (ScannerScreen's `handleStart`). */
   readonly onStart: () => void;
-  /** Decodes + materializes an imported image and advances to processing. Rejects on failure. */
-  readonly onImportFile: (file: File) => Promise<void>;
+  /** Decodes + materializes the imported images and advances to processing. Rejects when none could be imported. */
+  readonly onImportFile: (files: readonly File[]) => Promise<void>;
   /** Opens the scan history. Omitted by callers that do not mount the history (tests, embeds). */
   readonly onOpenHistory?: () => void;
 }
@@ -45,14 +45,15 @@ export function WelcomeScreen({ onStart, onImportFile, onOpenHistory }: WelcomeS
 
   const handleFileChange = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      // Reset so re-picking the SAME file still fires `change`.
+      // Copy before resetting: clearing `value` empties the live FileList.
+      const files = Array.from(event.target.files ?? []);
+      // Reset so re-picking the SAME files still fires `change`.
       event.target.value = '';
-      if (!file) return;
+      if (files.length === 0) return;
       setImportError(null);
       setImporting(true);
       try {
-        await onImportFile(file);
+        await onImportFile(files);
       } catch (error) {
         setImportError(error instanceof Error ? error.message : t('scanner.couldNotReadImage'));
       } finally {
@@ -112,6 +113,7 @@ export function WelcomeScreen({ onStart, onImportFile, onOpenHistory }: WelcomeS
           ref={inputRef}
           type="file"
           accept="image/*"
+          multiple
           className="sr-only"
           onChange={(event) => void handleFileChange(event)}
           data-testid="welcome-import-input"

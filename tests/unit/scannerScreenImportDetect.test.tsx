@@ -175,4 +175,31 @@ describe('ScannerScreen import fallback (no-camera variant, Fase 2.3 Unit 3): pe
       expect.objectContaining({ paper: expect.objectContaining({ alias: 'original', source: 'manual' }) }),
     );
   });
+
+  it('imports several images at once from the welcome screen and processes them as one batch', async () => {
+    render(
+      <ToastHost>
+        <ScannerScreen />
+      </ToastHost>,
+    );
+
+    const input = screen.getByTestId('welcome-import-input') as HTMLInputElement;
+    expect(input.multiple).toBe(true);
+
+    const files = ['a.png', 'b.png', 'c.png'].map(
+      (name) => new File([new Uint8Array([1, 2, 3])], name, { type: 'image/png' }),
+    );
+
+    await act(async () => {
+      fireEvent.change(input, { target: { files } });
+      for (let i = 0; i < 16; i += 1) await Promise.resolve();
+    });
+
+    expect(materializeRawCaptureMock).toHaveBeenCalledTimes(3);
+    const ids = materializeRawCaptureMock.mock.calls.map(([input]) => input.id);
+    expect(new Set(ids).size).toBe(3);
+    // Left the welcome screen for the processing batch (which, with the mocked
+    // worker here, runs straight through and settles on its own next phase).
+    expect(useScannerStore.getState().phase).not.toBe('welcome');
+  });
 });
